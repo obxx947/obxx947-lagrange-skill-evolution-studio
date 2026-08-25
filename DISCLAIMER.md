@@ -49,7 +49,7 @@
 9.2 因本软件或本声明产生的争议，应友好协商；协商不成的，向开发者所在地有管辖权的人民法院提起诉讼。
 
 ## 10. 联系方式
-- GitHub Issues：https://github.com/obxx947/lagrange-skill-evolution-studio/issues
+- GitHub Issues：https://github.com/obxx947/obxx947-lagrange-skill-evolution-studio/issues
 - 邮箱：15723032552@163.com
 
 使用即代表同意全部条款。
