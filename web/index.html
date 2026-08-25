@@ -2137,5 +2137,23 @@ try{
 <script src="voice/sherpa/sherpa-onnx-tts.js"></script>
 <script src="voice/sherpa/sherpa-onnx-vad.js"></script>
 <script src="js/voice.js"></script>
+<!-- 首次使用免责声明（只显示一次，显眼告知） -->
+<div class="modal-mask" id="disclaimerModal">
+    <div class="modal" style="max-width:560px;text-align:left;">
+        <div class="m-title">⚠️ 重要告知 · 首次使用请先阅读</div>
+        <div style="font-size:0.78rem;line-height:1.85;color:var(--t2)">
+            <p>🔒 本项目仅供<b>个人非商业学习、技术研究</b>使用，<b>严禁任何形式的商业商用</b>；所有输出内容<b>仅供游戏参考</b>，不构成决策依据。</p>
+            <p>🎬 本仓库<b>不附带、不分发任何第三方短视频（如抖音）转录文本/音频素材</b>；您自行抓取的短视频内容仅供个人研究，<b>版权/人格/个人信息风险自担</b>，不得对外分发或上传公开仓库。</p>
+            <p>📄 完整条款见 <a href="features.html" style="color:var(--cyan)">项目介绍</a>，或仓库根目录 <code>DISCLAIMER.md</code>。</p>
+        </div>
+        <div class="m-actions">
+            <button class="m-ok" onclick="acceptDisclaimer()">我已阅读并同意，开始使用</button>
+        </div>
+    </div>
+</div>
+<script>
+function acceptDisclaimer(){ document.getElementById('disclaimerModal').classList.remove('show'); try{localStorage.setItem('lglr_disclaimer_seen','1');}catch(e){} }
+(function(){ try{ if(!localStorage.getItem('lglr_disclaimer_seen')){ document.getElementById('disclaimerModal').classList.add('show'); } }catch(e){} })();
+</script>
 </body>
 </html>

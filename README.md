@@ -1,5 +1,5 @@
 > ⚠️ **重要告知 / IMPORTANT**
-> 本项目仅限**个人非商业学习、技术研究**使用，**严禁任何形式的商业商用**；所有输出内容**仅供游戏参考，不构成决策依据**，使用风险自行承担。完整法律约束请查阅仓库根目录 [`DISCLAIMER.md`](DISCLAIMER.md)。
+> 本项目仅限**个人非商业学习、技术研究**使用，**严禁任何形式的商业商用**；所有输出内容**仅供游戏参考，不构成决策依据**，使用风险自行承担。仓库**不附带、不分发任何第三方短视频（如抖音）转录文本/音频素材**，用户自抓取的短视频内容仅供个人研究、版权/人格/个信风险自担。完整法律约束请查阅仓库根目录 [`DISCLAIMER.md`](DISCLAIMER.md)。
 
 # 🚀 LagrangeAgent — 无尽的拉格朗日 · AI 战术参谋
 ### Endless Lagrange — AI Tactical Advisor · Multi-Agent · RAG · Self-Evolving Skill Studio
