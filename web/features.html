@@ -181,8 +181,57 @@ body.mobile-ui .container{padding-bottom:calc(20px + env(safe-area-inset-bottom)
 <b>小程序（纯静态）</b>：utils/(agent/qa/kb 8分包/llm 云函数/战斗 websearch ship_db) + 页面(chat/sim/dex/fleet/settings) + cloudfunctions/llm-proxy(SSE)
 </div>
 
+<!-- ========== 9.1 全功能示意图（Mermaid，可导出为图片） ========== -->
+<div class="sec">🧭 全功能示意图（Mermaid · 可导出为图片/嵌入）</div>
+<pre class="md-table" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px;overflow-x:auto;">
+```mermaid
+flowchart TD
+  IN(["用户输入"]) --> IG[意图门<br>需求理解+闲聊判定]
+  IG -->|闲聊| DAILY[直接回答]
+  IG -->|正式| RET1[领域子代理×4<br>本地知识库多路召回]
+  RET1 --> RET2[混合检索<br>TF-IDF + bge语义 + RRF融合<br>噪声过滤/元数据加权/相邻扩展/红线/CRAG]
+  RET2 --> FLEET[检索舰队<br>总Agent 派 ≤3 子Agent<br>意图→多路检索≤50→标注→5维素材包]
+  FLEET --> ASM[组装<br>系统提示词+知识库+Skill+画像+历史]
+  ASM --> LOOP[agentLoop 主循环<br>7+工具:检索/查船/战斗模拟/联网/ask_user/建工具/建Skill]
+  LOOP -->|需用户决定| ASK["ask_user 提问并暂停"]
+  LOOP --> QC[质检<br>Agent-A审计 → Agent-B裁判 ≥75]
+  QC -->|&lt;75 FAIL| LOOP
+  QC --> SUP[监督Agent<br>合规标记]
+  SUP --> OUT["输出<br>回答+来源+折叠块(已思考/运行状态)+👍👎🔊🌿"]
+  OUT --> EVO[进化]
+  EVO -->|自进化| AREF[自动反思→Skill/反模式/画像]
+  EVO -->|人工干预| HUM[👍👎 ·写Skill ·管理页增删改/运行 ·/命令 ·上下文压缩]
+  AREF --> INJ[相关对话按需注入 → 回主Agent]
+  HUM --> INJ
+```
+</pre>
+<div class="tip" style="font-size:0.66rem;">💡 该图可在支持 Mermaid 的地方渲染；也可复制到 <b>mermaid.live</b> 导出为 PNG/SVG（用于项目介绍/宣传）。</div>
+
+<!-- ========== 9.2 两种模式（自配 vs 默认） ========== -->
+<div class="sec">🔧 两种运行模式：自配 API（完整） vs 内建默认（精简）</div>
+<div class="grid">
+    <div class="card"><div class="ico">⚙️</div><div class="name">自配自己的 API Key / 自定义模型（完整）</div><div class="desc">开启<b>全部能力</b>：LLM 意图门(真实需求理解) · <b>检索舰队</b>(总+≤3子Agent) · 质检 <b>A审计+B裁判</b>(≥75两档) · <b>监督Agent</b>合规标记 · 完整多轮工具调用/计划审批 · 120s超时。推荐 DeepSeek/OpenAI/GLM 直连。</div><span class="tag green">完整</span></div>
+    <div class="card"><div class="ico">🧿</div><div class="name">内建默认 GLM-4.7-Flash（免费·精简）</div><div class="desc"><b>零配置</b>开箱即用，但为省流量<b>精简</b>：规则意图门(非LLM) · 跳过检索舰队 · A/B质检降级为直接通过 · 监督跳过 · 40s超时 · 严格1并发 · 本地RAG仍启用。共享Key易被限流，界面有提醒+429自动续跑。</div><span class="tag">精简</span></div>
+</div>
+
+<!-- ========== 9.3 全功能触发全流程（每Agent在干嘛/检索/进化） ========== -->
+<div class="sec">🚀 全功能触发全流程（自配 API 时，一次消息全命中）</div>
+<div class="flow" style="font-size:0.76rem;line-height:1.9;">
+<b>① 意图门(需求理解Agent)</b>：读用户输入→判断闲聊/正式→正式则拆出【明确需求+检索类别+是否配队】。
+<b>② 领域子代理×4(本地知识库快检)</b>：舰队配置/舰船数据/战斗机制/讲解范例 各按关键词召回素材。
+<b>③ 主检索(混合检索管线)</b>：TF-IDF稀疏 + bge语义(512维) + RRF融合 + 噪声过滤 + 元数据加权 + 相邻块扩展 + MD红线 + CRAG门控 + <b>A资料1-400高优先</b>。
+<b>④ 检索舰队(总+≤3子)</b>：总Agent派检索子Agent出【检索意图(query/category/ship)】→ 代码多路检索(向量/关键词/分类/舰船名,≤50) → 子Agent标注(高/中/低/疑似)+萃取原文 → 总Agent 5维提炼【检索素材包】。
+<b>⑤ 组装上下文</b>：系统提示词 + 素材包 + 相关Skill + 用户画像摘要 + 对话历史(压缩)。
+<b>⑥ agentLoop(主Agent主循环)</b>：按需调 <b>search_knowledge_base/get_ship_data/battle_simulate/web_search/create_tool/create_skill/ask_user</b>；配队自动<b>战斗模拟器推演</b>；拿不准用 <b>ask_user</b> 提问并暂停；<b>计划模式</b>先出计划书等批准；可 <b>create_tool</b> 自建DPM/人口计算工具并调用。
+<b>⑦ 质检(Agent-A审计→Agent-B裁判)</b>：A 六步审计(机制/逐句/数值/逻辑/漏洞) → B 三维打分(数据/推演/思路, ≥75 PASS)；不合格(<75)触发 FILE_REGEN 重跑工具链；两轮后强制放行。
+<b>⑧ 监督Agent</b>：对照全部Agent提示词重点，核对输出/提问是否遵守硬性规则(军规/禁等级制/必附打分/可溯源)，只标记不重写。
+<b>⑨ 输出</b>：最终回答 + 来源标注 + <b>每轮折叠块(已思考·用时/运行状态)</b> + 操作条(👍👎🔊🌿分叉)。
+<b>⑩ 进化(自进化×人工干预)</b>：👍👎→反思→<b>自动</b>沉淀 Skill/反模式/画像；或<b>人工</b>写Skill/管理页增删改/压缩→ 下次相关对话按需注入。
+</div>
+
 <!-- ========== 10. 前后端所有功能 ========== -->
 <div class="sec">🔟 功能全景（前端 + 后端 + 小程序）</div>
+
 <div class="grid">
 <div class="card"><div class="ico">💬</div><div class="name">AI 对话</div><div class="desc">多Agent流水线、7+工具(search_knowledge_base/get_ship_data/battle_simulate/web_search/ask_user/create_tool/create_skill)、计划审批、提问卡、@引用、/命令、图片/文件附件、本地朗读、点赞点踩反思、技能按需注入、画像；被<b>限流(429)后保留进度后台自动续跑</b>、无需手动再发。</div></div>
 <div class="card"><div class="ico">🧾</div><div class="name">每轮内嵌思考/状态</div><div class="desc">每条回答上方默认折叠的「已思考(用时Xs)」+「AI运行状态(N条)」折叠块，点开看本轮思考与检索/联网/子代理/质检过程；每轮独立、不串轮。</div></div>

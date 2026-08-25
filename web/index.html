@@ -48,6 +48,11 @@
         .conv-item.active{background:rgba(74,158,255,0.08);border-color:rgba(74,158,255,0.25);color:var(--t1)}
         .conv-item .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;margin-bottom:1px}
         .conv-item .m{font-size:0.6rem;color:var(--t3)}
+        .ci-group{font-size:0.62rem;color:var(--t3);padding:8px 10px 3px;opacity:0.8}
+        .ci-btn{background:none;border:none;color:var(--t3);font-size:0.7rem;cursor:pointer;padding:2px 4px;border-radius:5px;opacity:0.55;flex-shrink:0}
+        .ci-btn:hover{opacity:1;background:rgba(255,255,255,0.06)}
+        .ci-btn.del:hover{color:var(--red)}
+        .conv-empty{text-align:center;color:var(--t3);font-size:0.68rem;padding:24px 8px}
 
         .chat-area{flex:1;display:flex;flex-direction:column;min-width:0}
         .chat-msgs{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:10px}
@@ -520,6 +525,10 @@
         🔒 当前使用<b>内建默认模型</b>（<b>共享 Key</b>，多人共用易被<b>限流 429</b>）：功能与性能已<b>极大压缩</b>，为确保质量与稳定，<b>强烈建议</b>配置你自己的 API Key（直连更稳、不易限流）。 <a href="settings.html" style="color:#ffd700;font-weight:700;">去设置</a>
         <span onclick="closeDefaultTip()" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;color:#c9a13a;font-size:0.9rem;padding:0 4px;" title="关闭">✕</span>
     </div>
+    <div id="skillTip" style="display:none;background:rgba(78,205,196,0.10);border-bottom:1px solid rgba(78,205,196,0.3);padding:8px 16px;font-size:0.72rem;color:#6fe3dc;text-align:center;position:relative;">
+        🧠 <b>小提示</b>：建议您<b>定期到 <a href="skills.html" style="color:#6fe3dc;font-weight:700;">Skill 管理</a> 检查</b> 已启用的 Skill / 工具（过时的可能引发错误弹窗）；描述不清的可在页面里停用或删除。
+        <span onclick="closeSkillTip()" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;color:#5ab8b2;font-size:0.9rem;padding:0 4px;" title="关闭">✕</span>
+    </div>
     <div class="ctx-bar"><div class="ctx-fill" id="ctxFill" style="width:0%"></div></div>
     <div class="ctx-text" id="ctxText">上下文: 0 / 100,000 tokens (0%)</div>
 
@@ -789,6 +798,15 @@ function closeDefaultTip(){
     const tip=document.getElementById('defaultTip'); if(tip) tip.style.display='none';
     try{ localStorage.setItem('lglr_default_tip_closed','1'); }catch(e){}
 }
+function showSkillTip(){
+    const tip=document.getElementById('skillTip'); if(!tip) return;
+    let closed=false; try{ closed=!!localStorage.getItem('lglr_skill_tip_closed'); }catch(e){}
+    tip.style.display = closed ? 'none' : '';
+}
+function closeSkillTip(){
+    const tip=document.getElementById('skillTip'); if(tip) tip.style.display='none';
+    try{ localStorage.setItem('lglr_skill_tip_closed','1'); }catch(e){}
+}
 
 function newChat(){
     // 离开当前对话（对话结束）：先对旧会话补一次自动沉淀考虑
@@ -857,7 +875,9 @@ function renderDrawerList(){
     const itemHtml=(arr)=>arr.map(x=>`
         <div class="md-conv${x.id===activeConv?' active':''}" onclick="switchConv('${x.id}')">
             <span class="md-dot" style="background:${convIconColor(x.id)}">${(convTitle(x.c)[0]||'💬')}</span>
-            <div class="md-conv-t"><div class="t">${convTitle(x.c)}</div><div class="m">${new Date(x.last).toLocaleDateString('zh-CN')} · ${x.c.messages.length}条</div></div>
+            <div class="md-conv-t"><div class="t">${x.c.pinned?'📌 ':''}${convTitle(x.c)}</div><div class="m">${new Date(x.last).toLocaleDateString('zh-CN')} · ${x.c.messages.length}条</div></div>
+            <button class="ci-btn" onclick="event.stopPropagation();togglePinConv('${x.id}')" title="置顶 / 取消置顶">${x.c.pinned?'📌':'📍'}</button>
+            <button class="ci-btn del" onclick="event.stopPropagation();deleteConv('${x.id}')" title="删除此对话">🗑</button>
         </div>`).join('');
     let html='';
     if(pinned.length) html+=`<div class="md-group">📌 置顶</div>`+itemHtml(pinned);
@@ -868,15 +888,41 @@ function renderDrawerList(){
 
 function renderConvList(){
     const ids=Object.keys(conversations).reverse();
-    const html=ids.map(id=>{
-        const c=conversations[id];
+    const item=(id)=>{ const c=conversations[id];
         return `<div class="conv-item${id===activeConv?' active':''}" onclick="switchConv('${id}')">
-            <div class="t">${c.title||'新对话'}</div>
-            <div class="m">${new Date(c.createdAt).toLocaleDateString('zh-CN')} · ${c.messages.length}条</div>
+            <div style="display:flex;align-items:center;gap:4px">
+              <div style="flex:1;min-width:0">
+                <div class="t">${c.pinned?'📌 ':''}${c.title||'新对话'}</div>
+                <div class="m">${new Date(c.createdAt).toLocaleDateString('zh-CN')} · ${c.messages.length}条</div>
+              </div>
+              <button class="ci-btn" onclick="event.stopPropagation();togglePinConv('${id}')" title="置顶 / 取消置顶">${c.pinned?'📌':'📍'}</button>
+              <button class="ci-btn del" onclick="event.stopPropagation();deleteConv('${id}')" title="删除此对话">🗑</button>
+            </div>
         </div>`;
-    }).join('');
-    const main=document.getElementById('convList'); if(main) main.innerHTML=html;
+    };
+    const pinned=ids.filter(id=>conversations[id].pinned);
+    const recent=ids.filter(id=>!conversations[id].pinned);
+    let html='';
+    if(pinned.length) html+=`<div class="ci-group">📌 置顶</div>`+pinned.map(item).join('');
+    if(recent.length) html+=`<div class="ci-group">🕐 最近</div>`+recent.map(item).join('');
+    const main=document.getElementById('convList'); if(main) main.innerHTML=html||`<div class="conv-empty">暂无历史对话</div>`;
     const m=document.getElementById('mConvList'); if(m) renderDrawerList();  // 移动端抽屉同步(带分组)
+}
+function togglePinConv(id){
+    if(!conversations[id]) return;
+    conversations[id].pinned=!conversations[id].pinned;
+    save(); renderConvList();
+}
+function deleteConv(id){
+    if(!conversations[id]) return;
+    if(!confirm('删除这条对话「'+(conversations[id].title||'新对话')+'」？')) return;
+    delete conversations[id];
+    if(activeConv===id){
+        const left=Object.keys(conversations);
+        if(left.length){ activeConv=left[left.length-1]; switchConv(activeConv); }
+        else newChat();
+    }
+    save(); renderConvList();
 }
 
 function save(){ localStorage.setItem('lagrange_conversations',JSON.stringify(conversations)); }
@@ -1709,6 +1755,7 @@ function updateTokenBar(){
 // Auto-resize
 document.addEventListener('DOMContentLoaded',()=>{
     init();
+    showSkillTip();  // 常驻提示：定期检查 Skill 管理
     loadZhVoice();  // 预加载中文语音（voices 异步加载，提前触发）
     updateSendBtn();
     const ta=document.getElementById('chatInput');
