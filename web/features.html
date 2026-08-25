@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>功能架构总览 — 拉格朗日智能体</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#0a0e1a;color:#e8f4ff;min-height:100vh}
+:root{--bg2:#111827;--card:#1a2332;--border:#2d4a6f;--blue:#4a9eff;--cyan:#00d4ff;--gold:#ffd700;--green:#2ed573;--red:#ff4757;--t1:#e8f4ff;--t2:#8ba3c7;--t3:#5a7a9a}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 18px;background:var(--bg2);border-bottom:1px solid var(--border)}
+.topbar .logo{font-size:0.95rem;font-weight:800;background:linear-gradient(135deg,var(--blue),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.topbar .links{display:flex;gap:8px;flex-wrap:wrap}
+.topbar .links a{color:var(--t2);text-decoration:none;font-size:0.7rem;padding:5px 10px;border-radius:6px;transition:all .2s;white-space:nowrap}
+.topbar .links a:hover{color:#fff;background:rgba(255,255,255,.05)}
+.container{max-width:960px;margin:0 auto;padding:20px}
+h1{font-size:1.5rem;font-weight:800;margin-bottom:4px;background:linear-gradient(135deg,var(--blue),var(--cyan),var(--gold));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.sub{color:var(--t3);font-size:0.78rem;margin-bottom:24px}
+.sec{font-size:1.05rem;font-weight:700;margin:28px 0 12px;padding-left:10px;border-left:3px solid var(--blue);color:var(--t1)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:14px;margin-bottom:8px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;transition:all .2s}
+.card:hover{border-color:var(--blue);transform:translateY(-2px);box-shadow:0 8px 24px rgba(74,158,255,.12)}
+.card .ico{font-size:1.5rem;margin-bottom:6px}
+.card .name{font-weight:700;font-size:0.85rem;margin-bottom:5px}
+.card .desc{font-size:0.72rem;color:var(--t2);line-height:1.65}
+.card .tag{display:inline-block;font-size:0.6rem;padding:1px 8px;border-radius:10px;border:1px solid var(--border);color:var(--cyan);margin-right:4px;margin-top:6px}
+.card .tag.gold{color:var(--gold);border-color:var(--gold)}
+.card .tag.green{color:var(--green);border-color:var(--green)}
+.flow{background:rgba(74,158,255,.05);border:1px solid rgba(74,158,255,.2);border-radius:12px;padding:16px;margin:8px 0;font-size:0.72rem;color:var(--t2);line-height:1.8}
+.flow b{color:var(--t1)}
+.flow .arrow{color:var(--cyan);margin:0 4px}
+.tip{background:rgba(255,215,0,.05);border:1px solid rgba(255,215,0,.25);border-radius:10px;padding:10px 14px;font-size:0.72rem;color:var(--t2);line-height:1.7;margin-top:14px}
+.tip b{color:var(--gold)}
+.hl{color:var(--cyan);font-weight:600}
+/* 手机端底部 Tab 导航 */
+#mobileTabbar{display:none;position:fixed;left:0;right:0;bottom:0;z-index:1200;background:#111827;border-top:1px solid var(--border);padding:4px 6px calc(4px + env(safe-area-inset-bottom))}
+body.mobile-ui #mobileTabbar{display:flex}
+#mobileTabbar .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;background:none;border:none;color:var(--t3);font-size:0.62rem;cursor:pointer;padding:6px 2px;border-radius:10px}
+#mobileTabbar .tab .ti{font-size:1.2rem;line-height:1}
+#mobileTabbar .tab.active{color:var(--cyan)}
+#mobileTabbar .tab:active{background:rgba(74,158,255,0.1)}
+body.mobile-ui{overflow:auto;-webkit-overflow-scrolling:touch}
+body.mobile-ui .topbar .links{display:none}
+body.mobile-ui .container{padding-bottom:calc(20px + env(safe-area-inset-bottom) + 60px)}
+@media(max-width:600px){.container{padding:14px}.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="topbar">
+    <div class="logo">🧠 拉格朗日智能体 · 功能架构总览</div>
+    <div class="links">
+        <a href="chat.html">🤖 AI对话</a>
+        <a href="simulator.html">⚔️ 模拟器</a>
+        <a href="skills.html">🧠 技能/工具</a>
+        <a href="settings.html">⚙️ 设置</a>
+        <a href="index.html">🏠 首页</a>
+    </div>
+</div>
+<div class="container">
+<h1>功能架构总览</h1>
+<p class="sub">一个会自我进化、可人工干预进化的《无尽的拉格朗日》AI 战术顾问 · 本地离线语音 · 知识库驱动</p>
+
+<div class="tip" style="margin-bottom:16px;text-align:center;">
+📱 <b>安卓 App</b>：<a href="download/lglr.apk" download style="color:#ffd700;font-weight:700;">点击下载安装（APK，含离线知识库）</a> ·
+🌐 <b>网页版</b>：<a href="index.html" style="color:var(--cyan);font-weight:700;">在线使用（GitHub Pages）</a>
+</div>
+
+<!-- ========== 1. 核心对话引擎 ========== -->
+<div class="sec">1️⃣ 核心对话引擎</div>
+<div class="grid">
+    <div class="card"><div class="ico">🛰️</div><div class="name">多 Agent 并行检索</div><div class="desc">舰队配置 / 舰船数据 / 战斗机制 / 讲解范例 4 个子代理并行检索知识库，主检索兜底，即问即答。</div><span class="tag">检索</span></div>
+    <div class="card"><div class="ico">🔧</div><div class="name">7 个工具</div><div class="desc">知识库检索、舰船精确查询、战斗模拟、联网搜索、提问澄清、自主建工具、自主建Skill——AI 按需调用。</div><span class="tag">工具</span></div>
+    <div class="card"><div class="ico">🔬</div><div class="name">FACT-AUDIT 质检</div><div class="desc">主张拆解→证据检索→多裁判辩论→五层审计→量化评分→链状修正；第2次仍不合格即强制放行，防死循环。</div><span class="tag gold">质检</span></div>
+    <div class="card"><div class="ico">🪄</div><div class="name">计划模式 / 普通模式</div><div class="desc">普通模式直接回答；计划模式先出执行计划书、用户批准后才执行。顶栏一键切换。</div><span class="tag">模式</span></div>
+</div>
+
+<!-- ========== 2. 自我进化 ========== -->
+<div class="sec">2️⃣ 自我进化（Agent 自主）</div>
+<div class="grid">
+    <div class="card"><div class="ico">🧬</div><div class="name">经验 Skill 沉淀（自动）</div><div class="desc">每轮对话结束后，AI 自动判断这段对话是否有可复用经验（配队思路/回答技巧/稳定偏好），有则沉淀为 Skill，无则静默。</div><span class="tag green">自动</span></div>
+    <div class="card"><div class="ico">🧰</div><div class="name">自主创建工具</div><div class="desc">AI 判断现有工具不够用时，自行写代码创建新工具，经「语法编译 + LLM 逻辑审查」自检通过即激活，不通过自动修复。</div><span class="tag green">自动</span></div>
+    <div class="card"><div class="ico">🎯</div><div class="name">Skill 按需注入</div><div class="desc">相关 Skill 命中关键词自动注入本对话；不相关不注入（防 token 膨胀）；画像只注入精简摘要。</div><span class="tag green">自动</span></div>
+</div>
+
+<!-- ========== 3. 用户干预进化 ========== -->
+<div class="sec">3️⃣ 用户干预进化（人工）</div>
+<div class="grid">
+    <div class="card"><div class="ico">👍👎</div><div class="name">点赞 / 点踩反思</div><div class="desc">对回答点赞/点踩可填理由，AI 反思整段对话，沉淀经验 Skill、更新用户画像。你越用，它越懂你。</div><span class="tag gold">人工</span></div>
+    <div class="card"><div class="ico">✍️</div><div class="name">手写 Skill</div><div class="desc">在技能/工具页手动写一个 Skill（名称+摘要+关键词+全文），创建后相关对话自动注入。</div><span class="tag gold">人工</span></div>
+    <div class="card"><div class="ico">💬</div><div class="name">对话直接创建</div><div class="desc">直接说「把这个保存成 Skill」，AI 就调用 create_skill 帮你创建。</div><span class="tag gold">人工</span></div>
+    <div class="card"><div class="ico">⚡</div><div class="name">斜杠命令强制干预</div><div class="desc">/skill、/工具、/压缩、/回溯、/重启、/clear 等，强制注入、强制调用、强制操作。</div><span class="tag gold">人工</span></div>
+</div>
+
+<!-- ========== 4. 对话管理 ========== -->
+<div class="sec">4️⃣ 对话管理</div>
+<div class="grid">
+    <div class="card"><div class="ico">🌿</div><div class="name">分叉对话</div><div class="desc">在任意消息处分叉，快照生成一个全新独立会话，原对话保留。</div><span class="tag">对话</span></div>
+    <div class="card"><div class="ico">↩️</div><div class="name">回溯 / 重启</div><div class="desc">回溯=删除最新一轮问答；重启=回溯后原样重发那条提问。</div><span class="tag">对话</span></div>
+    <div class="card"><div class="ico">📎</div><div class="name">@ 引用上下文</div><div class="desc">输入 @ 选中历史会话，其上下文注入本次提问供 AI 参考。</div><span class="tag">对话</span></div>
+    <div class="card"><div class="ico">🧹</div><div class="name">/clear 清空会话</div><div class="desc">独立命令清空当前会话全部内容回初始。</div><span class="tag">对话</span></div>
+</div>
+
+<!-- ========== 5. 输入能力 ========== -->
+<div class="sec">5️⃣ 输入能力</div>
+<div class="grid">
+    <div class="card"><div class="ico">🔊</div><div class="name">本地文本朗读</div><div class="desc">本地 TTS 合成中文朗读回答，纯离线。</div><span class="tag green">本地</span></div>
+    <div class="card"><div class="ico">📎</div><div class="name">文件 / 图片附件</div><div class="desc">文本文件读入；图片可配视觉模型识别内容再分析。</div><span class="tag">输入</span></div>
+    <div class="card"><div class="ico">🌐</div><div class="name">联网搜索</div><div class="desc">搜索代理→Tavily→免key Bing 多级降级（未配置则友好提示）。</div><span class="tag">输入</span></div>
+    <div class="card"><div class="ico">@</div><div class="name">@引用 / / 命令</div><div class="desc">@某个历史对话注入上下文；/命令、/skill 等斜杠命令。</div><span class="tag">输入</span></div>
+</div>
+
+<!-- ========== 6. 知识库 ========== -->
+<div class="sec">6️⃣ 知识库</div>
+<div class="grid">
+    <div class="card"><div class="ico">📚</div><div class="name">双知识库检索引擎</div><div class="desc">第一知识库（47个md：舰船数据/战斗机制/实例/黑话）+ 第二知识库（备份精炼），TF-IDF 语义检索 + LRU缓存。</div><span class="tag">知识库</span></div>
+    <div class="card"><div class="ico">🗂️</div><div class="name">开发中心</div><div class="desc">批量清洗→语义分块→实体抽取→冲突仲裁，产出清洗文档/父子块/知识图谱/勘误报告。</div><span class="tag">知识库</span></div>
+</div>
+
+<!-- ========== 检索方式（混合检索管线） ========== -->
+<div class="sec">🔎 检索方式（混合检索管线）</div>
+<div class="grid">
+    <div class="card"><div class="ico">📊</div><div class="name">TF-IDF 稀疏检索</div><div class="desc">中文 bigram 分词 + 余弦相似度，关键词/词频召回。</div><span class="tag">稀疏</span></div>
+    <div class="card"><div class="ico">🧬</div><div class="name">RAG 语义检索（bge）</div><div class="desc">前端 transformers.js 加载本地 bge-small-zh-v1.5 静态向量库（rag_index.json，512维×1125分块），离线免费；默认模型亦启用。</div><span class="tag green">稠密</span></div>
+    <div class="card"><div class="ico">🗂️</div><div class="name">分类检索</div><div class="desc">按资料类别（舰船数据/战斗机制/实例/黑话/人口…）定向检索。</div><span class="tag">分类</span></div>
+    <div class="card"><div class="ico">🚢</div><div class="name">舰船名精确检索</div><div class="desc">SHIP_DB 精确匹配舰船，命中即给，未命中提示查黑话。</div><span class="tag">精确</span></div>
+    <div class="card"><div class="ico">🔀</div><div class="name">RRF 倒数排名融合</div><div class="desc">融合稀疏 + 稠密两路结果，综合排序取Top。</div><span class="tag">融合</span></div>
+    <div class="card"><div class="ico">⚖️</div><div class="name">元数据分层加权</div><div class="desc">音频口语稿降权、结构化舰船/配队数据升权，按来源质量调分。</div><span class="tag">加权</span></div>
+    <div class="card"><div class="ico">📑</div><div class="name">相邻块上下文扩展</div><div class="desc">补同一来源前后 chunk，增强上下文连贯性。</div><span class="tag">扩展</span></div>
+    <div class="card"><div class="ico">🚧</div><div class="name">数据文件夹 md 红线</div><div class="desc">仅允许知识库内来源进入结果（白名单，防外部/备份污染）。</div><span class="tag">红线</span></div>
+    <div class="card"><div class="ico">🧹</div><div class="name">噪声过滤</div><div class="desc">去除碎片、重复、口语冗余、空白实例。</div><span class="tag">过滤</span></div>
+    <div class="card"><div class="ico">🎯</div><div class="name">质量门控 CRAG</div><div class="desc">召回整体低分 → 触发改写二次检索，提升召回质量。</div><span class="tag">门控</span></div>
+    <div class="card"><div class="ico">⭐</div><div class="name">A资料1-400 高优先</div><div class="desc">编号靠前的 A 资料优先参考，高于其后所有资料。</div><span class="tag">优先级</span></div>
+    <div class="card"><div class="ico">🛰️</div><div class="name">检索舰队（非默认模型）</div><div class="desc">子Agent出检索意图 → 多路检索(向量/关键词/分类/舰船名，≤50) → 解析标注(高/中/低/疑似) → 总Agent 5维提炼【检索素材包】；默认 Flash 跳过。</div><span class="tag">舰队</span></div>
+    <div class="card"><div class="ico">🌐</div><div class="name">联网搜索（可配）</div><div class="desc">搜索代理→Tavily→免key Bing 多级降级，补充资料库外信息；未配置则友好提示。</div><span class="tag">外部</span></div>
+</div>
+
+<!-- ========== 7. 模型生态 ========== -->
+<div class="sec">7️⃣ 模型生态</div>
+<div class="grid">
+    <div class="card"><div class="ico">🧿</div><div class="name">智谱 GLM 免费默认</div><div class="desc">glm-4.7-flash 永久免费、200K 上下文，开箱即用；内置为<b>共享Key</b>（多人共用，<b>易被限流 429</b>），建议配置自己的 API Key（直连更稳）。</div><span class="tag green">免费</span></div>
+    <div class="card"><div class="ico">🔑</div><div class="name">多模型管理</div><div class="desc">添加多个 API/模型（DeepSeek/OpenAI/智谱等），聊天内一键切换，可随时切回内建默认。</div><span class="tag">配置</span></div>
+</div>
+
+<!-- ========== 整体流程 ========== -->
+<div class="sec">🔄 一次对话的完整流程</div>
+<div class="flow">
+<b>用户提问</b><span class="arrow">→</span>4个子代理并行检索<span class="arrow">→</span>主检索+联网搜索<span class="arrow">→</span>组装【系统提示词+知识库资料+相关Skill+对话历史】<span class="arrow">→</span>Agent主循环（可调7工具/可提问暂停）<span class="arrow">→</span>FACT-AUDIT质检<span class="arrow">→</span>最终回答+来源标注
+<br><br>
+<b>自我进化路径</b>：对话结束<span class="arrow">→</span>自动反思<span class="arrow">→</span>沉淀Skill/更新画像<span class="arrow">→</span>下次相关对话自动注入
+<br><b>人工进化路径</b>：👍👎 / 手写Skill / 对话直接创建 / 斜杠命令<span class="arrow">→</span>Skill库<span class="arrow">→</span>按需注入
+</div>
+
+<div class="tip">
+💡 <b>一句话理解</b>：AI 对话用知识库+工具+质检保证<span class="hl">准确</span>；自进化与人工干预让 AI 越用越<span class="hl">懂你</span>；本地语音离线<span class="hl">随时可用</span>。
+<br>📌 入门：先到 <b>⚙️设置</b> 确认模型，再到 <b>🤖AI对话</b> 提问；想沉淀经验就👍、想干预就✍️手写Skill或💬叫AI保存。
+</div>
+
+<!-- ========== 8. 所有智能体（Agent）定位 ========== -->
+<div class="sec">8️⃣ 所有智能体（Agent）定位</div>
+<div class="grid">
+<div class="card"><div class="ico">🧠</div><div class="name">主 Agent（主对话/SYSTEM_PROMPT）</div><div class="desc">执行核心任务：按舰船知识库强制校验查数据、配队、查机制、出计划、五轮评测、输出附打分与理由；唯一读全量系统提示词的主体力。</div></div>
+<div class="card"><div class="ico">🚪</div><div class="name">需求理解/意图门（intentClarify）</div><div class="desc">结合最近5轮历史判断：明确需求、判断是否"日常闲聊"；闲聊→直接回答；任务→放行并注入明确需求。</div></div>
+<div class="card"><div class="ico">🚢</div><div class="name">检索舰队·检索总Agent</div><div class="desc">汇总≤3个检索子Agent的素材，去噪合并，按【核心思路/关键规则/原文事例/关键数据/争议点】5维提炼成【检索素材包】交主Agent。</div></div>
+<div class="card"><div class="ico">🔍</div><div class="name">检索舰队·检索子Agent（≤3）</div><div class="desc">两阶段：①输出检索意图(query/category/ship)→②代码多路检索(向量/关键词/分类/舰船名，≤50条)→解析标注(高/中/低/疑似沾边)并萃取原文，只产素材不答用户。</div></div>
+<div class="card"><div class="ico">🕵️</div><div class="name">质检 Agent-A（审计）</div><div class="desc">六步审计：关键词检测→战斗机制审计→逐句拆解→概括回答→具体建议→输出漏洞清单(found_issues)。查编造/数值/约束遗漏/来源/逻辑矛盾。</div></div>
+<div class="card"><div class="ico">⚖️</div><div class="name">质检 Agent-B（裁判）</div><div class="desc">三维度打分(数据来源/推演/思路，各1/3)，综合≥75 PASS、<75 FAIL。复核A的发现、检查漏判。</div></div>
+<div class="card"><div class="ico">🛡️</div><div class="name">监督 Agent（supervisoryCheck）</div><div class="desc">给全部Agent提示词重点，监督面向用户的输出/提问是否遵守硬性规则（军规校验/禁等级制/必附打分/知识库可溯源等），只做合规标记不重写答案。</div></div>
+<div class="card"><div class="ico">💬</div><div class="name">闲聊直答（chatDaily）</div><div class="desc">意图门判为日常闲聊时，主提示词单轮直接回答，不走检索/工具/质检。</div></div>
+<div class="card"><div class="ico">📚</div><div class="name">经验反思（REFLECT / AUTO）</div><div class="desc">点赞点踩/对话结束自动：提炼用户画像、沉淀Skill(查重/anti_patterns)；自动模式还要识别用户纠正/不满/反复需求/认可。</div></div>
+<div class="card"><div class="ico">🧰</div><div class="name">工具·元数据/安全审查/修复</div><div class="desc">create_tool 三件套：生成function-schema、LLM安全审查(强制检索知识库验证逻辑)、运行失败自动修复。</div></div>
+<div class="card"><div class="ico">🗜️</div><div class="name">对话摘要压缩（compress）</div><div class="desc">历史超阈值时把最旧轮次压成摘要(3500-7500字)，保留需求/结论/配置/禁忌/争议，保最近N轮全文。</div></div>
+</div>
+
+<!-- ========== 9. 完整架构（前端+后端） ========== -->
+<div class="sec">9️⃣ 完整架构（前端 + 后端）</div>
+<div class="flow">
+<b>前端（网页版·纯静态 · GitHub Pages）</b>：chat.html(对话)/settings.html(设置)/skills.html(技能工具)/features.html(本页)/simulator.html(模拟器)/kb-dev.html(知识库开发)<br>
+<b>前端引擎 js/</b>：<span class="hl">agent.js</span>(主引擎 chat→意图门→检索→agentLoop→质检→监督;LLMLock并发锁≤1/中断/压缩/<b>429限流保留进度后台自动续跑</b>) · <span class="hl">qa.js</span>(A审计+B裁判质检) · <span class="hl">kb.js</span>(混合检索 TF-IDF+RAG+RRF+红线) · <span class="hl">rag_client.js</span>(bge静态向量库) · <span class="hl">kb_embed.js</span>(embedding+缓存) · <span class="hl">subagent_pool.js</span>(子Agent池≤7+并发锁≤1) · <span class="hl">llm_gate.js</span>(统一LLM Gate) · <span class="hl">skills.js</span>(工具自建自检/技能/反思/画像) · <span class="hl">voice.js</span>(本地离线朗读TTS；语音输入已移除)<br>
+<b>数据</b>：data/knowledge/*.md(1125) + data/rag_index.json(bge 512×1125) + data/kb_corpus.json + data/ship_database.json + data/system_prompt.md<br>
+<b>后端（原版 Python+FastAPI, 3000）</b>：main.py(FastAPI/CORS) · rag_service.py(TF-IDF+向检索) · chat_service.py(/api/chat+RAG+生成+计费) · api_routes.py(/api/*含Bing搜索/登录/模拟器/SSE) · agent_orchestrator.py(服务端Agent) · battle_engine.py(战斗引擎) · kb_pipeline.py / doc_loader.py / database.py / config.py / user_config.py<br>
+<b>小程序（纯静态）</b>：utils/(agent/qa/kb 8分包/llm 云函数/战斗 websearch ship_db) + 页面(chat/sim/dex/fleet/settings) + cloudfunctions/llm-proxy(SSE)
+</div>
+
+<!-- ========== 10. 前后端所有功能 ========== -->
+<div class="sec">🔟 功能全景（前端 + 后端 + 小程序）</div>
+<div class="grid">
+<div class="card"><div class="ico">💬</div><div class="name">AI 对话</div><div class="desc">多Agent流水线、7+工具(search_knowledge_base/get_ship_data/battle_simulate/web_search/ask_user/create_tool/create_skill)、计划审批、提问卡、@引用、/命令、图片/文件附件、本地朗读、点赞点踩反思、技能按需注入、画像；被<b>限流(429)后保留进度后台自动续跑</b>、无需手动再发。</div></div>
+<div class="card"><div class="ico">🧾</div><div class="name">每轮内嵌思考/状态</div><div class="desc">每条回答上方默认折叠的「已思考(用时Xs)」+「AI运行状态(N条)」折叠块，点开看本轮思考与检索/联网/子代理/质检过程；每轮独立、不串轮。</div></div>
+<div class="card"><div class="ico">🔬</div><div class="name">质检/监督</div><div class="desc">A审计+B裁判(≥75两档)+监督Agent合规标记+旧质检兜底；默认Flash精简(跳过A/B/检索舰队/语义兜底, 40s超时, 1并发)。</div></div>
+<div class="card"><div class="ico">🔍</div><div class="name">混合检索</div><div class="desc">TF-IDF+ RAG(bge) + RRF + 噪声过滤 + 元数据加权 + 相邻扩展 + 质量门控CRAG + 红线；检索舰队两阶段(总+≤3子,≤50条)。</div></div>
+<div class="card"><div class="ico">🧠</div><div class="name">技能/工具</div><div class="desc">create_tool自建+自检(语法+LLM安全审查+强制检索知识库), create_skill, 经验Skill查重/anti_patterns, 按需注入, 工具/技能管理页, 使用统计。</div></div>
+<div class="card"><div class="ico">⚔️</div><div class="name">战斗</div><div class="desc">battle_simulate前端推演(四舰队/增援/旗舰/缝合模式/自定义船)；后端battle_engine精确数据；模拟器页(simulator)。</div></div>
+<div class="card"><div class="ico">🌐</div><div class="name">联网搜索</div><div class="desc">4通道级联：代理→Tavily→Bing直连(cn.bing.com)→none；免key可用。</div></div>
+<div class="card"><div class="ico">🔧</div><div class="name">设置/模型</div><div class="desc">模型列表可切(含内建默认GLM-4.7可回退)、智谱/DeepSeek/代理、视觉模型、RAG embedding、云函数中转、默认模型提醒横幅。</div></div>
+<div class="card"><div class="ico">💾</div><div class="name">后端能力</div><div class="desc">/api/chat(RAG+生成+计费)、/api/rebuild-index、/api/index-status、/api/search(Bing代理)、登录注册、模拟器/战斗接口、/api/agent/chat(SSE)。</div></div>
+</div>
+
+<!-- ========== 11. 全功能流程演示示例 ========== -->
+<div class="sec">🔢 全功能触发时的完整流程演示</div>
+<div class="flow">
+<b>场景</b>：用户问「帮我配一个470+5的护航抗伤队，我没有CV3000」<br>
+<b>① 需求理解(意图门)</b>：读最近5轮历史，判定为<b>任务</b>(非闲聊)，提取意图=「470人口+5增援·护航抗伤队·无CV3000」→注入【需求理解·已明确用户需求】<br>
+<b>② 检索</b>：KB.load(kb_corpus) + TF-IDF稀疏top20 → RAG语义(bge)融合 → 过滤/加权 → <b>A资料1-400优先</b>；非默认模型再走<b>检索舰队</b>(子Agent出意图→多路检索≤50→解析→总Agent 5维【检索素材包】)<br>
+<b>③ 联网</b>：webSearch 补权威资料<br>
+<b>④ 组装messages</b>：主提示词+能力清单+用户画像+注入skill+【计划/普通模式】+【检索素材包】+【联网】+历史+【引用的历史对话】+明确需求+用户消息<br>
+<b>⑤ 主Agent(agentLoop)</b>：检索舰船数据核验→加入舰船先 ask_user 附数据经同意→对比候选→(可选 create_tool 自建DPM/人口计算工具并调用)→五轮评测打分→生成方案<br>
+<b>⑥ 质检</b>：Agent-A审计(查编造/数值/约束遗漏) → Agent-B裁判(数据/推演/思路,≥75PASS)→(非默认)监督Agent合规标记→输出配队必附打分+理由+来源标注<br>
+<b>⑦ 沉淀/交互</b>：👍点赞→反思沉淀Skill；对话结束自动反思更新画像→下次相关对话自动注入<br>
+<b>⑧ UI</b>：手机顶栏三栏(历史/AI状态/新建)+底部模式/模型一条+输入区；桌面窄边栏(菜单+历史+连接)+标题栏(实时AI状态)+底部工具条；顶栏状态实时显示→每条回答上方的「已思考/运行状态」折叠块→消息下方操作条(赞/踩/朗读/分叉/回溯)→历史面板可搜索/引用当前对话
+</div>
+
+<div class="tip">
+💡 <b>模型提示</b>：<span class="hl">内建默认模型(功能/性能已极大压缩)</span>，为确保质量与稳定<b>强烈建议配置自己的 API Key</b>（⚙️设置→模型）；默认模型用<b>共享Key、易被限流</b>，界面有「⚠️共享Key易限流」提醒芯片可点去设置，遇限流会自动保留进度后台重试。
+</div>
+</div>
+<script>
+// 手机端底部 Tab
+let mt=document.createElement('div'); mt.id='mobileTabbar';
+mt.innerHTML='<button class="tab" onclick="location.href=\'chat.html\'"><span class="ti">💬</span>对话</button>'+
+  '<button class="tab" onclick="location.href=\'skills.html\'"><span class="ti">🧠</span>技能工具</button>'+
+  '<button class="tab active" onclick="location.href=\'features.html\'"><span class="ti">🗺️</span>功能</button>'+
+  '<button class="tab" onclick="location.href=\'settings.html\'"><span class="ti">⚙️</span>设置</button>';
+document.body.appendChild(mt);
+function applyMobile(){ document.body.classList.toggle('mobile-ui', window.matchMedia('(max-width:700px) and (max-aspect-ratio:1/1)').matches); }
+applyMobile(); window.addEventListener('resize',applyMobile); window.addEventListener('orientationchange',applyMobile);
+</script>
+</body>
+</html>

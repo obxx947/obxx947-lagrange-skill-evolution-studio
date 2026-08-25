@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>知识库开发 · 拉格朗日智能体</title>
+<style>
+:root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2333; --line:#2d333b;
+    --fg:#e6edf3; --t2:#9da7b3; --t3:#6e7681; --accent:#e3b341; --gold:#ffd666;
+    --green:#3fb950; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--fg);font-family:'Segoe UI','Microsoft YaHei',sans-serif;min-height:100vh}
+.nav{display:flex;align-items:center;gap:16px;padding:12px 24px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
+.nav h1{font-size:17px;color:var(--gold)}
+.nav a{color:var(--t2);text-decoration:none;font-size:13px;padding:4px 10px;border-radius:6px;border:1px solid var(--line)}
+.nav a:hover{color:var(--fg);border-color:var(--t3)}
+.container{max-width:1000px;margin:20px auto;padding:0 16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:16px}
+.card h2{font-size:15px;color:var(--fg);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.card h2 .step{background:var(--accent);color:#1a1a1a;font-size:12px;font-weight:700;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center}
+.desc{color:var(--t3);font-size:12px;margin-bottom:12px;line-height:1.7}
+.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:14px}
+.flow-item{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px;text-align:center}
+.flow-item .icon{font-size:20px}
+.flow-item .name{font-size:12px;color:var(--t2);margin-top:4px}
+.flow-item.done{border-color:var(--green)}
+.flow-item.done .icon{filter:none}
+.flow-item.active{border-color:var(--gold);box-shadow:0 0 8px rgba(227,179,65,.25)}
+#logPanel{background:#0a0e14;border:1px solid var(--line);border-radius:8px;height:260px;overflow-y:auto;padding:10px;font-family:Consolas,monospace;font-size:12px;line-height:1.8}
+#logPanel .line{padding:1px 4px;border-radius:3px}
+.btn{background:var(--accent);color:#1a1a1a;border:none;border-radius:8px;padding:10px 22px;font-size:14px;font-weight:600;cursor:pointer}
+.btn:hover{filter:brightness(1.1)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.ghost{background:transparent;color:var(--t2);border:1px solid var(--line)}
+.btn.ghost:hover{color:var(--fg);border-color:var(--t3)}
+.toolbar{display:flex;gap:10px;margin-bottom:14px;align-items:center;flex-wrap:wrap}
+.progress{flex:1;min-width:160px;height:8px;background:var(--panel2);border-radius:4px;overflow:hidden;border:1px solid var(--line)}
+.progress-fill{height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--gold));transition:width .3s}
+.progress-txt{font-size:12px;color:var(--t2);margin-left:10px;white-space:nowrap}
+.products{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.product{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px}
+.product .p-title{font-size:13px;color:var(--fg);font-weight:600}
+.product .p-stat{font-size:12px;color:var(--t2);margin:6px 0 10px}
+.product .p-dl{font-size:12px;color:var(--blue);cursor:pointer;text-decoration:underline}
+.warn{color:var(--t3);font-size:12px;margin-top:10px}
+#reportBox{white-space:pre-wrap;font-size:12px;color:var(--t2);line-height:1.7;max-height:300px;overflow:auto;background:var(--panel2);border-radius:8px;padding:12px;display:none}
+</style>
+</head>
+<body>
+<div class="nav">
+    <h1>🏗️ 知识库开发中心</h1>
+    <a href="index.html">首页</a>
+    <a href="chat.html">AI对话</a>
+    <a href="settings.html">API设置</a>
+    <a href="simulator.html">模拟器</a>
+</div>
+<div class="container">
+
+    <div class="card">
+        <h2><span class="step">1</span> 流水线总控（Orchestrator）</h2>
+        <div class="desc">
+            批量知识库开发任务，与聊天问答完全分离。读取全部原始文档，依次执行：
+            摄入清洗 → 语义分块（父子块+标签）→ LLM实体抽取（知识图谱三元组）→ LLM多裁判冲突仲裁（勘误报告）。
+            清洗/分块为本地确定性规则（0成本），实体抽取与冲突仲裁调用你配置的大模型API。
+            硬约束：最大迭代 6 轮，到达上限直接终止；所有真值以资料原文为准，禁止编造。
+        </div>
+        <div class="flow" id="flow">
+            <div class="flow-item" data-step="1"><div class="icon">📂</div><div class="name">读取文档</div></div>
+            <div class="flow-item" data-step="2"><div class="icon">🧹</div><div class="name">摄入清洗</div></div>
+            <div class="flow-item" data-step="3"><div class="icon">🧩</div><div class="name">Chunk决策</div></div>
+            <div class="flow-item" data-step="4"><div class="icon">🧠</div><div class="name">实体抽取</div></div>
+            <div class="flow-item" data-step="5"><div class="icon">⚖️</div><div class="name">冲突仲裁</div></div>
+            <div class="flow-item" data-step="6"><div class="icon">📦</div><div class="name">产物输出</div></div>
+        </div>
+        <div class="toolbar">
+            <button class="btn" id="runBtn">▶ 开始流水线</button>
+            <button class="btn ghost" id="stopBtn" disabled>⏹ 停止</button>
+            <div class="progress"><div class="progress-fill" id="progFill"></div></div>
+            <span class="progress-txt" id="progTxt">就绪</span>
+        </div>
+        <div id="logPanel"><div class="line">等待启动...</div></div>
+        <div class="warn">⚠️ 实体抽取/冲突仲裁会调用大模型 API 产生 token 消耗（约每文件1次抽取调用+冲突项仲裁调用）。未配置API Key时仅能完成清洗与分块。</div>
+    </div>
+
+    <div class="card" id="productCard" style="display:none">
+        <h2><span class="step">2</span> 产物</h2>
+        <div class="products" id="products"></div>
+        <div style="margin-top:12px">
+            <button class="btn ghost" id="reportBtn" style="display:none">📋 查看勘误报告</button>
+        </div>
+        <pre id="reportBox"></pre>
+    </div>
+
+</div>
+
+<script src="js/kb.js"></script>
+<script src="js/kb-dev.js"></script>
+<script>
+(function(){
+    const logPanel = document.getElementById('logPanel');
+    let running = false, stopFlag = false;
+    let lastResults = null;
+
+    function log(icon, msg){
+        const div = document.createElement('div');
+        div.className = 'line';
+        div.textContent = `${icon} ${msg}`;
+        logPanel.appendChild(div);
+        logPanel.scrollTop = logPanel.scrollHeight;
+    }
+    function setStep(n){
+        document.querySelectorAll('.flow-item').forEach((el,i)=>{
+            el.classList.toggle('done', i < n-1);
+            el.classList.toggle('active', i === n-1);
+        });
+    }
+    function setProgress(pct, txt){
+        document.getElementById('progFill').style.width = pct+'%';
+        document.getElementById('progTxt').textContent = txt;
+    }
+    function renderProducts(res){
+        document.getElementById('productCard').style.display = 'block';
+        const box = document.getElementById('products');
+        const parents = res.chunks.filter(c=>c.level==='parent').length;
+        const children = res.chunks.filter(c=>c.level==='child').length;
+        const decided = res.report.filter(r=>r.verdict==='确定').length;
+        const items = [
+            {t:'🧹 清洗文档', s:`${res.cleaned.length} 个文档（元数据+章节）`, dl:'知识库_清洗文档.json'},
+            {t:'🧩 父子块分块', s:`父块 ${parents} · 子块 ${children}`, dl:'知识库_父子块分块.json'},
+            {t:'🧠 知识图谱', s:`${res.entities.length} 条三元组`, dl:'知识库_知识图谱.json'},
+            {t:'⚖️ 勘误报告', s:`${res.report.length} 项冲突（确定 ${decided}）`, dl:'知识库_勘误报告.json'},
+        ];
+        box.innerHTML = items.map(it=>`
+            <div class="product">
+                <div class="p-title">${it.t}</div>
+                <div class="p-stat">${it.s}</div>
+                <span class="p-dl" onclick="downloadProduct('${it.dl}')">⬇ 下载</span>
+            </div>`).join('');
+        document.getElementById('reportBtn').style.display = res.report.length?'inline-block':'none';
+        document.getElementById('reportBox').style.display = 'none';
+    }
+    window.downloadProduct = function(name){
+        if(!lastResults) return;
+        const map = {
+            '知识库_清洗文档.json': ()=>JSON.stringify(lastResults.cleaned.map(c=>({source_id:c.meta.source_id, chapters:c.meta.chapters, text:c.text})), null, 2),
+            '知识库_父子块分块.json': ()=>JSON.stringify(lastResults.chunks, null, 2),
+            '知识库_知识图谱.json': ()=>JSON.stringify(lastResults.entities, null, 2),
+            '知识库_勘误报告.json': ()=>JSON.stringify(lastResults.report, null, 2),
+        };
+        const fn = map[name];
+        if(fn) KbDev.download(name, fn());
+    };
+
+    document.getElementById('runBtn').addEventListener('click', async ()=>{
+        if(running) return;
+        running = true; stopFlag = false;
+        document.getElementById('runBtn').disabled = true;
+        document.getElementById('stopBtn').disabled = false;
+        logPanel.innerHTML = '';
+        setStep(1); setProgress(2, '读取文档...');
+        log('🚀', 'Orchestrator 启动批量知识库开发任务...');
+        log('📌', '任务与聊天问答完全分离，不处理用户对话');
+        lastResults = await KbDev.runPipeline({
+            log: (icon, msg)=>{
+                log(icon, msg);
+                if(msg.includes('清洗完成')){ setStep(2); setProgress(20, '清洗完成'); }
+                else if(msg.includes('分块完成')){ setStep(3); setProgress(35, '分块完成'); }
+                else if(msg.includes('实体抽取完成')){ setStep(4); setProgress(70, '实体抽取完成'); }
+                else if(msg.includes('仲裁完成')){ setStep(5); setProgress(92, '仲裁完成'); }
+                else if(msg.includes('流水线完成')){ setStep(6); setProgress(100, '完成'); }
+            }
+        });
+        renderProducts(lastResults);
+        running = false;
+        document.getElementById('runBtn').disabled = false;
+        document.getElementById('stopBtn').disabled = true;
+    });
+    document.getElementById('stopBtn').addEventListener('click', ()=>{
+        stopFlag = true;
+        log('⏹', '已请求停止（当前步骤完成后停止）');
+    });
+    document.getElementById('reportBtn').addEventListener('click', ()=>{
+        const box = document.getElementById('reportBox');
+        box.style.display = box.style.display==='none'?'block':'none';
+        box.textContent = KbDev.buildReportMarkdown(lastResults);
+    });
+})();
+</script>
+</body>
+</html>

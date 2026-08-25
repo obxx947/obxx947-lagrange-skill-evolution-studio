@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>本地语音测试</title></head>
+<body>
+<h3>本地离线语音测试（sherpa-onnx WASM）</h3>
+<div id="log" style="white-space:pre-wrap;font-size:13px;background:#111;color:#0f0;padding:10px;min-height:200px"></div>
+<script src="voice/sherpa/sherpa-onnx-asr.js"></script>
+<script src="voice/sherpa/sherpa-onnx-tts.js"></script>
+<script src="voice/sherpa/sherpa-onnx-vad.js"></script>
+<script src="js/voice.js"></script>
+<script>
+const log=document.getElementById('log');
+function L(t){ log.textContent+=t+'\n'; }
+window.PAGE_BASE='';
+const t0=Date.now();
+(async()=>{
+  try{
+    L('① 初始化 Voice（加载 wasm + 注入模型）...');
+    await Voice.init();
+    L('✅ WASM+模型加载完成（' + ((Date.now()-t0)/1000).toFixed(1) + 's）');
+    // ② TTS 合成
+    L('② TTS 合成中文...');
+    const g = Voice.tts('你好，这是本地语音合成的测试');
+    if(g){
+      L('   TTS OK: 采样 '+g.samples.length+' @'+g.sampleRate+'Hz ('+(g.samples.length/g.sampleRate).toFixed(2)+'s)');
+    } else { L('   ❌ TTS 无输出'); }
+    // ③ ASR 识别 TTS 生成的音频（先重采样 8k→16k 若不匹配）
+    L('③ ASR 识别（用 TTS 输出重采样到 16k）...');
+    const inRate=g.sampleRate, outRate=16000;
+    let audio = g.samples;
+    if(inRate !== outRate){
+      const ratio=outRate/inRate;
+      const out=new Float32Array(Math.floor(audio.length*ratio));
+      for(let i=0;i<out.length;i++){ const p=i/ratio, i0=Math.floor(p), i1=Math.min(i0+1,audio.length-1), f=p-i0; out[i]=audio[i0]*(1-f)+audio[i1]*f; }
+      audio=out;
+    }
+    const text = Voice.asr(audio);
+    L('   ASR 识别: "'+text+'"');
+    const ok = text && text.replace(/[\s，。]/g,'').length>0;
+    L((ok?'④ ✅ 闭环通过：本地 TTS→本地 ASR 识别出文字':'④ ⚠️ 未识别出文字'));
+    L('   总耗时: '+((Date.now()-t0)/1000).toFixed(1)+'s');
+  }catch(e){
+    L('❌ 异常: '+e.message);
+    if(e.stack) L(e.stack.substring(0,300));
+  }
+})();
+</script>
+</body>
+</html>
