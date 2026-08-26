@@ -659,11 +659,11 @@ const AgentEngine = (function(){
         const toolCallCounts={};
         let totalToolCalls=0;
         let last429Retry=0;   // 连续限流重试计数：429 时保留进度重试本轮，成功后归零
-        // 停滞看门狗：默认免费模型紧(120s)；自填/自定义模型放宽(180s)——长推理/工具链/质检过程不易被误判停滞
+        // 停滞看门狗：默认免费模型紧(120s)；自填/自定义模型很大(10分钟)——不因"慢"提前中止(用户自填API取消超时暂停)
         const isFlash = (window.QA && QA.isDefaultFlash && QA.isDefaultFlash(llm));
-        const STALL_MS = isFlash ? 120000 : 180000;
-        // 整轮总超时：默认 flash 150s；自填/自定义 240s（给足长链空间）
-        const TURN_MAX = isFlash ? 150000 : 240000;
+        const STALL_MS = isFlash ? 120000 : 600000;
+        // 整轮总超时：默认 flash 150s；自填/自定义 10 分钟（取消提前超时暂停，让真慢的模型跑完）
+        const TURN_MAX = isFlash ? 150000 : 600000;
         const turnStart=Date.now();
         let lastActivity=Date.now();
         const origEmit=emit;
