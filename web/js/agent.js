@@ -574,7 +574,7 @@ const AgentEngine = (function(){
             // 请求级超时（停滞监测）：默认免费模型按官方建议约40s；其它 120s。由 callLLMRetry 重试
             // 合并「暂停中断」signal 与「超时」signal：用户点暂停会 abort 当前请求
             let signal=null;
-            const tmo = (window.QA && QA.isDefaultFlash && QA.isDefaultFlash(llm)) ? 40000 : 120000;
+            const tmo = (window.QA && QA.isDefaultFlash && QA.isDefaultFlash(llm)) ? 40000 : 170000;   // 自填/自定义模型放宽到170s，避免长推理/工具链被误断
             const sigs=[];
             if(currentAbort) sigs.push(currentAbort.signal);
             if(typeof AbortSignal!=='undefined' && AbortSignal.timeout) sigs.push(AbortSignal.timeout(tmo));
@@ -659,10 +659,11 @@ const AgentEngine = (function(){
         const toolCallCounts={};
         let totalToolCalls=0;
         let last429Retry=0;   // 连续限流重试计数：429 时保留进度重试本轮，成功后归零
-        // 停滞看门狗：任何事件都会刷新时间；超过 120s 无任何输出视为卡死，自动终止并兜底（对话不断）
-        const STALL_MS=120000;
-        // 整轮总超时：最多 150s，超时强制结束释放 isStreaming，避免发送键永久卡死
-        const TURN_MAX=150000;
+        // 停滞看门狗：默认免费模型紧(120s)；自填/自定义模型放宽(180s)——长推理/工具链/质检过程不易被误判停滞
+        const isFlash = (window.QA && QA.isDefaultFlash && QA.isDefaultFlash(llm));
+        const STALL_MS = isFlash ? 120000 : 180000;
+        // 整轮总超时：默认 flash 150s；自填/自定义 240s（给足长链空间）
+        const TURN_MAX = isFlash ? 150000 : 240000;
         const turnStart=Date.now();
         let lastActivity=Date.now();
         const origEmit=emit;
@@ -670,7 +671,9 @@ const AgentEngine = (function(){
         // 工具调用上限：同一工具最多200次，总调用最多2000次；主循环上限200防死循环保底
         for(let i=0;i<200;i++){
             if(Date.now()-turnStart>TURN_MAX){
-                // 静默中止：不向用户弹"超时"提示，仅释放 isStreaming/done，避免卡死（也不显示兜底文案）
+                // 超时：给出简短原因而非静默，避免"思考到一半莫名断开"
+                emit('error','⏱️ 本轮处理超出时间上限，已安全中止');
+                emit('answer','本次回复用时过长，已安全中止以免卡死。请重试一次，或在设置里换用响应更快的模型。', {sources:[], iterations:i+1, qc_feedback:'TURN_TIMEOUT'});
                 emit('done','完成');
                 return;
             }
@@ -679,8 +682,8 @@ const AgentEngine = (function(){
                 return;
             }
             if(Date.now()-lastActivity>STALL_MS){
-                emit('error','⏱️ 检测到流程停滞（超过120秒无响应），已自动中止');
-                emit('answer','抱歉，本次处理因长时间无响应已自动中止，请重试一次。', {sources:[], iterations:i+1, qc_feedback:'STALL_ABORT'});
+                emit('error','⏱️ 检测到长时间无响应，已自动中止（可能是模型响应过慢/网络超时/工具卡住）');
+                emit('answer','本次处理因长时间无响应已自动中止（可能是模型响应慢、网络超时或某个工具卡住）。请重试一次；若反复出现，建议换用更快/更稳的模型，或在设置里检查网络/Key。', {sources:[], iterations:i+1, qc_feedback:'STALL_ABORT'});
                 emit('done','完成');
                 return;
             }
