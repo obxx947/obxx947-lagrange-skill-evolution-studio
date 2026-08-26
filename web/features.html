@@ -181,31 +181,12 @@ body.mobile-ui .container{padding-bottom:calc(20px + env(safe-area-inset-bottom)
 <b>小程序（纯静态）</b>：utils/(agent/qa/kb 8分包/llm 云函数/战斗 websearch ship_db) + 页面(chat/sim/dex/fleet/settings) + cloudfunctions/llm-proxy(SSE)
 </div>
 
-<!-- ========== 9.1 全功能示意图（Mermaid，可导出为图片） ========== -->
-<div class="sec">🧭 全功能示意图（Mermaid · 可导出为图片/嵌入）</div>
-<pre class="md-table" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px;overflow-x:auto;">
-```mermaid
-flowchart TD
-  IN(["用户输入"]) --> IG[意图门<br>需求理解+闲聊判定]
-  IG -->|闲聊| DAILY[直接回答]
-  IG -->|正式| RET1[领域子代理×4<br>本地知识库多路召回]
-  RET1 --> RET2[混合检索<br>TF-IDF + bge语义 + RRF融合<br>噪声过滤/元数据加权/相邻扩展/红线/CRAG]
-  RET2 --> FLEET[检索舰队<br>总Agent 派 ≤3 子Agent<br>意图→多路检索≤50→标注→5维素材包]
-  FLEET --> ASM[组装<br>系统提示词+知识库+Skill+画像+历史]
-  ASM --> LOOP[agentLoop 主循环<br>7+工具:检索/查船/战斗模拟/联网/ask_user/建工具/建Skill]
-  LOOP -->|需用户决定| ASK["ask_user 提问并暂停"]
-  LOOP --> QC[质检<br>Agent-A审计 → Agent-B裁判 ≥75]
-  QC -->|&lt;75 FAIL| LOOP
-  QC --> SUP[监督Agent<br>合规标记]
-  SUP --> OUT["输出<br>回答+来源+折叠块(已思考/运行状态)+👍👎🔊🌿"]
-  OUT --> EVO[进化]
-  EVO -->|自进化| AREF[自动反思→Skill/反模式/画像]
-  EVO -->|人工干预| HUM[👍👎 ·写Skill ·管理页增删改/运行 ·/命令 ·上下文压缩]
-  AREF --> INJ[相关对话按需注入 → 回主Agent]
-  HUM --> INJ
-```
-</pre>
-<div class="tip" style="font-size:0.66rem;">💡 该图可在支持 Mermaid 的地方渲染；也可复制到 <b>mermaid.live</b> 导出为 PNG/SVG（用于项目介绍/宣传）。</div>
+<!-- ========== 9.1 全功能示意图（架构/全流程图） ========== -->
+<div class="sec">🧭 全功能示意图（系统架构 · 完整流程）</div>
+<div style="text-align:center;margin:8px 0;">
+    <img src="assets/architecture.png" alt="无尽的拉格朗日 AI 战术参谋 · 系统流程图" style="max-width:100%;width:100%;border:1px solid var(--border);border-radius:10px;">
+</div>
+<div class="tip" style="font-size:0.66rem;">💡 该图即「用户自填 API Key（完整功能）」下的完整流程：从用户输入 → 意图门/4子代理/混合检索/检索舰队 → agentLoop(7+工具/ask_user/战斗模拟) → 质检A→B → 监督 → 输出 → 自进化×人工干预 → 按需注入；右侧为后端(:3000 可选) 与全部检索方式、每个 Agent 定位。点击图片可放大查看。</div>
 
 <!-- ========== 9.2 两种模式（自配 vs 默认） ========== -->
 <div class="sec">🔧 两种运行模式：自配 API（完整） vs 内建默认（精简）</div>
