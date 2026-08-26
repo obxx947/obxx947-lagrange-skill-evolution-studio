@@ -551,8 +551,10 @@ const AgentEngine = (function(){
         return base;
     }
     async function callLLM(llm, messages, temperature, maxTokens, tools){
-        // 全局并发锁（官方默认模型固定 1 并发）：确保同一时刻最多 1 个 LLM 请求，杜绝 429
-        return (window.LLMLock||{run:(fn)=>fn()}).run(async ()=>{
+        // 并发锁：默认 GLM-4.7-Flash（官方固定1并发）→ 串行 LLMLock；自填/自定义模型 → ≤3 并发 LLMConcurrentLock（提速）
+        const isDef = (window.QA && QA.isDefaultFlash && QA.isDefaultFlash(llm));
+        const lock = isDef ? (window.LLMLock||{run:(fn)=>fn()}) : (window.LLMConcurrentLock||{run:(fn)=>fn()});
+        return lock.run(async ()=>{
             let base=normalizeApiUrl(llm.apiUrl);
             // 版本路径（/v1、/v4 等）已包含时不追加（兼容智谱 /api/paas/v4、DeepSeek /v1、Worker代理自动补 /v1）
             if(!/\/v\d+$/.test(base)) base+='/v1';

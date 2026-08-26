@@ -48,7 +48,7 @@ window.SubAgentPool = SubAgentPool;
 const LLMLock = (function(){
     let chain = Promise.resolve();
     function run(fn){
-        // 前一个请求结束后再执行下一个（无论成败），实现≤1并发
+        // 前一个请求结束后再执行下一个（无论成败），实现≤1并发（用于官方免费 GLM，固定1并发）
         const p = chain.then(fn, fn);
         chain = p.then(()=>{}, ()=>{});   // 吞掉结果，只保留排队语义
         return p;
@@ -56,3 +56,27 @@ const LLMLock = (function(){
     return {run};
 })();
 window.LLMLock = LLMLock;
+
+/* ========================================
+   自填/自定义模型：支持并发的信号量（≤3 并行）
+   ----------------------------------------
+   - 「全局≤1」是免费 GLM-4.7-Flash 的官方硬约束；自定义 API（付费/更高配额）无需连坐。
+   - 这里给自定义模型一个上限 3 的并发，让检索子Agent/质检辩论可真正并行，大幅提速。
+   - 默认 flash 仍走上方 LLMLock（≤1），两把锁互不影响。
+   ======================================== */
+function Semaphore(max){ this.max = max; this.active = 0; this.q = []; }
+Semaphore.prototype.run = function(fn){
+    return new Promise((resolve,reject)=>{
+        const task = () => {
+            this.active++;
+            Promise.resolve().then(fn).then(v=>{ this.active--; resolve(v); this._pump(); },
+                                             e=>{ this.active--; reject(e); this._pump(); });
+        };
+        this.q.push(task); this._pump();
+    });
+};
+Semaphore.prototype._pump = function(){
+    while(this.active < this.max && this.q.length){ const t = this.q.shift(); t(); }
+};
+const LLMConcurrentLock = new Semaphore(3);   // 自定义模型：最多 3 个 LLM 请求并行
+window.LLMConcurrentLock = LLMConcurrentLock;
