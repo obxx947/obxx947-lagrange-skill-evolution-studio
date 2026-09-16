@@ -39,7 +39,7 @@ DEEPSEEK_CHAT_MODEL = os.getenv("DEEPSEEK_CHAT_MODEL", "deepseek-chat")
 # 仅用于前端 web/ 与 APK 默认的后端 LLM 代理；不读取/不启用 DeepSeek 或其它个人配置
 GLM_BASE_URL = os.getenv("GLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
 GLM_MODEL = os.getenv("GLM_MODEL", "glm-4.7-flash")
-_BUILTIN_GLM_KEY = os.getenv("BUILTIN_GLM_KEY", "6278b6111c1b43e78c6602b8371ea088.gOH9StiFipeMO6fc")
+_BUILTIN_GLM_KEY = os.getenv("BUILTIN_GLM_KEY", "6de4c1ff1c86431ba57deed439f452b3.p53BQeDvNdnwC2zo")
 _glm_keys = [k.strip() for k in os.getenv("GLM_API_KEYS", "").split(",") if k.strip()]
 GLM_API_KEYS = _glm_keys or [_BUILTIN_GLM_KEY]
 

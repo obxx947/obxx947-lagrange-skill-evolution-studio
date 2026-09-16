@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>舰船信息库 — 拉格朗日智能体</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#0a0e1a;color:#e8f4ff;min-height:100vh}
+:root{--bg2:#111827;--card:#1a2332;--border:#2d4a6f;--blue:#4a9eff;--cyan:#00d4ff;--gold:#ffd700;--green:#2ed573;--red:#ff4757;--t1:#e8f4ff;--t2:#8ba3c7;--t3:#5a7a9a}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 18px;background:var(--bg2);border-bottom:1px solid var(--border)}
+.topbar .logo{font-size:0.95rem;font-weight:800;background:linear-gradient(135deg,var(--blue),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.topbar .links{display:flex;gap:8px}
+.topbar .links a{color:var(--t2);text-decoration:none;font-size:0.7rem;padding:5px 10px;border-radius:6px;transition:all .2s}
+.topbar .links a:hover{color:#fff;background:rgba(255,255,255,.05)}
+.topbar .links a.active{color:#fff;background:rgba(74,158,255,.15)}
+.container{max-width:1000px;margin:0 auto;padding:20px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:10px}
+.card-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.card-head .name{font-weight:700;font-size:0.82rem}
+.card-head .summary{font-size:0.7rem;color:var(--t2);flex:1;min-width:160px}
+.toast{position:fixed;top:20px;right:20px;padding:10px 18px;border-radius:8px;font-size:0.78rem;z-index:999;transition:all .3s;opacity:0;transform:translateY(-10px)}
+.toast.show{opacity:1;transform:translateY(0)}
+.toast.ok{background:#1a3a2a;border:1px solid var(--green);color:var(--green)}
+.toast.err{background:#3a1a1a;border:1px solid var(--red);color:var(--red)}
+.hint{font-size:0.62rem;color:var(--t3);line-height:1.6;margin-top:6px}
+/* 开关 */
+.switch{position:relative;display:inline-block;width:44px;height:24px}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,.1);border:1px solid var(--border);border-radius:24px;transition:.2s}
+.slider:before{position:absolute;content:"";height:16px;width:16px;left:3px;bottom:3px;background:var(--t2);border-radius:50%;transition:.2s}
+.switch input:checked + .slider{background:rgba(46,213,115,.25);border-color:var(--green)}
+.switch input:checked + .slider:before{transform:translateX(20px);background:var(--green)}
+/* 筛选 */
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:4px 0 14px}
+.filters input,.filters select{background:rgba(0,0,0,.3);border:1px solid var(--border);border-radius:8px;color:var(--t1);padding:8px 12px;font-size:0.75rem;outline:none}
+.filters input{flex:1;min-width:160px}
+.filters input:focus,.filters select:focus{border-color:var(--blue)}
+/* 舰船卡片网格 */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+.ship-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;min-height:96px;transition:all .15s}
+.ship-card.owned{border-color:var(--green);background:rgba(46,213,115,.05)}
+.ship-card .nm{font-size:0.8rem;font-weight:700;line-height:1.35;word-break:break-word;min-height:2.2em}
+.ship-card .meta{font-size:0.6rem;color:var(--t3)}
+.ship-card .meta .super{color:var(--gold)}
+.ship-card .modflag{font-size:0.6rem;color:var(--cyan);word-break:break-word}
+.ship-card .tb{width:100%;padding:7px 6px;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,.05);color:var(--t2);font-size:0.68rem;cursor:pointer;font-family:inherit}
+.ship-card .tb.add{color:var(--green);border-color:var(--green)}
+.ship-card .tb.add:hover{background:rgba(46,213,115,.12)}
+.ship-card .tb.del{color:var(--red);border-color:var(--red)}
+.ship-card .tb.del:hover{background:rgba(255,71,87,.12)}
+.ship-card .tb.mod{color:var(--gold);border-color:var(--gold)}
+.ship-card .tb.mod:hover{background:rgba(255,215,0,.1)}
+.tp-row{display:flex;align-items:center;gap:6px;font-size:0.68rem;margin-top:2px}
+.tp-row .tp-lbl{color:var(--t2)}
+.tp-row .tp-in{width:64px;background:rgba(0,0,0,.3);border:1px solid var(--border);border-radius:6px;color:var(--t1);padding:3px 6px;font-size:0.72rem;outline:none}
+.tp-row .tp-in:focus{border-color:var(--blue)}
+.empty{color:var(--t3);font-size:0.72rem;padding:30px;text-align:center}
+.stats{font-size:0.7rem;color:var(--t3);margin:0 0 8px}
+/* 模块弹窗 */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:2000;display:none;align-items:flex-start;justify-content:center;overflow:auto;padding:30px 16px}
+.overlay.show{display:flex}
+.modal{background:#111827;border:1px solid var(--border);border-radius:14px;max-width:720px;width:100%;padding:18px 20px;box-shadow:0 10px 40px rgba(0,0,0,.5)}
+.modal h3{font-size:1rem;margin-bottom:4px}
+.modal .msub{font-size:0.7rem;color:var(--cyan);margin-bottom:14px}
+.modal .slot{margin-bottom:14px;border-top:1px solid rgba(255,255,255,.08);padding-top:10px}
+.modal .slot .st{font-size:0.78rem;color:var(--gold);font-weight:700;margin-bottom:8px}
+.modal .vars{display:flex;flex-wrap:wrap;gap:8px}
+.modal .var{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:0.7rem;cursor:pointer}
+.modal .var input{width:auto}
+.modal .var.checked{border-color:var(--green);background:rgba(46,213,115,.08)}
+.modal .ma{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.btn{background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--t2);border-radius:6px;padding:7px 16px;font-size:0.7rem;cursor:pointer}
+.btn:hover{color:var(--t1);border-color:var(--blue)}
+.btn.green{color:var(--green);border-color:var(--green)}
+.btn.green:hover{background:rgba(46,213,115,.1)}
+#mobileTabbar{display:none;position:fixed;left:0;right:0;bottom:0;z-index:1200;background:#111827;border-top:1px solid var(--border);padding:4px 6px calc(4px + env(safe-area-inset-bottom))}
+body.mobile-ui #mobileTabbar{display:flex}
+#mobileTabbar .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;background:none;border:none;color:var(--t3);font-size:0.62rem;cursor:pointer;padding:6px 2px;border-radius:10px}
+#mobileTabbar .tab .ti{font-size:1.2rem;line-height:1}
+#mobileTabbar .tab.active{color:var(--cyan)}
+body.mobile-ui{overflow:auto;-webkit-overflow-scrolling:touch}
+body.mobile-ui .topbar .links{display:none}
+body.mobile-ui .container{padding-bottom:calc(20px + env(safe-area-inset-bottom) + 60px)}
+</style>
+</head>
+<body>
+<div class="topbar">
+    <div class="logo">🚀 舰船信息库</div>
+    <div class="links">
+        <a href="chat.html">🤖 AI对话</a>
+        <a href="features.html">🗺️ 功能</a>
+        <a href="index.html">⚓ 模拟器</a>
+        <a href="skills.html">🧠 技能</a>
+        <a href="fleet.html">⚓ 配队</a>
+        <a href="settings.html">⚙️ 设置</a>
+    </div>
+</div>
+<div class="container">
+    <div class="card">
+        <div class="card-head">
+            <span class="name">🕵️ 允许 AI 检索我的舰船库</span>
+            <span class="summary">开启后 AI 能知道你有哪些舰船/模块，配队与建议只基于你拥有的船与模块</span>
+            <label class="switch"><input type="checkbox" id="aiToggle" onchange="toggleAi()"><span class="slider"></span></label>
+        </div>
+        <div class="hint" id="aiHint">默认<b style="color:var(--red)">不允许</b>。开启后，AI 每轮会看到你的舰船清单与超主力模块（【玩家舰船库】），并可用 get_user_ships 工具查询；配队/建议只基于你实际拥有的。关闭立即生效。</div>
+    </div>
+
+    <div class="filters">
+        <input id="fq" placeholder="🔍 搜索舰船名…" oninput="render()">
+        <select id="ft" onchange="render()">
+            <option value="">全部舰种</option>
+            <option value="battlecruiser">战列巡洋舰</option>
+            <option value="battleship">战列舰</option>
+            <option value="aircraftcarrier">航空母舰</option>
+            <option value="support">支援舰</option>
+            <option value="cruiser">巡洋舰</option>
+            <option value="destroyer">驱逐舰</option>
+            <option value="frigate">护卫舰</option>
+            <option value="corvette">护航艇</option>
+            <option value="fighter">战机</option>
+        </select>
+        <span class="stats" id="stats"></span>
+    </div>
+
+    <div class="grid" id="grid"></div>
+    <div class="empty" id="empty" style="display:none">🔍 没有匹配的舰船。</div>
+</div>
+
+<!-- 模块弹窗 -->
+<div class="overlay" id="modModal">
+    <div class="modal">
+        <h3 id="mmName"></h3>
+        <div class="msub" id="mmSub"></div>
+        <div id="mmBody"></div>
+        <div class="ma">
+            <button class="btn" onclick="closeMods()">取消</button>
+            <button class="btn green" onclick="saveMods()">✅ 保存模块</button>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="js/kb.js"></script>
+<script src="js/user_ships.js"></script>
+<script>
+let esc=function(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
+function toast(msg,type){ const t=document.getElementById('toast'); t.textContent=msg; t.className='toast '+type+' show'; setTimeout(()=>t.classList.remove('show'),3000); }
+let ALL=[];
+let curModsId='';
+let curModsRaw=null;
+
+function toggleAi(){
+    const on=document.getElementById('aiToggle').checked;
+    UserShipDB.setAiAccess(on);
+    setAiHint(on);
+    toast(on?'已允许 AI 检索舰船库':'已关闭 AI 检索舰船库', on?'ok':'err');
+}
+function setAiHint(on){
+    document.getElementById('aiHint').innerHTML=on
+      ? '✅ 已开启。AI 会看到你<b style="color:var(--green)">已添加</b>的舰船与超主力模块，配队/建议只基于这些。'
+      : '默认<b style="color:var(--red)">不允许</b>。开启后 AI 每轮看到你的舰船清单与模块；关闭立即生效。';
+}
+
+// 初始化：加载全部舰船
+(async function init(){
+    document.getElementById('aiToggle').checked=UserShipDB.aiEnabled();
+    setAiHint(UserShipDB.aiEnabled());
+    await SHIP_DB.load();
+    ALL=SHIP_DB.all();
+    render();
+})();
+
+function render(){
+    const q=(document.getElementById('fq').value||'').trim().toLowerCase();
+    const t=document.getElementById('ft').value;
+    const list=ALL.filter(s=>{
+        if(t && s.type!==t) return false;
+        if(q && !(String(s.name||'').toLowerCase().includes(q)||String(s.id||'').toLowerCase().includes(q))) return false;
+        return true;
+    });
+    document.getElementById('stats').textContent='显示 '+list.length+' 艘 / 共 '+ALL.length+' 艘 · 已拥有 '+UserShipDB.getOwnedShips().length+' 艘';
+    const g=document.getElementById('grid');
+    document.getElementById('empty').style.display=list.length?'none':'block';
+    g.innerHTML=list.map(s=>{
+        const owned=UserShipDB.isOwned(s.id);
+        const superType=UserShipDB.isSuperType(s.type);
+        const mods=owned?UserShipDB.getShipMods(s.id):{};
+        const modsStr=UserShipDB.modsText(mods);
+        const tn=UserShipDB.typeLabel(s.type);
+        return `<div class="ship-card ${owned?'owned':''}">
+            <div class="nm">${esc(s.name)}</div>
+            <div class="meta">${tn}${superType?' · <span class="super">超主力</span>':''}${s.commandValue>0?' · 人口'+s.commandValue:''}${s.serviceLimit?' · 服役'+s.serviceLimit:''}</div>
+            ${owned&&modsStr?`<div class="modflag">模块: ${esc(modsStr)}</div>`:''}
+            ${owned?`<div class="tp-row"><span class="tp-lbl">蓝点</span><input type="number" min="0" class="tp-in" data-key="${s.id}" value="${UserShipDB.getTechPoints(s.id)}" oninput="setTP('${s.id}',this.value)"></div>`:''}
+            <div style="display:flex;flex-direction:column;gap:6px;margin-top:auto">
+                <button class="tb ${owned?'del':'add'}" onclick="toggleOwned('${s.id}')">${owned?'✖ 删除该舰船':'▣ 添加此舰船'}</button>
+                ${superType?`<button class="tb mod" onclick="openMods('${s.id}')">🔧 勾选模块</button>`:''}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function toggleOwned(id){
+    const s=ALL.find(x=>x.id===id); if(!s) return;
+    UserShipDB.toggleOwned({shipKey:id, name:s.name, type:s.type, isSuper:UserShipDB.isSuperType(s.type)});
+    const now=UserShipDB.isOwned(id);
+    toast((now?'已「'+s.name+'」加入舰船库':'已「'+s.name+'」移出舰船库'),'ok');
+    render();
+}
+function setTP(id, val){ UserShipDB.setTechPoints(id, val); }
+
+// 模块弹窗
+function openMods(id){
+    curModsId=id;
+    const raw=SHIP_DB.get(id);   // 原始对象含 moduleGroup.variants
+    curModsRaw=raw;
+    const s=ALL.find(x=>x.id===id);
+    document.getElementById('mmName').textContent=s?s.name:id;
+    document.getElementById('mmSub').textContent=(UserShipDB.typeLabel(s&&s.type))+' · 勾选你拥有的模块（可多选；同槽可多个，可用不同模块）';
+    const opts=UserShipDB.slotOptions(raw);
+    const owned=UserShipDB.getShipMods(id);
+    const body=document.getElementById('mmBody');
+    const keys=Object.keys(opts);
+    if(!keys.length){ body.innerHTML='<div class="hint">该舰没有可勾选的模块。</div>'; }
+    else {
+        body.innerHTML=keys.map(k=>{
+            const vars=opts[k];
+            return `<div class="slot"><div class="st">${esc(k)}槽 · ${esc((raw.modules&&raw.modules[k]&&raw.modules[k].name)||'')}</div>
+                <div class="vars">${vars.map(v=>`
+                    <label class="var ${(owned[k]||[]).includes(v)?'checked':''}"><input type="checkbox" data-slot="${esc(k)}" data-v="${esc(v)}" ${(owned[k]||[]).includes(v)?'checked':''}> <span>${esc(v)} ${esc((raw.modules&&raw.modules[k]&&raw.modules[k].variants&&raw.modules[k].variants[v]&&raw.modules[k].variants[v].name)||'')}</span></label>
+                `).join('')}</div></div>`;
+        }).join('');
+    }
+    document.getElementById('modModal').classList.add('show');
+}
+function closeMods(){ document.getElementById('modModal').classList.remove('show'); curModsId=''; }
+function saveMods(){
+    const mods={};
+    document.querySelectorAll('#mmBody input[type=checkbox]').forEach(cb=>{
+        if(cb.checked){ const sl=cb.getAttribute('data-slot'), v=cb.getAttribute('data-v'); (mods[sl]=mods[sl]||[]).push(v); }
+    });
+    UserShipDB.setShipMods(curModsId, mods);
+    closeMods(); render();
+    toast('✅ 模块已保存','ok');
+}
+// 点弹窗空白关闭
+document.getElementById('modModal').addEventListener('click',e=>{ if(e.target===document.getElementById('modModal')) closeMods(); });
+
+// 手机底部 Tab（舰船为当前页）
+let mt=document.createElement('div'); mt.id='mobileTabbar';
+mt.innerHTML='<button class="tab" onclick="location.href=\'chat.html\'"><span class="ti">💬</span>对话</button>'+
+  '<button class="tab active" onclick="location.href=\'ships.html\'"><span class="ti">🚀</span>舰船</button>'+
+  '<button class="tab" onclick="location.href=\'features.html\'"><span class="ti">🗺️</span>功能</button>'+
+  '<button class="tab" onclick="location.href=\'settings.html\'"><span class="ti">⚙️</span>设置</button>';
+document.body.appendChild(mt);
+function applyMobile(){ document.body.classList.toggle('mobile-ui', window.matchMedia('(max-width:700px) and (max-aspect-ratio:1/1)').matches); }
+applyMobile(); window.addEventListener('resize',applyMobile); window.addEventListener('orientationchange',applyMobile);
+</script>
+</body>
+</html>

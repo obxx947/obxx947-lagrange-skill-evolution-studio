@@ -405,6 +405,8 @@ async def _run_loop(messages, user_message, all_rag_docs, web_results, api_key, 
     max_iterations = 200
     iteration = 0
     qc_regen_count = 0   # FULL_REGEN 重跑计数（≤6，与质检任务迭代上限一致）
+    trunc_retry = 0      # 截断续写计数（≤4，防"正在续写"无限循环）
+    full_answer = ""     # 拼接各续写段
     tool_counts = tool_counts or {}
     # 质检需要不带 /v1 的基础地址（quality_check 内部会自行拼接 /v1）
     qc_api_url = base_url[:-3] if base_url.endswith("/v1") else base_url
@@ -579,15 +581,20 @@ async def _run_loop(messages, user_message, all_rag_docs, web_results, api_key, 
                     # 继续循环让AI处理工具结果
                     continue
 
-                # 无工具调用 → 得到最终回答
-                answer = msg.get("content", "")
+                # 无工具调用 → 得到最终回答（拼接此前的续写段）
+                content = msg.get("content", "") or ""
+                answer = (full_answer + content) if full_answer else content
 
-                # 回答被截断检测（reasoner 模型 reasoning 占用 max_tokens 导致正文中断）：续写完整后再质检
+                # 回答被截断检测（reasoner 模型 reasoning 占用 max_tokens 导致正文中断）：续写完整后再质检（最多续写4次，防无限循环）
                 if not msg.get("tool_calls") and choice.get("finish_reason") == "length":
-                    yield _sse("status", "⏳ 检测到回答被截断，正在续写完整...")
-                    messages.append({"role": "assistant", "content": answer or ""})
-                    messages.append({"role": "user", "content": "【系统提示】你的上一轮回答因长度限制被截断。请从上次中断处继续，完整输出剩余内容（包括所有未完成的三轮评测、打分与结论），不要重复已输出的部分，不要调用任何工具。"})
-                    continue
+                    trunc_retry += 1
+                    full_answer = answer
+                    if trunc_retry <= 4:
+                        yield _sse("status", f"⏳ 检测到回答被截断，正在续写完整...（{trunc_retry}/4）")
+                        messages.append({"role": "assistant", "content": answer or ""})
+                        messages.append({"role": "user", "content": "【系统提示】你的上一轮回答因长度限制被截断。请从上次中断处继续，完整输出剩余内容（包括所有未完成的三轮评测、打分与结论），不要重复已输出的部分，不要调用任何工具。"})
+                        continue
+                    yield _sse("status", "⚠️ 续写已达上限（4次），按当前内容收尾")
 
                 # 质检（FACT-AUDIT 流水线：拆解→证据→多裁判→五层→评分→局部修正）
                 yield _sse("status", "🔬 质检中（主张拆解→证据检索→多裁判辩论→五层审计→量化评分）...")

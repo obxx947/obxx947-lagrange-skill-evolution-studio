@@ -59,6 +59,8 @@ body.mobile-ui .container{padding-bottom:calc(20px + env(safe-area-inset-bottom)
     <div class="links">
         <a href="chat.html">🤖 AI对话</a>
         <a href="simulator.html">⚔️ 模拟器</a>
+        <a href="ships.html">🚀 舰船</a>
+        <a href="fleet.html">⚓ 配队</a>
         <a href="skills.html">🧠 技能/工具</a>
         <a href="settings.html">⚙️ 设置</a>
         <a href="index.html">🏠 首页</a>
@@ -140,6 +142,19 @@ body.mobile-ui .container{padding-bottom:calc(20px + env(safe-area-inset-bottom)
     <div class="card"><div class="ico">⭐</div><div class="name">A资料1-400 高优先</div><div class="desc">编号靠前的 A 资料优先参考，高于其后所有资料。</div><span class="tag">优先级</span></div>
     <div class="card"><div class="ico">🛰️</div><div class="name">检索舰队（非默认模型）</div><div class="desc">子Agent出检索意图 → 多路检索(向量/关键词/分类/舰船名，≤50) → 解析标注(高/中/低/疑似) → 总Agent 5维提炼【检索素材包】；默认 Flash 跳过。</div><span class="tag">舰队</span></div>
     <div class="card"><div class="ico">🌐</div><div class="name">联网搜索（可配）</div><div class="desc">搜索代理→Tavily→免key Bing 多级降级，补充资料库外信息；未配置则友好提示。</div><span class="tag">外部</span></div>
+</div>
+
+<!-- ========== 工具集（名称 + 用途） ========== -->
+<div class="sec">🧰 工具集 Toolset（agentLoop 主循环可调，名称可被斜杠命令直接调用）</div>
+<div class="grid">
+    <div class="card"><div class="ico">📚</div><div class="name"><code>search_knowledge_base</code></div><div class="desc">检索知识库（舰船/机制/实例/黑话等），按 query + category 定向召回。</div><span class="tag">知识库</span></div>
+    <div class="card"><div class="ico">🚢</div><div class="name"><code>get_ship_data</code></div><div class="desc">精确查某舰船的 HP/护甲/模块/服役数上限/人口/载机等。</div><span class="tag">舰船</span></div>
+    <div class="card"><div class="ico">⚔️</div><div class="name"><code>battle_simulate</code></div><div class="desc">四舰队/增援/旗舰/缝合/自定义船的战斗模拟推演（前端）。</div><span class="tag">战斗</span></div>
+    <div class="card"><div class="ico">🌐</div><div class="name"><code>web_search</code></div><div class="desc">联网搜索（搜索代理→Tavily→免key Bing 多级降级）。</div><span class="tag">外部</span></div>
+    <div class="card"><div class="ico">❓</div><div class="name"><code>ask_user</code></div><div class="desc">向用户提问澄清（如加入/选用舰船需你确认、条件不足时），并暂停等待。</div><span class="tag">交互</span></div>
+    <div class="card"><div class="ico">🛠️</div><div class="name"><code>create_tool</code></div><div class="desc">LLM 自主创建安全工具（语法自检 + LLM 安全审查 + 强制检索知识库）。</div><span class="tag">自建</span></div>
+    <div class="card"><div class="ico">⭐</div><div class="name"><code>create_skill</code></div><div class="desc">用户要求"保存为skill" → LLM 直接创建经验技能，下次按需注入。</div><span class="tag">技能</span></div>
+    <div class="card"><div class="ico">🧩</div><div class="name">自定义工具（+）</div><div class="desc">自定义工具(LLM 自建/已过自检) + SkillSystem 动态注入；工具管理页可启停/删除/自检。</div><span class="tag">扩展</span></div>
 </div>
 
 <!-- ========== 7. 模型生态 ========== -->
@@ -775,6 +790,7 @@ e) 如果当前消息短到无法独立判断，且前轮没有明确上下文�
 // 手机端底部 Tab
 let mt=document.createElement('div'); mt.id='mobileTabbar';
 mt.innerHTML='<button class="tab" onclick="location.href=\'chat.html\'"><span class="ti">💬</span>对话</button>'+
+  '<button class="tab" onclick="location.href=\'ships.html\'"><span class="ti">🚀</span>舰船</button>'+
   '<button class="tab" onclick="location.href=\'skills.html\'"><span class="ti">🧠</span>技能工具</button>'+
   '<button class="tab active" onclick="location.href=\'features.html\'"><span class="ti">🗺️</span>功能</button>'+
   '<button class="tab" onclick="location.href=\'settings.html\'"><span class="ti">⚙️</span>设置</button>';

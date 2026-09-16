@@ -14,14 +14,17 @@ const KbEmbed = (function(){
     function getEmbedCfg(){
         try{
             const cfg = JSON.parse(localStorage.getItem('lagrange_static_config')||'{}');
-            const proxy = cfg.glm_proxy_url || '';
-            // 向量通道：优先代理(隐藏key)；否则直连智谱(用内置/用户key)
-            if(proxy){
-                return {apiKey:'proxy', apiUrl:proxy, model:'embedding-3'};
-            }
-            const key = cfg.glm_api_key || (window.AgentEngine && AgentEngine.getActiveLLM ? AgentEngine.getActiveLLM().apiKey : '');
-            return {apiKey:key, apiUrl:'https://open.bigmodel.cn/api/paas/v4', model:'embedding-3'};
-        }catch(e){ return {apiKey:'', apiUrl:'https://open.bigmodel.cn/api/paas/v4', model:'embedding-3'}; }
+            const kmod = cfg.kb_embed_model || 'embedding-3';
+            // 1) 设置页显式配置的 RAG 嵌入（优先）
+            const kapi=(cfg.kb_embed_api||'').trim(), kkey=(cfg.kb_embed_key||'').trim();
+            if(kkey) return {apiKey:kkey, apiUrl:kapi||'https://open.bigmodel.cn/api/paas/v4', model:kmod};
+            // 2) 代理（隐藏 key）
+            if(cfg.glm_proxy_url) return {apiKey:'proxy', apiUrl:cfg.glm_proxy_url, model:kmod};
+            // 3) 用户自配的智谱 key
+            if(cfg.glm_api_key) return {apiKey:cfg.glm_api_key, apiUrl:'https://open.bigmodel.cn/api/paas/v4', model:kmod};
+            // 4) 无可用嵌入凭据（例如当前用的是 DeepSeek 等非智谱模型）→ 不调向量，上层降级为 TF-IDF 稀疏检索
+            return {apiKey:'', apiUrl:'', model:kmod};
+        }catch(e){ return {apiKey:'', apiUrl:'', model:'embedding-3'}; }
     }
 
     // ======== 限流重试（429 → 指数退避，与 agent.js 一致） ========
@@ -49,6 +52,8 @@ const KbEmbed = (function(){
                 return emb;
             }catch(e){
                 lastErr = e;
+                // 鉴权/权限错误（401/403）：重试无意义 → 立即失败，由上层降级为稀疏(TF-IDF)检索
+                if(/HTTP\s*(401|403)\b/.test(String((e&&e.message)||''))) throw e;
                 if(is429(e) && i<3){
                     await new Promise(res=>setTimeout(res, 3000*Math.pow(2,i+1)));
                     continue;

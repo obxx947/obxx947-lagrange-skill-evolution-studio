@@ -156,6 +156,13 @@ body.mobile-ui .nav{display:none}
 </div>
 
 <div class="card">
+<div class="ct">⚙️ 运行模式</div>
+<label style="display:flex;align-items:center;gap:8px;font-size:0.78rem;margin:4px 0;"><input type="radio" name="run_mode" value="fast"> ⚡ 快速模式（拼装：代码检索思路→现成配置→1次LLM拼装，&lt;60s，不做质检/迭代）</label>
+<label style="display:flex;align-items:center;gap:8px;font-size:0.78rem;margin:4px 0;"><input type="radio" name="run_mode" value="plan"> 📋 计划模式（按计划审批规则，逐艘确认后入队）</label>
+<label style="display:flex;align-items:center;gap:8px;font-size:0.78rem;margin:4px 0;"><input type="radio" name="run_mode" value="normal" checked> 🧠 普通模式（推理：多Agent迭代评测+质检A/B，较慢但深度）</label>
+</div>
+
+<div class="card">
 <div class="ct">🧠 知识库向量检索（RAG）</div>
 <label>Embedding API 地址 <span style="color:var(--t3);font-size:0.6rem;">(文档向量已在离线预处理，此处仅供 query 向量)</span></label>
 <input type="text" id="kb_embed_api" placeholder="https://open.bigmodel.cn/api/paas/v4">
@@ -179,7 +186,7 @@ body.mobile-ui .nav{display:none}
 <button class="btn btn-p" onclick="saveCfg()">💾 保存配置</button>
 </div>
 <div class="nav">
-<a href="index.html">⚓ 模拟器</a> · <a href="chat.html">🤖 AI对话</a> · <a href="features.html">🗺️ 功能</a> · <a href="#" onclick="return false">📖 项目介绍</a>
+<a href="index.html">⚓ 模拟器</a> · <a href="chat.html">🤖 AI对话</a> · <a href="ships.html">🚀 舰船</a> · <a href="fleet.html">⚓ 配队</a> · <a href="features.html">🗺️ 功能</a> · <a href="#" onclick="return false">📖 项目介绍</a>
 </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -226,6 +233,8 @@ async function load(){
         const mt=document.getElementById('max_tokens');
         mt.value=c.max_tokens||100000;
         mt.dispatchEvent(new Event('input'));
+        const rv=c.assemble_mode?'fast':(c.plan_mode?'plan':'normal');
+        const rsel=document.querySelector('input[name=run_mode][value="'+rv+'"]'); if(rsel) rsel.checked=true;
         window._savedModels = c.models || [];
         renderModels();
         try{ renderStats(); }catch(e){}
@@ -326,6 +335,7 @@ async function saveModels(){
 async function saveCfg(){
     let old={};
     try{ old=JSON.parse(localStorage.getItem('lagrange_static_config')||'{}'); }catch(e){}
+    const rmEl=document.querySelector('input[name=run_mode]:checked'); const rmv=rmEl?rmEl.value:'normal';
     const cfg={
         ...old,   // 保留旧字段（llm_api_key 等，兼容旧配置）
         max_tokens:parseInt(document.getElementById('max_tokens').value)||100000,
@@ -343,6 +353,9 @@ async function saveCfg(){
         glm_model:document.getElementById('glm_model').value,
         glm_vision_api_key:document.getElementById('glm_vision_api_key').value.trim(),
         glm_vision_model:document.getElementById('glm_vision_model').value,
+        // 运行模式：快速(拼装) / 计划(审批) / 普通(推理)
+        assemble_mode:rmv==='fast',
+        plan_mode:rmv==='plan',
     };
     try{
         localStorage.setItem('lagrange_static_config',JSON.stringify(cfg));
@@ -404,6 +417,7 @@ load(); upEst();
 // 手机端底部 Tab
 let mt=document.createElement('div'); mt.id='mobileTabbar';
 mt.innerHTML='<button class="tab" onclick="location.href=\'chat.html\'"><span class="ti">💬</span>对话</button>'+
+  '<button class="tab" onclick="location.href=\'ships.html\'"><span class="ti">🚀</span>舰船</button>'+
   '<button class="tab" onclick="location.href=\'skills.html\'"><span class="ti">🧠</span>技能工具</button>'+
   '<button class="tab" onclick="location.href=\'features.html\'"><span class="ti">🗺️</span>功能</button>'+
   '<button class="tab active" onclick="location.href=\'settings.html\'"><span class="ti">⚙️</span>设置</button>';

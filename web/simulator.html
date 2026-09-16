@@ -3261,6 +3261,33 @@
     }
 
     document.addEventListener('DOMContentLoaded', init);
+
+    // ===== 从「战舰配队」页导入舰队 =====
+    document.addEventListener('DOMContentLoaded', function(){
+        setTimeout(function(){
+            try{
+                if(!/[?&]import=1/.test(location.search)) return;
+                var raw=localStorage.getItem('lagrange_sim_import'); if(!raw) return;
+                localStorage.removeItem('lagrange_sim_import');
+                var f=JSON.parse(raw);
+                var build=function(arr){ return (arr||[]).map(function(s){
+                    var base=SHIP_DATABASE[s.id]; if(!base) return null;
+                    var e=JSON.parse(JSON.stringify(base));
+                    e.count=s.qty||1; e.aircraft=s.air||[]; e.selectedModules={};
+                    if(s.mods) Object.keys(s.mods).forEach(function(k){ e.selectedModules[k]=s.mods[k]; });
+                    return e;
+                }).filter(Boolean); };
+                fleetData['ally-escort'].main=build(f.main);
+                fleetData['ally-escort'].reinforcement=build(f.reinforcement);
+                fleetData['ally-escort'].flagship=f.flagship||null;
+                currentFleetType='ally-escort';
+                try{ renderFleetPanels(); }catch(e){}
+                try{ if(typeof renderFleetEditorContent==='function') renderFleetEditorContent(); }catch(e){}
+                console.log('已导入配队:', f.name, '主', (f.main||[]).length, '增援', (f.reinforcement||[]).length);
+                alert('已导入配队：'+(f.name||'')+'\n主舰队 '+(f.main||[]).length+' 种 · 增援 '+(f.reinforcement||[]).length+' 种');
+            }catch(e){ console.error('舰队导入失败', e); }
+        }, 900);
+    });
     </script>
     <script src="js/chat.js"></script>
 </body>

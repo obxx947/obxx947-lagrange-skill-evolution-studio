@@ -11,7 +11,7 @@ const AgentEngine = (function(){
     // ======== 默认云端代理（零配置开箱即用） ========
     // 内置默认智谱 Key（方案B：开箱即用直连；注意：公开部署会暴露此 Key，仅个人/局域网用。
     // 若需公开部署安全，请改用代理模式——把下方 DEFAULT_GLM_PROXY 指向你的云函数，并去掉内置 Key）
-    const BUILTIN_GLM_KEY = '6278b6111c1b43e78c6602b8371ea088.gOH9StiFipeMO6fc';
+    const BUILTIN_GLM_KEY = '6de4c1ff1c86431ba57deed439f452b3.p53BQeDvNdnwC2zo';
     const NEW_BUILTIN = true;
     // 代理地址（可选；若填了此地址且提供了 key 之前用代理。当前默认直连）
     const DEFAULT_GLM_PROXY = '';
@@ -98,9 +98,9 @@ const AgentEngine = (function(){
         }},
         {type:"function", function:{
             name:"get_ship_data",
-            description:"精确查询某艘舰船的完整参数（HP、护甲、武器、模块等）。当用户问及具体舰船时调用。",
+            description:"精确查询某艘舰船的完整参数（人口、服役数上限、HP、护甲、武器、模块等）。【硬性要求】当用户要配队/把某艘舰船放入舰队方案前，必须先调用本工具查询该舰的人口(commandValue)与服役数上限(serviceLimit)，核对总人口与服役数是否超限、能否编入，再决定是否放入。",
             parameters:{type:"object", properties:{
-                ship_name:{type:"string", description:"舰船名称或ID，如'CAS066'、'阋神重炮'、'爱奥'"}
+                ship_name:{type:"string", description:"舰船名称或ID，如'大帝'、'CAS066'、'爱奥'"}
             }, required:["ship_name"]}
         }},
         {type:"function", function:{
@@ -149,12 +149,70 @@ const AgentEngine = (function(){
         }}
     ];
 
+    // 配队工具：AI 配好队后"调用"它输出结构化配队（前端渲染成卡片，点击进配队页）
+    const MAKE_FLEET_TOOL = {type:"function", function:{
+        name:"make_fleet",
+        description:"【配队输出专用】当你为用户给出/拟定了一套舰队配置时，必须调用本工具把它输出（不要在正文里再写配置表）。前端会把结果渲染成一张配队卡片，用户点击即可进入「战舰配队」页继续编辑。",
+        parameters:{type:"object", properties:{
+            name:{type:"string", description:"方案名称，如「420+5 护航抗伤队」"},
+            reason:{type:"string", description:"一句话说明配队思路/理由"},
+            main:{type:"array", description:"主舰队（占用人口）", items:{type:"object", properties:{
+                pos:{type:"string", description:"站位：前排/中排/后排（可空）"},
+                ship:{type:"string", description:"舰船名（可用黑话，如 大帝/大盾/大矛/五九/风暴）"},
+                count:{type:"number", description:"数量（不超过服役上限）"},
+                mods:{type:"string", description:"模块，如 M1+A2（超主力可填，可空）"},
+                air:{type:"string", description:"搭载舰载机，如 天玑A×10 海尔波普A×8（可空）"}
+            }, required:["ship","count"]}},
+            reinforcement:{type:"array", description:"增援编队（不占人口，最多9艘）", items:{type:"object", properties:{
+                ship:{type:"string", description:"舰船名"},
+                count:{type:"number", description:"数量"},
+                mods:{type:"string", description:"模块（可空）"},
+                air:{type:"string", description:"搭载舰载机（可空）"}
+            }, required:["ship","count"]}},
+            notes:{type:"string", description:"补充说明（打分/短板等，可空）"}
+        }, required:["name","main"]}
+    }};
+    const FLEET_TOOLS=[MAKE_FLEET_TOOL];
+    // 工具入参(舰名字符串) → 前端配队结构
+    function normalizeFleetArgs(args){
+        const FS=window.FleetIO;
+        const normOne=(it,pos)=>{
+            const raw=String(it.ship||'').trim(); if(!raw) return null;
+            const ship=FS?FS.matchShip(raw):null;
+            const mods={};
+            (String(it.mods||'').toUpperCase().match(/[MABCDEFGH]\d/g)||[]).forEach(m=>{ mods[m[0]]=m; });
+            const air=[];
+            (String(it.air||'').match(/[\u4e00-\u9fa5A-Za-z0-9\-]+\s*[×xX*]\s*\d+/g)||[]).forEach(t=>{
+                const mm=t.match(/^([\u4e00-\u9fa5A-Za-z0-9\-]+)\s*[×xX*]\s*(\d+)$/);
+                if(!mm) return;
+                const a=FS?FS.matchShip(mm[1]):null;
+                air.push({id:a?a.id:'', name:a?a.name:mm[1], kind:(a&&a.type==='corvette')?'corvette':'fighter', qty:parseInt(mm[2],10)});
+            });
+            return { id:ship?ship.id:'', name:ship?ship.name:raw, raw, pos:it.pos||pos||'', qty:Math.max(1,parseInt(it.count,10)||1), mods, air };
+        };
+        const main=(args.main||[]).map(x=>normOne(x,'')).filter(Boolean);
+        const reinforcement=(args.reinforcement||[]).map(x=>normOne(x,'增援')).filter(Boolean);
+        return { name:String(args.name||'AI配队'), desc:String(args.notes||''), reason:String(args.reason||''), main, reinforcement };
+    }
+
+    // 用户舰船库工具：仅在用户开启「允许AI检索舰船库」时注册（UserShipDB.aiEnabled()）
+    const USER_SHIP_TOOL = {type:"function", function:{
+        name:"get_user_ships",
+        description:"查询玩家自己账号【实际拥有】哪些舰船及其【超主力模块】。【硬性用法】①配队/给配置建议前：先调用本工具确认用户是否拥有拟用舰船与模块——用户没拥有的船/模块，绝不能推荐使用；只能基于用户已有的船与模块给方案。②给发展/养成建议：调用本工具看用户已有哪些船，结合舰船数据库判断用户缺少哪些船，给出升级/补齐方向。不传 ship_name 返回玩家已拥有的全部舰船（超主力伴随其拥有的模块）；传某个舰船名/ID 则查该船的拥有状态与其模块。",
+        parameters:{type:"object", properties:{
+            ship_name:{type:"string", description:"可选。舰船名称或ID，如 '大帝'、'constantine'。不传则返回玩家全部已拥有舰船。"}
+        }}
+    }};
+
     // ======== 工具执行 ========
     // 完整工具集 = 内置 TOOLS + 已激活的自定义工具（LLM 自主创建，自检通过后注册）
     function getTools(){
         let custom=[];
         try{ custom = (window.SkillSystem && SkillSystem.getActiveTools) ? SkillSystem.getActiveTools() : []; }catch(e){}
-        return TOOLS.concat(custom);
+        let extra=[];
+        try{ if(window.UserShipDB && UserShipDB.aiEnabled && UserShipDB.aiEnabled()) extra=[USER_SHIP_TOOL]; }catch(e){}
+        // 配队工具始终可用（AI 用它输出配队卡片）
+        return TOOLS.concat(FLEET_TOOLS).concat(custom).concat(extra);
     }
     async function executeTool(name, args, emit){
         if(name==='search_knowledge_base'){
@@ -178,7 +236,13 @@ const AgentEngine = (function(){
             await SHIP_DB.load();
             const ships=SHIP_DB.search(args.ship_name||'');
             if(!ships.length) return JSON.stringify({exact_match:false, message:("未找到精确匹配的舰船，请检查名称或尝试查询黑话文件")});
-            return JSON.stringify({exact_match:true, count:ships.length, ships:ships.slice(0,5)},null,2);
+            const clean=ships.slice(0,5).map(s=>({
+                id:s.id, name:s.name, type:s.type,
+                人口:s.commandValue, 服役数上限:s.serviceLimit,
+                hp:s.hp, physicalArmor:s.physicalArmor, energyArmor:s.energyArmor,
+                position:s.position, speed:s.speed, modules:s.modules
+            }));
+            return JSON.stringify({exact_match:true, count:ships.length, note:"人口=编排所需人口, 服役数上限=可同时配备的最大艘数; 核对这两项后再放入舰队", ships:clean},null,2);
         }
         if(name==='battle_simulate'){
             return battleSim(args.fleet_config||{}, args.scenario||'escort');
@@ -195,6 +259,23 @@ const AgentEngine = (function(){
             // 用户口头要求"保存为skill" → LLM 直接创建
             try{ return await window.SkillSystem.createSkillFromRequest(args); }
             catch(e){ return JSON.stringify({error:'创建skill失败: '+String(e.message||e).substring(0,200)}); }
+        }
+        if(name==='get_user_ships'){
+            // 用户舰船库：仅在用户开启AI检索时注册；底层 UserShipDB.searchTool
+            try{ return window.UserShipDB && window.UserShipDB.searchTool ? window.UserShipDB.searchTool(args.ship_name||'') : JSON.stringify({allowed:false, message:'用户舰船库不可用'}); }
+            catch(e){ return JSON.stringify({error:'get_user_ships 查询失败: '+String(e.message||e).substring(0,100)}); }
+        }
+        if(name==='make_fleet'){
+            // 配队输出：规整为结构化配队 → 发 fleet_card 事件（前端渲染卡片）→ 存好供"打开配队"跳转
+            try{
+                await SHIP_DB.load();
+                const fleet=normalizeFleetArgs(args||{});
+                try{ window.__lastFleet=fleet; }catch(e){}
+                try{ if(window.FleetIO) FleetIO.toFleet({name:fleet.name, desc:fleet.desc, reason:fleet.reason, main:fleet.main, reinforce:fleet.reinforcement, air:[]}); }catch(e){}
+                try{ emit('fleet_card', JSON.stringify(fleet), {name:fleet.name}); }catch(e){}
+                return JSON.stringify({ok:true, 已生成配队卡片:true, 主舰队:fleet.main.length+'种', 增援:fleet.reinforcement.length+'种',
+                    说明:'配队卡片已推送给用户（用户可点击卡片进入「战舰配队」页）。请不要在正文里重复输出配置表格，只用一两句话说明配队思路/理由/打分即可。'});
+            }catch(e){ return JSON.stringify({error:'make_fleet 失败: '+String(e.message||e).substring(0,140)}); }
         }
         // 自定义工具（LLM 自主创建，已通过自检）
         if(window.SkillSystem){
@@ -551,9 +632,9 @@ const AgentEngine = (function(){
         return base;
     }
     async function callLLM(llm, messages, temperature, maxTokens, tools){
-        // 并发锁：默认 GLM-4.7-Flash（官方固定1并发）→ 串行 LLMLock；自填/自定义模型 → ≤3 并发 LLMConcurrentLock（提速）
+        // 并发:默认 GLM-4.7-Flash(内置免费key,怕429)→LLMLock串行≤1；自填/自定义key→无锁并发放开(暂时)
         const isDef = (window.QA && QA.isDefaultFlash && QA.isDefaultFlash(llm));
-        const lock = isDef ? (window.LLMLock||{run:(fn)=>fn()}) : (window.LLMConcurrentLock||{run:(fn)=>fn()});
+        const lock = {run:(fn)=>fn()};   // 全放开发放开(暂时):无锁, 并发无上限
         return lock.run(async ()=>{
             let base=normalizeApiUrl(llm.apiUrl);
             // 版本路径（/v1、/v4 等）已包含时不追加（兼容智谱 /api/paas/v4、DeepSeek /v1、Worker代理自动补 /v1）
@@ -659,17 +740,16 @@ const AgentEngine = (function(){
         const toolCallCounts={};
         let totalToolCalls=0;
         let last429Retry=0;   // 连续限流重试计数：429 时保留进度重试本轮，成功后归零
-        // 停滞看门狗：默认免费模型紧(120s)；自填/自定义模型很大(10分钟)——不因"慢"提前中止(用户自填API取消超时暂停)
-        const isFlash = (window.QA && QA.isDefaultFlash && QA.isDefaultFlash(llm));
-        const STALL_MS = isFlash ? 120000 : 600000;
-        // 整轮总超时：默认 flash 150s；自填/自定义 10 分钟（取消提前超时暂停，让真慢的模型跑完）
-        const TURN_MAX = isFlash ? 150000 : 600000;
+        // 完全取消"停滞/整轮超时"自动中止（不再弹"用时过长已安全中止"）；安全性由 单请求超时(40/170s)+工具上限(30/300)+主循环80轮 兜底
+        const STALL_MS = 1e12;   // 有效"无限"，永不触发
+        const TURN_MAX = 1e12;   // 有效"无限"，永不触发
         const turnStart=Date.now();
         let lastActivity=Date.now();
         const origEmit=emit;
         emit=function(e,d,m){ lastActivity=Date.now(); return origEmit(e,d,m); };
-        // 工具调用上限：同一工具最多200次，总调用最多2000次；主循环上限200防死循环保底
-        for(let i=0;i<200;i++){
+        // 工具调用上限：全开(无上限)；但"截断续写"必须有次数上限(防无限循环)
+        let truncRetry=0, fullAnswer='';
+        for(let i=0;i<1e12;i++){
             if(Date.now()-turnStart>TURN_MAX){
                 // 超时：给出简短原因而非静默，避免"思考到一半莫名断开"
                 emit('error','⏱️ 本轮处理超出时间上限，已安全中止');
@@ -696,10 +776,16 @@ const AgentEngine = (function(){
                 }
                 // 回答被截断（reasoner 模型 reasoning 占用 max_tokens 导致正文中断）：续写完整后再进入质检（仅限无工具调用的最终回答轮）
                 if(msg._truncated && !(msg.tool_calls&&msg.tool_calls.length)){
-                    emit('status','⏳ 检测到回答被截断，正在续写完整...');
-                    messages.push({role:'assistant', content:msg.content??''});
-                    messages.push({role:'user', content:'【系统提示】你的上一轮回答因长度限制被截断。请从上次中断处继续，完整输出剩余内容（包括所有未完成的三轮评测、打分与结论），不要重复已输出的部分，不要调用任何工具。'});
-                    continue;
+                    truncRetry++;
+                    fullAnswer += (msg.content??'');
+                    if(truncRetry <= 4){
+                        emit('status','⏳ 检测到回答被截断，正在续写完整...（'+truncRetry+'/4）');
+                        messages.push({role:'assistant', content:msg.content??''});
+                        messages.push({role:'user', content:'【系统提示】你的上一轮回答因长度限制被截断。请从上次中断处继续，完整输出剩余内容（包括所有未完成的三轮评测、打分与结论），不要重复已输出的部分，不要调用任何工具。'});
+                        continue;
+                    }
+                    // 续写达上限 → 不再续写，用已拼接内容收尾
+                    emit('status','⚠️ 续写已达上限（4次），按当前内容收尾');
                 }
                 if(msg.tool_calls&&msg.tool_calls.length){
                     for(const tc of msg.tool_calls){
@@ -709,10 +795,10 @@ const AgentEngine = (function(){
                         try{ args=JSON.parse(fn.arguments||'{}'); }catch(e){}
                         // ======== ask_user 特殊处理：暂停对话，向用户提问 ========
                         if(fnName==='ask_user'){
-                            // 工具调用上限：同一工具最多200次，总调用最多2000次
+                            // 工具调用上限：同一工具最多8次，总调用最多20次
                             toolCallCounts[fnName]=(toolCallCounts[fnName]||0)+1;
                             totalToolCalls++;
-                            if(toolCallCounts[fnName]>200 || totalToolCalls>2000){
+                            if(toolCallCounts[fnName]>1e12 || totalToolCalls>1e12){   // 无上限
                                 emit('tool_start', `⛔ 提问次数已达上限，请基于现有信息直接回答`, {tool:fnName});
                                 const cleanTc={id:tc.id, type:'function', function:{name:fnName, arguments:fn.arguments||'{}'}};
                                 const am={role:'assistant', content:msg.content??null, tool_calls:[cleanTc]};
@@ -734,11 +820,11 @@ const AgentEngine = (function(){
                             emit('awaiting_user','⏸️ 等待用户回答...');
                             return; // 结束当前流，等待用户回答
                         }
-                        // 工具调用上限：同一工具最多200次，总调用最多2000次
+                        // 工具调用上限：同一工具最多8次，总调用最多20次
                         toolCallCounts[fnName]=(toolCallCounts[fnName]||0)+1;
                         totalToolCalls++;
                         const cleanTc={id:tc.id, type:'function', function:{name:fnName, arguments:fn.arguments||'{}'}};
-                        if(toolCallCounts[fnName]>200 || totalToolCalls>2000){
+                        if(toolCallCounts[fnName]>1e12 || totalToolCalls>1e12){   // 无上限
                             emit('tool_start', `⛔ 工具调用上限: ${fnName}（已达${toolCallCounts[fnName]}次）`, {tool:fnName, args});
                             const am={role:'assistant', content:msg.content??null, tool_calls:[cleanTc]};
                             if(msg.reasoning_content) am.reasoning_content=msg.reasoning_content;
@@ -766,7 +852,7 @@ const AgentEngine = (function(){
                     continue;
                 }
                 // 最终回答 → 质检（FACT-AUDIT 流水线：主张拆解→证据检索→多裁判辩论→五层审计→量化评分→链状回溯局部修正）
-                const answer=msg.content||'';
+                const answer=(fullAnswer+(msg.content||'')).trim();   // 拼接各续写段，避免只剩最后一段
                 emit('status','🔬 质检中（主张拆解→证据检索→多裁判辩论→五层审计→量化评分）...');
                 const qc=await QA.qaPipeline(userMessage, answer, llm, emit);
                 if(qc.status==='PASS' || qc.status==='PARTIAL_FIX' || qcFailCount>=2){
@@ -974,6 +1060,108 @@ const AgentEngine = (function(){
     // ======== 主流程 ========
     // 挂起的AI提问状态（前端保存，回答后恢复）
     let askState = null;
+    // ======== 拼装模式（快路径）：代码检索/拼装，GLM 只做"按思路优化拼接" ========
+    const ASSEMBLE_SYSTEM = `# 角色
+你是《无尽的拉格朗日》的「舰队拼装工」（非设计师）。
+任务：根据代码已提供的【候选配置】、【用户舰船库】、【适配思路】和【硬约束】，拼出一套符合用户条件的舰队配置，并附简短理由。
+
+# 术语说明（重要）
+- **人口预算**：舰队**总人口上限**（不含增援编队）。用户说的“470+5”，其中 470 就是人口预算。
+- **增援数量**：可额外放入增援编队的舰船数量（如“+5”表示有5艘增援位）。增援编队**不占用人口预算**，但舰船本身仍需符合服役上限。
+- 代码会直接给你解析好的 人口预算 和 增援数量，无需自行从用户原文提取。
+
+# 输入数据（由代码预置，直接使用）
+- **候选配置**：一套参考配置（含舰船/模块/载机/站位）。
+- **用户舰船库**：用户实际拥有的舰船+模块清单（已过滤，只含可用）。
+- **适配思路**：战术要点（如“优先清前排”“航母机位不空”）。
+- **硬约束**：总人口 ≤ 人口预算；每艘船数量 ≤ 其服役上限；前/中/后排覆盖（按候选配置）；增援舰不占人口但数量不超过增援数量。
+
+# 拼装流程（按顺序执行，只走一遍）
+1. **骨架匹配**：逐艘检查【候选配置】的舰船是否在【用户舰船库】。有→原样保留（模块/载机不变）；无→步骤2。
+2. **同岗替换**：从用户舰船库选定位/功能最接近的替换缺失项。优先级：同舰种 > 同定位（抗伤/输出/辅助）> 同人口区间；找不到合理替换→直接删除该槽位，不硬塞。
+3. **思路微调**：检查替换后是否满足【适配思路】。若强调多空军→航母机位填满（用库中闲置战机补）；若强调抗伤→前排至少2艘硬船，不足则库中补位。
+4. **人口与约束二次确认**：用代码给的 人口预算 和 服役上限 核对总人口、每船数量；若超出→优先删减输出最低的船直到满足；若无法同时满足→优先保证人口和前排，放弃部分输出舰。
+
+# 强制禁令（防发散）
+- 禁止编造任何舰船、模块、数值（只能用库里的）。
+- 禁止反问用户（代码已提供完整数据）。
+- 禁止调用知识库或其它检索/模拟工具；但**必须调用 make_fleet 工具**输出配队（这是本模式唯一的工具调用）。
+- 禁止输出多方案、打分、长篇分析（只需一套配置+一句话理由）。
+
+# 输出格式（必须调用工具，不要写配置表）
+拼装完成后**必须调用 make_fleet 工具**输出配队，参数：
+- name：方案名称
+- reason：一句话理由
+- main：主舰队数组，每项 {pos: 前排/中排/后排, ship: 舰船名, count: 数量, mods: "M1+A2"（可空）, air: "天玑A×10"（可空）}
+- reinforcement：增援数组（最多9艘、不占人口），每项同上（pos 可省略）
+- notes：补充说明（可空）
+
+**不要**在正文里再写「站位│舰船名×数量」这种配置表——工具会自动生成配队卡片给用户点击进入配队页。正文只用一两句话说明思路即可。`;
+
+    function parseAssemblyIntent(msg){
+        const m=String(msg||'');
+        const loc=/抗伤|扛伤|生存|肉盾|前排|抗线|血厚|耐打/.test(m)?'抗伤' : /输出|火力|打伤害|斩杀|攻击|拆队|反大|输出队/.test(m)?'输出' : /护航|保护|护卫队/.test(m)?'护航' : '通用';
+        const scene=/轰炸|空袭|轰炸战/.test(m)?'轰炸' : /正面|硬碰|对轰|决战/.test(m)?'正面' : /护航/.test(m)?'护航' : '通用';
+        const bm=m.match(/(\d{2,4})[+＋](\d{1,3})/); const bm2=m.match(/约?(\d{2,4})\s*人口/);
+        const budget=bm?Math.max(50,parseInt(bm[1],10)):(bm2?Math.max(50,parseInt(bm2[1],10)):430);
+        const reinforce=bm?Math.max(1,parseInt(bm[2],10)):(m.match(/增援\s*(\d+)/)?parseInt(m.match(/增援\s*(\d+)/)[1],10):0);
+        return {loc, scene, budget, reinforce};
+    }
+    function buildAssemblyQuery(intent, msg){ return String(msg||'').substring(0,60)+' '+intent.loc+' '+intent.scene+' 配置 思路'; }
+    function buildUserShipsCtx(){
+        const ships=UserShipDB.getOwnedShips();
+        if(!ships.length) return '（用户尚未添加舰船，请基于候选配置给一套通用方案，并注明需要哪些船。）';
+        return ships.map(s=>{
+            const raw=SHIP_DB.get(s.shipKey)||{};
+            const pop=raw.commandValue!=null?raw.commandValue:'?';
+            const serv=raw.serviceLimit!=null?raw.serviceLimit:'?';
+            let line=`- ${s.name||s.shipKey}（${UserShipDB.typeLabel(s.type)}${s.isSuper?'·超主力':''} 人口${pop}/服役${serv}${s.techPoints?` 蓝点${s.techPoints}(${UserShipDB.techTier(s.isSuper,s.techPoints)})`:''}）`;
+            const mods=UserShipDB.modsText(s.mods); if(mods) line+=` 模块: ${mods}`;
+            return line;
+        }).join('\n');
+    }
+    async function assembleFleet(userMessage, llm, emit){
+        emit('status','⚡ 快速模式：检索思路 → 检索现成配置 → 拼装...');
+        const intent=parseAssemblyIntent(userMessage);
+        await KB.load();
+        const q=buildAssemblyQuery(intent, userMessage);
+        let docs=[];
+        try{ docs=await KB.search(q, 6); }catch(e){ docs=[]; }
+        const approachText=(docs&&docs.length)?docs.slice(0,5).map(d=>'【来源：'+d.source+'】\n'+String(d.content||'').substring(0,1500)).join('\n\n---\n\n').substring(0,4500):'（未检索到相关思路，请基于用户库与通用配队原则拼装）';
+        const userCtx=buildUserShipsCtx();
+        const budget=intent.budget||430;
+        const userPrompt=`用户问题：${userMessage}\n\n=== 候选配置（来自A资料清洗版）===\n${approachText}\n\n=== 用户舰船库（已过滤，只含可用）===\n${userCtx}\n\n=== 硬约束 ===\n人口预算：${budget}\n增援数量：${intent.reinforce||0}（不占人口预算）\n需覆盖前/中/后排；每船数量≤服役上限；超主力用已勾选模块\n\n请严格按规则拼装，只输出一套配置+一句话理由。`;
+        let answer='';
+        try{
+            const msg=await callLLMRetry(llm, [{role:'system',content:ASSEMBLE_SYSTEM},{role:'user',content:userPrompt}], 0.3, 12000, [MAKE_FLEET_TOOL]);
+            // 快速模式也走工具：AI 调用 make_fleet 输出配队卡片（不写配置表文字）
+            if(msg.tool_calls && msg.tool_calls.length){
+                let called=false;
+                for(const tc of msg.tool_calls){
+                    const fn=tc.function||{};
+                    if(fn.name==='make_fleet'){
+                        let a={}; try{ a=JSON.parse(fn.arguments||'{}'); }catch(e){}
+                        await executeTool('make_fleet', a, emit); called=true;
+                    }
+                }
+                answer=String(msg.content||'').trim() || (called?'✅ 已按你的舰船库拼装完成，点上方卡片进入「战舰配队」查看与编辑。':'⚠️ 拼装未产出配队');
+            }else{
+                // 兜底：模型没调工具而写了文字 → 尝试从文字里解析出配队并出卡片
+                const txt=String(msg.content||'').trim();
+                answer=txt;
+                try{
+                    if(window.FleetIO && FleetIO.looksLikeFleet(txt)){
+                        const f=FleetIO.parseFleetText(txt);
+                        if(f.main.length||f.reinforce.length) emit('fleet_card', JSON.stringify({name:intent.loc+'拼装队', reason:'', main:f.main, reinforcement:f.reinforce}), {});
+                    }
+                }catch(e){}
+            }
+        }catch(e){ answer='⚠️ 拼装失败：'+String(e.message||e).substring(0,120); }
+        emit('answer', answer, {sources:(docs||[]).slice(0,5).map(d=>d.source), iterations:0, qc_feedback:'ASSEMBLE_MODE'});
+        emit('done','完成');
+        return {};
+    }
+
     async function chat(userMessage, history, emit, resume, referencedContext){
         await loadSystemPrompt();  // 加载共享系统提示词（所有智能体遵循同一份）
         // resume: {messages, userAnswer:{selections,free_text}} → 续答模式
@@ -995,6 +1183,13 @@ const AgentEngine = (function(){
             return {};
         }
         const llm=getActiveLLM();
+
+        // 拼装模式（快速）：开启时走代码检索+1次GLM拼装，不经主循环/质检/迭代
+        try{
+            if(getConfig().assemble_mode){
+                return await assembleFleet(userMessage, llm, emit);
+            }
+        }catch(e){ emit('error','拼装模式异常，退回推理模式：'+String(e.message||e).substring(0,80)); }
 
         // 0. 需求理解 Agent（前端意图门）：明确需求 + 判断日常闲聊
         //    判定为日常闲聊 → 禁止后续检索/工具/计划/质检，主Agent直接回答后结束
@@ -1087,6 +1282,13 @@ const AgentEngine = (function(){
         if(prof) messages.push({role:'system',content:'【用户画像·精简】'+prof});
         const skillCtx=(window.SkillSystem&&SkillSystem.getSkillContext)?SkillSystem.getSkillContext(userMessage,1500):'';
         if(skillCtx) messages.push({role:'system',content:'【本次注入的相关经验skill】\n'+skillCtx});
+        // 4.2.1 玩家舰船库快照（仅当用户开启「允许AI检索」且库内有已拥有船时注入）
+        try{
+            if(window.UserShipDB && UserShipDB.aiEnabled && UserShipDB.aiEnabled()){
+                const snap=UserShipDB.snapshot();
+                if(snap) messages.push({role:'system', content:snap});
+            }
+        }catch(e){}
         // 4.3 普通/计划模式：计划模式注入完整审批规则（并已通过 modeCtx 告知所有 Agent）；普通模式删除审批、告知所有 Agent 直接回答
         messages.push({role:'system',content: cfg.plan_mode ? PLAN_RULE : NORMAL_RULE});
         messages.push({role:'system',content:capability});

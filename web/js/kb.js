@@ -379,10 +379,21 @@ const SHIP_DB = (function(){
             id:s.id, name:s.name, type:s.type, hp:s.hp,
             physicalArmor:s.physicalArmor, energyArmor:s.energyArmor,
             position:s.position, commandValue:s.commandValue,
+            serviceLimit:s.serviceLimit, size:s.size,
             ratings:s.ratings, speed:s.speed, modules:s.modules
         }));
     }
-    return {load, search};
+    // 按 id/name 返回原始完整舰船对象（含 serviceLimit/size/modules.variants 等），供用户舰船库对齐属性
+    function get(id){
+        if(!id) return null;
+        const n=String(id).toLowerCase();
+        return ships.find(s=>String(s.id||'').toLowerCase()===n || String(s.name||'').toLowerCase()===n)||null;
+    }
+    // 返回全部舰船（列表展示/配队用）
+    function all(){
+        return ships.map(s=>({id:s.id, name:s.name, type:s.type, modules:s.modules, commandValue:s.commandValue, serviceLimit:s.serviceLimit, position:s.position, hp:s.hp, aircraftSlots:s.aircraftSlots, isCarrier:s.isCarrier, airSlots:s.airSlots, airSize:s.airSize}));
+    }
+    return {load, search, get, all};
 })();
 
 // 显式暴露到window（跨script标签访问）

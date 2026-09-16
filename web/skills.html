@@ -65,6 +65,8 @@ body.mobile-ui .container{padding-bottom:calc(20px + env(safe-area-inset-bottom)
     <div class="logo">🧠 技能 / 工具管理</div>
     <div class="links">
         <a href="chat.html">🤖 AI对话</a>
+        <a href="ships.html">🚀 舰船</a>
+        <a href="fleet.html">⚓ 配队</a>
         <a href="features.html">🗺️ 功能</a>
         <a href="index.html">⚓ 模拟器</a>
         <a href="settings.html">⚙️ 设置</a>
@@ -270,6 +272,7 @@ renderSkills(); renderTools();
 // 手机端底部 Tab
 let mt=document.createElement('div'); mt.id='mobileTabbar';
 mt.innerHTML='<button class="tab" onclick="location.href=\'chat.html\'"><span class="ti">💬</span>对话</button>'+
+  '<button class="tab" onclick="location.href=\'ships.html\'"><span class="ti">🚀</span>舰船</button>'+
   '<button class="tab active" onclick="location.href=\'skills.html\'"><span class="ti">🧠</span>技能工具</button>'+
   '<button class="tab" onclick="location.href=\'features.html\'"><span class="ti">🗺️</span>功能</button>'+
   '<button class="tab" onclick="location.href=\'settings.html\'"><span class="ti">⚙️</span>设置</button>';

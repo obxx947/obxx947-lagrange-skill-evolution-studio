@@ -158,6 +158,29 @@
         .ai-tip{flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:8px;position:relative;margin-top:10px;font-size:0.66rem;color:var(--t3);background:rgba(74,158,255,0.05);border:1px solid var(--border);border-radius:8px;padding:5px 30px 5px 12px;text-align:center}
         .ai-tip .tip-close{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--t3);cursor:pointer;font-size:0.72rem;line-height:1;padding:4px;opacity:0.7}
         .ai-tip .tip-close:hover{opacity:1;color:#e3b341}
+        /* 运行模式快速切换（桌面+手机） */
+        .mode-bar{display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 10px 0;flex-shrink:0;flex-wrap:wrap}
+        .mode-bar .mb-lbl{font-size:0.62rem;color:var(--t3);margin-right:2px}
+        .mode-btn{background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--t3);border-radius:8px;padding:4px 12px;font-size:0.68rem;cursor:pointer;transition:all .15s;font-family:inherit}
+        .mode-btn.active{color:#fff;border-color:var(--cyan);background:rgba(0,212,255,.14)}
+        .mode-btn:hover{color:var(--t1)}
+        /* 配队卡片（AI 调 make_fleet 输出的方框） */
+        .fleet-card{margin:6px 0 10px;background:linear-gradient(180deg,rgba(0,212,255,.10),rgba(26,35,50,.92));border:1px solid var(--cyan);border-radius:12px;padding:11px 13px;cursor:pointer;transition:all .15s;max-width:560px}
+        .fleet-card:hover{border-color:var(--blue);box-shadow:0 4px 18px rgba(0,212,255,.2);transform:translateY(-1px)}
+        .fleet-card .fc-hd{font-size:0.82rem;font-weight:800;color:#fff;display:flex;align-items:center;gap:6px;margin-bottom:6px}
+        .fleet-card .fc-sec{font-size:0.62rem;color:var(--gold);margin:7px 0 3px;font-weight:700}
+        .fleet-card .fc-row{font-size:0.68rem;color:var(--t1);line-height:1.65}
+        .fleet-card .fc-pos{color:var(--cyan);margin-right:4px}
+        .fleet-card .fc-mod{color:var(--gold);font-size:0.6rem;margin-left:4px}
+        .fleet-card .fc-air{color:var(--t3);font-size:0.6rem;margin-left:4px}
+        .fleet-card .fc-stats{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:0.62rem;color:var(--t2)}
+        .fleet-card .fc-stats b{color:var(--cyan)}
+        .fleet-card .fc-reason{font-size:0.64rem;color:var(--t2);margin-top:6px;line-height:1.5}
+        .fleet-card .fc-go{margin-top:8px;font-size:0.68rem;color:var(--cyan);font-weight:700}
+        .toast{position:fixed;top:20px;right:20px;padding:10px 18px;border-radius:8px;font-size:0.78rem;z-index:9999;transition:all .3s;opacity:0;transform:translateY(-10px);pointer-events:none}
+        .toast.show{opacity:1;transform:translateY(0)}
+        .toast.ok{background:#1a3a2a;border:1px solid var(--green);color:var(--green)}
+        .toast.err{background:#3a1a1a;border:1px solid var(--red);color:var(--red)}
         .think-panel,.status-panel{flex-shrink:0;border-left:2px solid rgba(74,158,255,0.3);border-radius:6px;background:rgba(74,158,255,0.04);margin:0 10px;overflow:hidden}
         .think-panel{margin-top:8px}
         .status-panel{margin-bottom:0;border-bottom:none;border-left-color:rgba(227,179,65,0.35);background:rgba(227,179,65,0.03)}
@@ -540,6 +563,8 @@
                 <a href="skills.html"><span class="sb-ic">🧠</span>Skill 管理</a>
                 <a href="features.html"><span class="sb-ic">📖</span>项目介绍</a>
                 <a href="simulator.html"><span class="sb-ic">⚔️</span>战斗模拟</a>
+                <a href="ships.html"><span class="sb-ic">🚀</span>舰船库</a>
+                <a href="fleet.html"><span class="sb-ic">⚓</span>战舰配队</a>
                 <button class="sb-link" onclick="toggleConvSearch()"><span class="sb-ic">🔍</span>搜索当前对话</button>
             </div>
             <div class="sidebar-header"><span>💬 历史对话</span><button onclick="clearAllChats()">清空</button></div>
@@ -556,6 +581,14 @@
                     <button onclick="toggleConvSearch()">🔍 搜索对话</button>
                 </div>
             </div>
+            <!-- 运行模式快速切换（快速/计划/普通） -->
+            <div class="mode-bar" id="modeBar">
+                <span class="mb-lbl">模式</span>
+                <button class="mode-btn" data-m="fast" onclick="setRunMode('fast')">⚡ 快速</button>
+                <button class="mode-btn" data-m="plan" onclick="setRunMode('plan')">📋 计划</button>
+                <button class="mode-btn" data-m="normal" onclick="setRunMode('normal')">🧠 普通</button>
+            </div>
+            <div class="toast" id="chatToast"></div>
             <!-- 对话顶部提示 -->
             <div class="ai-tip" id="aiTip"><span>💡 配队已经比较完善了，但是部分细节还需多轮对话进行更正。目前最强的是关于护航的配队</span><button class="tip-close" onclick="closeAiTip()" title="关闭提示">✕</button></div>
             <div id="pendingBar" class="pending-bar" style="display:none"></div>
@@ -609,6 +642,8 @@
                 <a href="skills.html">🧠 Skill 管理</a>
                 <a href="features.html">📖 项目介绍</a>
                 <a href="simulator.html">⚔️ 战斗模拟</a>
+                <a href="ships.html">🚀 舰船库</a>
+                <a href="fleet.html">⚓ 战舰配队</a>
             </div>
             <div class="md-list" id="mConvList"></div>
         </div>
@@ -741,6 +776,7 @@ function init(){
     try{ const s=localStorage.getItem('lagrange_conversations'); if(s) conversations=JSON.parse(s); }catch(e){}
     if(!Object.keys(conversations).length) newChat();
     else switchConv(Object.keys(conversations).pop());
+    paintMode();
     updateTokenBar();
     loadModels();
     checkConfig();
@@ -1027,6 +1063,121 @@ function quickAct(act){
 document.addEventListener('click', (e)=>{ const p=document.getElementById('quickPanel'); if(p && p.style.display==='flex' && !e.target.closest('#quickPanel') && e.target.id!=='quickPlus') p.style.display='none'; });
 
 // ======== Send ========
+// ======== 运行模式快速切换（快速/计划/普通） ========
+function toast(msg,type){ const t=document.getElementById('chatToast'); if(!t)return; t.textContent=msg; t.className='toast '+(type||'ok')+' show'; setTimeout(()=>t.classList.remove('show'),3000); }
+function currentRunMode(){ try{ const c=JSON.parse(localStorage.getItem('lagrange_static_config')||'{}'); return c.assemble_mode?'fast':(c.plan_mode?'plan':'normal'); }catch(e){ return 'normal'; } }
+function setRunMode(m){
+    try{ let cfg={}; try{ cfg=JSON.parse(localStorage.getItem('lagrange_static_config')||'{}'); }catch(e){}
+        cfg.assemble_mode=(m==='fast'); cfg.plan_mode=(m==='plan');
+        localStorage.setItem('lagrange_static_config',JSON.stringify(cfg));
+    }catch(e){}
+    paintMode();
+    toast((m==='fast'?'⚡ 已切换 快速模式(拼装)':m==='plan'?'📋 已切换 计划模式(逐艘审批)':'🧠 已切换 普通模式(推理)'),'ok');
+}
+function paintMode(){ const r=currentRunMode(); document.querySelectorAll('.mode-btn').forEach(b=>{ b.classList.toggle('active', b.getAttribute('data-m')===r); }); }
+
+// ======== 配队卡片：AI 调 make_fleet 输出 → 聊天里出方框，点进配队页 ========
+window.__fleetCards = window.__fleetCards || [];
+function _fcEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function _fcShipInfo(f){
+    let pop=0, air=0, mods=0, kinds=0;
+    (f.main||[]).forEach(x=>{
+        const s=(window.SHIP_DB&&SHIP_DB.get)?SHIP_DB.get(x.id):null;
+        pop += ((s&&s.commandValue)||0)*(x.qty||1);
+        air += (x.air||[]).reduce((a,b)=>a+(b.qty||0),0);
+        mods += Object.keys(x.mods||{}).filter(k=>x.mods[k]).length;
+        kinds++;
+    });
+    let rq=0; (f.reinforcement||[]).forEach(x=>{ rq+=(x.qty||1); air+=(x.air||[]).reduce((a,b)=>a+(b.qty||0),0); kinds++; });
+    return {pop,air,mods,kinds,rein:rq};
+}
+function _fcRow(x, showPos){
+    const mods=Object.keys(x.mods||{}).filter(k=>x.mods[k]).map(k=>x.mods[k]).join('/');
+    const air=(x.air||[]).map(a=>a.name+'×'+a.qty).join('、');
+    return '<div class="fc-row">'
+        +(showPos&&x.pos?'<span class="fc-pos">'+_fcEsc(x.pos)+'</span>':'')
+        + _fcEsc(x.name||x.raw||'?')
+        + (mods?'<span class="fc-mod">'+_fcEsc(mods)+'</span>':'')
+        + ' ×'+(x.qty||1)
+        + (air?'<span class="fc-air">带 '+_fcEsc(air)+'</span>':'')
+        + '</div>';
+}
+function _fcHtml(f){
+    const st=_fcShipInfo(f);
+    let h='<div class="fc-hd">⚓ '+_fcEsc(f.name||'配队方案')+'</div>';
+    if((f.main||[]).length){ h+='<div class="fc-sec">主舰队（占人口）</div>'+f.main.map(x=>_fcRow(x,true)).join(''); }
+    if((f.reinforcement||[]).length){ h+='<div class="fc-sec">增援（不占人口）</div>'+f.reinforcement.map(x=>_fcRow(x,false)).join(''); }
+    h+='<div class="fc-stats"><span>人口 <b>'+st.pop+'</b></span><span>增援 <b>'+st.rein+'</b></span><span>舰载机 <b>'+st.air+'</b></span><span>模块 <b>'+st.mods+'</b></span></div>';
+    if(f.reason) h+='<div class="fc-reason">理由：'+_fcEsc(f.reason)+'</div>';
+    if(f.desc) h+='<div class="fc-reason">'+_fcEsc(f.desc)+'</div>';
+    h+='<div class="fc-go">👆 点击卡片进入「战舰配队」查看 / 编辑 →</div>';
+    return h;
+}
+function renderFleetCard(jsonStr, meta){
+    let f=null; try{ f=(typeof jsonStr==='string')?JSON.parse(jsonStr):jsonStr; }catch(e){}
+    if(!f||(!(f.main||[]).length&&!(f.reinforcement||[]).length)){ console.warn('fleet_card 数据为空'); return; }
+    const idx=window.__fleetCards.push(f)-1;
+    const box=document.createElement('div');
+    box.className='fleet-card';
+    box.innerHTML=_fcHtml(f);
+    box.onclick=()=>openFleetCard(idx);
+    const host=document.getElementById('chatMsgs');
+    if(host){ host.appendChild(box); host.scrollTop=host.scrollHeight; }
+    // 舰船数据可能尚未加载 → 加载后重算统计并重绘
+    (async()=>{ try{ if(window.SHIP_DB&&SHIP_DB.load){ await SHIP_DB.load(); box.innerHTML=_fcHtml(f); } }catch(e){} })();
+    syncEmptyState&&syncEmptyState();
+    try{ if(activeConv&&conversations[activeConv]) conversations[activeConv].messages.push({role:'assistant', content:'⚓ 配队方案：'+(f.name||''), meta:{fleet_card:f}}); save(); }catch(e){}
+}
+function renderFleetCardInto(div, f){
+    if(!f) return;
+    const idx=window.__fleetCards.push(f)-1;
+    const box=document.createElement('div');
+    box.className='fleet-card';
+    box.innerHTML=_fcHtml(f);
+    box.onclick=()=>openFleetCard(idx);
+    div.appendChild(box);
+}
+function openFleetCard(idx){
+    const f=window.__fleetCards[idx];
+    if(!f){ toast('该配队卡片数据已过期（刷新后需重新生成）','err'); return; }
+    try{ FleetIO.toFleet({name:f.name, desc:f.desc||'', reason:f.reason||'', main:f.main||[], reinforce:f.reinforcement||[], air:[]}); }catch(e){}
+    toast('正在打开「战舰配队」…');
+    setTimeout(()=>{ location.href='fleet.html?import=1'; },300);
+}
+
+// ======== 配队联动：AI回答 → 配队页 ========
+function openFleetFromAnswer(btn){
+    const div=btn.closest('.msg');
+    const text=div?(div.innerText||div.textContent||''):'';
+    const f=FleetIO.parseFleetText(text);
+    if((!f.main||!f.main.length)&&(!f.reinforce||!f.reinforce.length)){ toast('未解析到舰队配置','err'); return; }
+    FleetIO.toFleet({ name:'AI配队 '+new Date().toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}), desc:'来自AI对话', main:f.main, reinforce:f.reinforce, air:f.air });
+    toast('已载入「战舰配队」…');
+    setTimeout(()=>{ location.href='fleet.html?import=1'; },350);
+}
+// ======== 配队联动：配队页 → AI（自动填入并发送） ========
+window.addEventListener('load', async function(){
+    try{
+        if(!/[?&]prefill=1/.test(location.search)) return;
+        // 等 FleetIO（外部脚本）就绪
+        for(let i=0;i<20 && !window.FleetIO;i++) await new Promise(r=>setTimeout(r,200));
+        if(!window.FleetIO) return;
+        const txt=FleetIO.fromFleet(); if(!txt) return;
+        // 等输入框就绪
+        let ta=null;
+        for(let i=0;i<25;i++){ ta=document.getElementById('chatInput'); if(ta) break; await new Promise(r=>setTimeout(r,200)); }
+        if(!ta){ console.warn('prefill: 未找到输入框'); return; }
+        // 会话初始化可能会清空输入框 → 多次写入，稳定后再发送
+        const write=()=>{ const t=document.getElementById('chatInput'); if(t){ t.value=txt; try{ onInputChange&&onInputChange(); }catch(e){} } };
+        write();
+        for(let i=0;i<6;i++){ await new Promise(r=>setTimeout(r,400)); write(); }
+        toast('已收到配队，正在发送给AI…');
+        await new Promise(r=>setTimeout(r,400));
+        write();
+        try{ doSend&&doSend(); }catch(e){ console.warn('prefill send failed', e); }
+    }catch(e){ console.warn('prefill failed', e); }
+});
+
 async function doSend(){
     try{
         await send();
@@ -1299,6 +1450,7 @@ function handleAgentEvent(e,d,meta,assistDiv,conv){
     else if(e==='qc_pass'){ addStatusLine('✅',d); if(meta&&meta.qc_score!=null) setStatus('idle','✅ 质检通过 ('+meta.qc_score+'分)'); }
     else if(e==='qc_fail'){ addStatusLine('⚠️',d); }
     else if(e==='ask_user'){ renderAskCard(d, meta); }
+    else if(e==='fleet_card'){ renderFleetCard(d, meta); }
     else if(e==='awaiting_user'){ addStatusLine('⏸️',d); }
     else if(e==='paused'){
         window._agentPaused=true;
@@ -1706,6 +1858,7 @@ function renderMsg(role,text,meta,typing){
         div.textContent=text;
     }
     // 消息操作条：👍/👎/🔊（AI回答）+ 分叉/回溯到此（用户消息），悬停显示
+    if(role==='assistant' && meta && meta.fleet_card){ try{ renderFleetCardInto(div, meta.fleet_card); }catch(e){} }
     if(role==='assistant' || role==='user'){
         attachMsgActions(div, role, meta);
     }
@@ -1740,6 +1893,11 @@ function attachMsgActions(div, role, meta){
     }
     html+='<button class="act-btn" onclick="forkAt(this)" title="从此处复制分叉为全新会话（原对话保留）">🌿分叉</button>';
     if(role==='user') html+='<button class="act-btn" onclick="rollbackAt(this)" title="回溯到此：删除本条及之后所有内容">⏪回溯到此</button>';
+    if(role==='assistant'){
+        const t=(div.innerText||div.textContent||'');
+        if(window.FleetIO && FleetIO.looksLikeFleet(t))
+            html+='<button class="act-btn" onclick="openFleetFromAnswer(this)" title="把AI给的配队一键载入「战舰配队」页">⚓打开配队</button>';
+    }
     bar.innerHTML=html;
     div.appendChild(bar);
     return bar;
@@ -2178,6 +2336,8 @@ try{
 <script src="js/subagent_pool.js"></script>
 <script src="js/llm_gate.js"></script>
 <script src="js/qa.js"></script>
+<script src="js/user_ships.js"></script>
+<script src="js/fleet_io.js"></script>
 <script src="js/agent.js"></script>
 <script src="js/skills.js"></script>
 <script src="voice/sherpa/sherpa-onnx-asr.js"></script>
