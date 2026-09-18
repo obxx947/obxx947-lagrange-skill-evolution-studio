@@ -184,8 +184,9 @@ const GROUP_B = [['siege', '攻城伤害', '%'], ['repairBonus', '维修量加�
                  ['hitBonus', '命中加成', '%'], ['hangarBonus', '机库加成', '%']];
 /* H 组：机库专用（只作用于本系统机库里的载机）。目前由已译术语节点提供，也支持手动追加 */
 const GROUP_H = [['hangarCritRate', '机库暴击率', '%'], ['hangarCritDmg', '机库暴击伤害', '%']];
-/* M 组：只作用于【本系统的武器】，不做舰船级汇总（按系统生效） */
-const GROUP_M = ['atkReduction', 'antiIntercept', 'sysDmgReduce', 'positionFix'];
+/* M 组：只作用于【本系统的武器/载机】，不做舰船级汇总（按系统生效） */
+const GROUP_M = ['atkReduction', 'antiIntercept', 'sysDmgReduce', 'positionFix', 'multiTarget',
+                 'hangarModule', 'lockEfficiency', 'denseFire', 'sysIntercept'];
 
 let STATS = null;        // data/blueprint_stats.json
 let SYSMAP = null;       // data/blueprint_sysmap.json（系统 ↔ 模块）

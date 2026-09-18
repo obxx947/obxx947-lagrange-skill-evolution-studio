@@ -2278,7 +2278,8 @@
                   'cooldownReduction','singleDmg','evasion','interceptRate'];
     const AP_B = ['siege','repairBonus','hitBonus','hangarBonus'];
     const AP_H = ['hangarCritRate','hangarCritDmg'];   // 机库专用：只作用于本舰载机
-    const AP_M = ['atkReduction','antiIntercept'];      // 只作用于【本系统的武器】（打击间隔缩短 / 被拦截率下降）
+    const AP_M = ['atkReduction','antiIntercept','sysDmgReduce','positionFix','multiTarget',
+                  'hangarModule','lockEfficiency','denseFire','sysIntercept'];   // 只作用于【本系统的武器/载机】
     let BP_MAP = null, BP_STATS = null, BP_SYSMAP = null, BP_COMPANY = null, BP_TREE = {};
 
     /* 一次性把加点相关数据都读进来（含"哪个系统对哪个模块"、公司、每艘船的加点树） */
@@ -2517,8 +2518,21 @@
                     arr[i].antiIntercept = Math.round((g.antiIntercept||0)*10)/10;    // 被拦截率下降
                     arr[i].hitBonus = Math.round((g.hitBonus||0)*10)/10;              // 系统内命中
                     arr[i].repairBonus = Math.round((g.repairBonus||0)*10)/10;
+                    arr[i].lockEfficiency = Math.round((g.lockEfficiency||0)*10)/10;  // 锁定效率（加命中）
+                    arr[i].denseFire = Math.round((g.denseFire||0)*10)/10;            // 密集射击：攻击次数翻倍
+                    arr[i].sysIntercept = Math.round((g.sysIntercept||0)*10)/10;      // 系统内导弹获得拦截率
                 }
             });
+            /* 模块级机库（「本系统机库内载机…」）：只作用于该模块载机位上的载机 */
+            e.hangarByModule = {};
+            Object.keys(b.byModule).forEach(skey => {
+                const g = b.byModule[skey];
+                if(g.hangarModule) e.hangarByModule[skey] = Math.round(g.hangarModule*10)/10;
+            });
+            /* 「系统内导弹获得拦截率」→ 计入本舰拦截（船级，因为引擎的拦截是按舰算的） */
+            let sysInt = 0;
+            Object.keys(b.byModule).forEach(skey => { sysInt += (b.byModule[skey].sysIntercept || 0); });
+            if(sysInt) e.interceptRate = Math.round(((e.interceptRate||0) + sysInt)*10)/10;
             e._apApplied = true;
 
             /* ===== 机制类加点：协同指挥 / 三种打击 =====
@@ -2927,6 +2941,7 @@
         s.strikes = (shipEntry.strikes || []).map(k => Object.assign({}, k, { activeUntil: k.dur || 0, readyAt: 0, active: true }));
         s.targetPriority = shipEntry.targetPriority || null;   // 主武器优先打击（加点mechanic）
         s.sysDmgReduce = shipEntry.sysDmgReduce || 0;          // 受到的子系统伤害降低 %
+        s.hangarByModule = shipEntry.hangarByModule || null;   // 模块级机库（仅该模块的载机）
         // Apply HP bonus
         s.hp = Math.round(s.hp * (1 + (s.hpBonus||0)/100));
         s.maxHp = s.hp;
@@ -2964,8 +2979,10 @@
                     batchTimer:0,
                     shotsRemaining:0,
                     batchesRemaining:0,
-                    totalShots: (w.ammo||1)*(w.attacks||1),
-                    totalBatches: (w.attacks||1),
+                    // 「密集射击」：攻击次数翻倍，装填冷却按加点数值延长
+                    denseFire: (st.denseFire || 0),
+                    totalShots: (w.ammo||1) * (w.attacks||1) * ((st.denseFire||0) > 0 ? 2 : 1),
+                    totalBatches: (w.attacks||1) * ((st.denseFire||0) > 0 ? 2 : 1),
                     firstShot:true
                 });
                     });
@@ -3084,8 +3101,16 @@
                         acInst.position = 'aircraft';
                         acInst.isEscort = !!ship.isEscort;
                         acInst.isEscorted = !!ship.isEscorted;
-                        // 母舰「机库加成」→ 本舰载机（加点里"本系统机库内载机/无人机伤害/命中提升"）
-                        const hb = ship.hangarBonus || 0;
+                        // 母舰「机库加成」→ 本舰载机（加点里"本舰船机库内载机/无人机伤害/命中提升"）
+                        let hb = ship.hangarBonus || 0;
+                        // 模块级机库（「本系统机库内载机…」）：只看这架载机所在位属于哪个模块
+                        if(ship.hangarByModule && ac.slot){
+                            const mvar = String(ac.slot).split('|')[0];      // 如 'M1'
+                            Object.keys(ship.hangarByModule).forEach(sk => {
+                                const parts = sk.split('_');                 // 如 'M_M1'
+                                if((parts[1] || parts[0]) === mvar) hb += ship.hangarByModule[sk];
+                            });
+                        }
                         if(hb){
                             acInst.dmgBonus = (acInst.dmgBonus||0) + hb;
                             acInst.hitBonus = (acInst.hitBonus||0) + hb;
@@ -3344,12 +3369,19 @@
                 // 「打击间隔缩短」：直接缩短攻击持续（批次间隔 = 持续/批数）
                 const atkDur = (w.atkDuration || 1) * (1 - ((ws.strengthen||{}).atkReduction||0)/100);
                 const batchInterval = Math.max(0.01, atkDur / ws.totalBatches);
+                const mtN = ((ws.strengthen||{}).multiTarget || 0) > 0 ? Math.floor((ws.strengthen||{}).multiTarget) : 0;
                 while(ws.batchTimer >= batchInterval && ws.batchesRemaining > 0) {
                     ws.batchTimer -= batchInterval;
                     const shotsPerBatch = Math.ceil(ws.shotsRemaining / ws.batchesRemaining);
                     for(let i=0; i<shotsPerBatch; i++) {
                         if(!ws.currentTarget || !ws.currentTarget.alive) break;
-                        executeShot(ship, ws.currentTarget, w, ws, bs);
+                        // 「武器分散打击」：每发换一个目标（在原候选里分散）
+                        let tgt = ws.currentTarget;
+                        if(mtN > 1) {
+                            const pool = enemies.filter(e => e.alive && e.hp > 0);
+                            if(pool.length) tgt = pool[Math.floor(Math.random() * pool.length)];
+                        }
+                        executeShot(ship, tgt, w, ws, bs);
                         ws.shotsRemaining--;
                     }
                     ws.batchesRemaining--;
@@ -3369,7 +3401,9 @@
             //    下轮冷却走完即可直接续射；只有目标死亡才会重新锁敌。
             if(ws.batchesRemaining <= 0 || ws.shotsRemaining <= 0) {
                 const st = ws.strengthen || {};
-                ws.cooldownRemaining = (w.cooldown || 1) * (1 - (st.cooldownReduction||0)/100);
+                // 「密集射击」在冷却上附带延长
+                const cdPen = (ws.denseFire || 0) > 0 ? (1 + (ws.denseFire||0)/100) : 1;
+                ws.cooldownRemaining = (w.cooldown || 1) * (1 - (st.cooldownReduction||0)/100) * cdPen;
                 ws.shotsRemaining = 0;
                 ws.batchesRemaining = 0;
                 ws.completedCycles = (ws.completedCycles || 0) + 1;   // 供「协同指挥」按轮计时
@@ -3474,7 +3508,7 @@
         let hitRate = (hitMin + Math.random() * (hitMax - hitMin)) / 100;
         // 命中 = 基础命中 × (1 + 命中加成 + 武器锁定效率 − 敌方闪避)（战斗机制.txt）
         const evasion = target.evasion || 0;
-        const lockEff = weapon.lockEfficiency || 0;
+        const lockEff = (weapon.lockEfficiency || 0) + (((ws || {}).strengthen || {}).lockEfficiency || 0);  // 武器自带 + 加点「锁定效率」
         const hitBonus = (attacker.hitBonus || 0) + (((ws || {}).strengthen || {}).hitBonus || 0);  // 舰船级 + 本武器所属系统
         hitRate *= (1 + (hitBonus + lockEff - evasion) / 100);
         hitRate = clamp(hitRate, 0.01, 0.99);

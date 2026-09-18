@@ -16,6 +16,9 @@ window.ShipBuild = (function () {
              'cooldownReduction', 'singleDmg', 'evasion', 'interceptRate'];
   const MANUAL = ['siege', 'repairBonus', 'hitBonus', 'hangarBonus'];
   const HANGAR = ['hangarCritRate', 'hangarCritDmg'];
+  /* 只作用于本系统武器/载机的字段（按系统生效，不参与舰船级汇总） */
+  const MODONLY = ['atkReduction', 'antiIntercept', 'sysDmgReduce', 'positionFix', 'multiTarget',
+                   'hangarModule', 'lockEfficiency', 'denseFire', 'sysIntercept'];
   const CN = {
     hp: '结构值', physResist: '物理抵抗', energyResist: '能量抗性', dmgBonus: '伤害加成',
     crit: '暴击', lockReduction: '锁定减免', cooldownReduction: '冷却减免', singleDmg: '单发伤害',
@@ -64,7 +67,7 @@ window.ShipBuild = (function () {
     const rec = apStore()[e.cdnId]; if (!rec) return null;
     const lv = rec.lv || {}, manual = rec.manual || {};
     const out = {}; A.forEach(k => out[k] = 0); MANUAL.forEach(k => out[k] = 0); HANGAR.forEach(k => out[k] = 0);
-    let counted = 0, skipped = 0, other = 0, used = 0, pureRef = 0;
+    let counted = 0, skipped = 0, other = 0, used = 0, pureRef = 0, modOnly = 0;
     const skippedList = [], pureRefList = [];
     Object.keys(lv).forEach(nid => {
       const L = lv[nid]; if (!L || L <= 0) return;
@@ -87,14 +90,14 @@ window.ShipBuild = (function () {
         else if (st.multi <= 1) v = st.perLevel ? st.perLevel[L] : null;
         if (typeof v !== 'number') { skipped++; skippedList.push(nid); return; }
         out[st.stat] += v; counted++;
-      } else other++;
+      } else if (MODONLY.indexOf(st.stat) >= 0) { modOnly++; } else other++;
     });
     // 手填：A 组 10 项是「手动追加」（叠加在自动汇总上）；B 组 4 项引擎没有来源，直接用填的值
     let manualApplied = 0;
     A.forEach(k => { if (typeof manual[k] === 'number') { out[k] += manual[k]; manualApplied++; } });
     HANGAR.forEach(k => { if (typeof manual[k] === 'number') out[k] += manual[k]; });
     MANUAL.forEach(k => { if (typeof manual[k] === 'number') out[k] = manual[k]; });
-    return { cdnId: e.cdnId, cdnName: e.cdnName, lv, out, counted, skipped, other, used, manual, manualApplied, pureRef, skippedList, pureRefList };
+    return { cdnId: e.cdnId, cdnName: e.cdnName, lv, out, counted, skipped, other, used, manual, manualApplied, pureRef, modOnly, skippedList, pureRefList };
   }
 
   /* 找出模拟器舰队里这艘船的强化配置（可能有多条） */
@@ -163,6 +166,7 @@ window.ShipBuild = (function () {
       + '用户可在加点页手动追加补齐');
     if (b.pureRef) L.push('  ⚠ ' + b.pureRef + ' 个节点的说明来自游戏术语表（数据里只有代号如 {ED9142}，无译文），'
       + '效果需用户自行判断后手填');
+    if (b.modOnly) L.push('  · ' + b.modOnly + ' 个节点只作用于【本系统的武器/载机】（按模块生效）');
     if (b.other) L.push('  ⚠ ' + b.other + ' 个节点属于引擎暂未实现的机制（速度/系统血量/打击间隔等），未计入');
     return L.join('\n');
   }
