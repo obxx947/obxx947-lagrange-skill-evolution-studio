@@ -1019,6 +1019,7 @@
 
     // Battle state
     let battleState = null;
+    let instSeq = 0;          // 战斗单位唯一 id 序号（每场战斗重置）
     let battleRunning = false;
     let battlePaused = false;
     let battleSpeed = 1;
@@ -2469,6 +2470,7 @@
                 [...fleet.main, ...fleet.reinforcement].forEach(shipEntry => {
                     for(let i=0; i<shipEntry.count; i++) {
                         const inst = createShipInstance(shipEntry, side, isEscort, isEscorted);
+                        inst.instId = 'si'+(++instSeq);      // 单位唯一 id（母舰被毁时用它找到自己的载机）
                         if(flagshipId && shipEntry.id===flagshipId) inst.isFlagship=true;
                         if(side==='ally') {
                             if(isEscort) allyEscort.push(inst); else allyEscorted.push(inst);
@@ -2685,6 +2687,7 @@
                         const acInst = createShipInstance(ac, ship.side, ship.isEscort, ship.isEscorted);
                         acInst.carrierId = ship.id;
                         acInst.carrierName = ship.name;
+                        acInst.carrierInstId = ship.instId;   // 挂在【这一艘】母舰上 → 它被毁时载机跟着毁
                         acInst.position = 'aircraft';
                         acInst.isEscort = !!ship.isEscort;
                         acInst.isEscorted = !!ship.isEscorted;
@@ -2722,7 +2725,7 @@
     function resetBattle() {
         battleRunning = false; battlePaused = false;
         if(battleTimer) clearTimeout(battleTimer);
-        battleState = null; battleLogs = [];
+        battleState = null; battleLogs = []; instSeq = 0;
         $('battleTimeDisplay').textContent = '时间: 0.0s';
         $('battleStatus').textContent = '就绪';
         $('battleLog').innerHTML = '';
@@ -2798,61 +2801,56 @@
             if(modSys && modSys.destroyed) return;
             const w = ws.weapon;
 
-            // === FIRST SHOT: no cooldown needed ===
+            // === FIRST SHOT: 开战第一轮攻击不需要冷却 ===
             if(ws.firstShot) {
                 ws.cooldownRemaining = 0;
                 ws.lockRemaining = 0;
                 ws.firstShot = false;
             }
 
-            // === COOLDOWN PHASE (冷却阶段) - can do target selection simultaneously ===
-            if(ws.cooldownRemaining > 0) {
-                ws.cooldownRemaining -= dt;
-                // Lock can happen during cooldown (锁定与冷却同时进行)
-                if(ws.lockRemaining > 0) ws.lockRemaining -= dt;
-                // If cooldown done but still locking, continue
-                if(ws.cooldownRemaining > 0) return;
-            }
+            /* === 目标选择 + 锁定/冷却【并行】（按机制文档）===
+               文档：锁定与冷却同时进行；锁定完成冷却未完成→继续冷却；冷却完成锁定未完成→继续锁定；
+                     目标已锁定过→无需再次锁定；目标被击毁→不进入冷却，带着剩余攻击重新锁敌，
+                     打光剩余攻击后清空弹夹再进入冷却。 */
+            const targetGone = !ws.currentTarget || !ws.currentTarget.alive || ws.currentTarget.hp<=0;
 
-            // === LOCK PHASE (锁定阶段) ===
-            if(ws.lockRemaining > 0) {
-                ws.lockRemaining -= dt;
-                return;
-            }
+            // 两者同时推进（并行，不是串联）
+            if(ws.cooldownRemaining > 0) ws.cooldownRemaining -= dt;
+            if(ws.lockRemaining > 0)     ws.lockRemaining     -= dt;
 
-            // === NEED NEW TARGET? ===
-            if(!ws.currentTarget || !ws.currentTarget.alive || ws.currentTarget.hp<=0) {
-                // If target died mid-attack, carry remaining shots to new target
-                const remainingShots = ws.shotsRemaining > 0 ? ws.shotsRemaining : ws.totalShots;
+            if(targetGone){
+                // 目标死了/没有目标 → 立即重新锁敌，**保留当前冷却进度**（所以不是"进入冷却"）
+                const remainingShots   = ws.shotsRemaining > 0 ? ws.shotsRemaining : ws.totalShots;
                 const remainingBatches = ws.batchesRemaining > 0 ? ws.batchesRemaining : ws.totalBatches;
-                ws.currentTarget = findTarget(ship, enemies, w);
-                if(!ws.currentTarget) return;
-                const st = ws.strengthen || {};
-                ws.lockRemaining = (w.lockTime || 0) * (1 - (st.lockReduction||0)/100);
+                const t = findTarget(ship, enemies, w);
+                if(!t) return;                         // 无目标：锁定/冷却继续并行推进
+                const st0 = ws.strengthen || {};
+                ws.currentTarget = t;
+                ws.lockRemaining = (w.lockTime || 0) * (1 - (st0.lockReduction||0)/100);
                 ws.shotsRemaining = remainingShots;
                 ws.batchesRemaining = remainingBatches;
                 ws.atkRemaining = w.atkDuration || 0;
                 ws.batchTimer = 0;
-                // If atkDuration=0, fire all instantly
-                if(ws.atkRemaining <= 0) {
-                    for(let i=0; i<ws.shotsRemaining; i++) {
-                        if(!ws.currentTarget || !ws.currentTarget.alive) break;
-                        executeShot(ship, ws.currentTarget, w, ws, bs);
-                    }
-                    ws.cooldownRemaining = (w.cooldown || 1) * (1 - (st.cooldownReduction||0)/100);
-                    ws.currentTarget = null;
-                }
-                return;
             }
 
-            // === ATTACK PHASE (攻击持续阶段) ===
-            // ammo×attacks: e.g., 3×2 = 2 batches of 3 shots each over atkDuration
+            // 冷却和锁定都完成才能开火（同目标续射时 lockRemaining 已是 0 → 无需重复锁定）
+            if(ws.cooldownRemaining > 0 || ws.lockRemaining > 0) return;
+            if(!ws.currentTarget) return;
+
+            // 弹夹见底 → 装填新一轮（新目标/续射都走这里）
+            if(ws.shotsRemaining <= 0 || ws.batchesRemaining <= 0){
+                ws.shotsRemaining = ws.totalShots;
+                ws.batchesRemaining = ws.totalBatches;
+                ws.atkRemaining = w.atkDuration || 0;
+                ws.batchTimer = 0;
+            }
+
+            // === 攻击持续阶段 ===
+            // ammo×attacks：如 3×2 = 2 个批次、每批 3 发，在 atkDuration 内均匀打完
             if(ws.atkRemaining > 0 && ws.batchesRemaining > 0) {
                 ws.atkRemaining -= dt;
                 ws.batchTimer += dt;
-                // Time between batches
                 const batchInterval = Math.max(0.01, (w.atkDuration || 1) / ws.totalBatches);
-                // Fire a batch when timer exceeds interval
                 while(ws.batchTimer >= batchInterval && ws.batchesRemaining > 0) {
                     ws.batchTimer -= batchInterval;
                     const shotsPerBatch = Math.ceil(ws.shotsRemaining / ws.batchesRemaining);
@@ -2863,12 +2861,24 @@
                     }
                     ws.batchesRemaining--;
                 }
-                // Attack complete → enter cooldown
-                if(ws.batchesRemaining <= 0 || ws.shotsRemaining <= 0) {
-                    const st = ws.strengthen || {};
-                    ws.cooldownRemaining = (w.cooldown || 1) * (1 - (st.cooldownReduction||0)/100);
-                    ws.currentTarget = null;
+            } else if(ws.batchesRemaining > 0 && ws.shotsRemaining > 0){
+                // atkDuration = 0 → 本帧一次打完全部发数
+                for(let i=0; i<ws.shotsRemaining; i++){
+                    if(!ws.currentTarget || !ws.currentTarget.alive) break;
+                    executeShot(ship, ws.currentTarget, w, ws, bs);
+                    ws.shotsRemaining--;
                 }
+                ws.batchesRemaining = 0;
+            }
+
+            // 一轮打完 → 清空弹夹并进入冷却
+            // ⚠️ 刻意【不】清 currentTarget：文档「目标已锁定过则无需再次锁定」，
+            //    下轮冷却走完即可直接续射；只有目标死亡才会重新锁敌。
+            if(ws.batchesRemaining <= 0 || ws.shotsRemaining <= 0) {
+                const st = ws.strengthen || {};
+                ws.cooldownRemaining = (w.cooldown || 1) * (1 - (st.cooldownReduction||0)/100);
+                ws.shotsRemaining = 0;
+                ws.batchesRemaining = 0;
             }
         });
     }
@@ -2961,7 +2971,8 @@
         }
 
         // === INTERCEPTION (拦截) ===
-        if(!weapon.cannotBeIntercepted) {
+        // 机制文档：直射武器【不会被拦截】；投射武器会被拦截（风暴M2 模块除外，数据用 cannotBeIntercepted 标注）
+        if(!weapon.cannotBeIntercepted && weapon.weaponType !== 'direct') {
             const friendlyShips = attacker.side==='ally' ? bs.enemyShips : bs.allyShips;
             // 拦截率 = 1 - (1-自身) × Π(1-同排) × Π(1-全局)（战斗机制.txt：每艘拦截船累乘）
             let noIntercept = 1 - (target.interceptRate||0)/100;
@@ -2984,7 +2995,7 @@
         // Get strengthen data from weapon state
         const st = ws.strengthen || {dmgBonus:0,lockReduction:0,cooldownReduction:0,lockTimeReduction:0,flightTimeReduction:0};
         const tuningCoeff = 1.3; // 基础调校系数 (1 + 30%)
-        let dmg = weapon.singleDmg * (1 + st.dmgBonus/100); // Apply strengthen single-damage bonus
+        let dmg = weapon.singleDmg * (1 + (st.dmgBonus||0)/100); // Apply strengthen single-damage bonus
         const physArmor = (target.physicalArmor || 0) + (target.physResistBonus || 0); // Ship base armor + bonus resist
         const energyArmor = target.energyArmor || 5;
 
@@ -3038,8 +3049,18 @@
         }
 
         // === SYSTEM DAMAGE (系统伤害) ===
-        // Check if weapon can target subsystems
+        // 效率占比（机制文档）：低≈20% / 中≈40% / 高≈60%
+        // ⚠️ 文档「每一次【动力系统】被破坏都会扣除自身5%的血量」→ 只有动力系统(engine)扣血
         let systemDmg = 0;
+        const sysHpPenalty = (sys, label) => {
+            if(sys.type === 'engine'){
+                const pen = Math.round(target.maxHp * 0.05);
+                target.hp -= pen;
+                addBattleLog('system', `🔧 ${target.name||target.id} 的${sys.name||label}被破坏! (-${pen}HP)`);
+            } else {
+                addBattleLog('system', `🔧 ${target.name||target.id} 的${sys.name||label}被破坏!`);
+            }
+        };
         if(weapon.subSystemTargets && target.subSystems && target.subSystems.length > 0) {
             const efficiencyMap = {high:0.6, medium:0.4, low:0.2};
             for(const [sysName, eff] of Object.entries(weapon.subSystemTargets)) {
@@ -3048,8 +3069,7 @@
                     systemDmg = Math.round(weapon.singleDmg * 1.5 * tuningCoeff);
                     sys.destroyed = true;
                     sys.repairTimer = 0;
-                    target.hp -= Math.round(target.maxHp * 0.05); // 5% max HP penalty
-                    addBattleLog('system', `🔧 ${target.name||target.id} 的${sys.name}被破坏! (-${Math.round(target.maxHp*0.05)}HP)`);
+                    sysHpPenalty(sys, sysName);
                     break;
                 }
             }
@@ -3057,12 +3077,11 @@
 
         // Random system damage (10% chance on any hit)
         if(systemDmg === 0 && Math.random() < 0.1 && target.subSystems && target.subSystems.length > 0) {
-            const sys = target.subSystems.find(s=>!s.destroyed && !s.permanentDestroyed && s.type!=='engine');
+            const sys = target.subSystems.find(s=>!s.destroyed && !s.permanentDestroyed);
             if(sys) {
                 sys.destroyed = true;
                 sys.repairTimer = 0;
-                target.hp -= Math.round(target.maxHp * 0.05);
-                addBattleLog('system', `🔧 ${target.name||target.id} 的${sys.name}被破坏!`);
+                sysHpPenalty(sys, sys.name);
             }
         }
 
@@ -3072,6 +3091,16 @@
             target.hp = 0;
             target.alive = false;
             addBattleLog('destroy', `💀 ${target.name||target.id} 被击毁! (${attacker.name||attacker.id} -${formatNumber(Math.round(dmg))}HP)`);
+            // 机制文档：「如果搭载舰载机的母舰被摧毁，舰载机也会跟随母舰一起被摧毁」
+            if(bs){
+                const side = target.side==='ally' ? bs.allyShips : bs.enemyShips;
+                side.forEach(s=>{
+                    if(s.position==='aircraft' && s.alive && s.carrierInstId && s.carrierInstId===target.instId){
+                        s.hp = 0; s.alive = false;
+                        addBattleLog('destroy', `💥 ${s.name||s.id} 随机库损毁`);
+                    }
+                });
+            }
         }
     }
 
