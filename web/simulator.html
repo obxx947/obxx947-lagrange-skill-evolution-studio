@@ -2299,7 +2299,8 @@
                 out[k] += v; counted++;
             } else other++;
         });
-        // 手填的 4 项直接覆盖/叠加
+        // 手填：A 组 10 项是"手动追加"（叠加到自动汇总上）；B 组 4 项引擎没有来源，直接用填的值
+        AP_A.forEach(k => { if(typeof ap.manual[k] === 'number') out[k] += ap.manual[k]; });
         ['siege','repairBonus','hitBonus','hangarBonus'].forEach(k => {
             if(typeof ap.manual[k] === 'number') out[k] = ap.manual[k];
         });

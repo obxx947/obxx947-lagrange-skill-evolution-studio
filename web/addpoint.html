@@ -96,17 +96,22 @@ body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#
 .detail .lv i{display:block;font-style:normal;color:var(--t3);font-size:0.54rem}
 .hint{font-size:0.62rem;color:var(--t3);line-height:1.7}
 /* ---- 属性汇总 ---- */
-.sgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(108px,1fr));gap:6px}
-.srow{display:flex;align-items:center;justify-content:space-between;gap:6px;background:rgba(0,0,0,.26);
-      border:1px solid var(--border);border-radius:8px;padding:5px 8px;font-size:0.66rem}
-.srow i{font-style:normal;color:var(--t3);white-space:nowrap}
-.srow b{font-size:0.8rem;color:var(--t3)}
+.sgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(176px,1fr));gap:6px}
+.srow{display:flex;align-items:center;gap:5px;background:rgba(0,0,0,.26);
+      border:1px solid var(--border);border-radius:8px;padding:5px 7px;font-size:0.62rem}
+.srow i{font-style:normal;color:var(--t3);white-space:nowrap;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.srow .auto{color:var(--t3);font-size:0.56rem;white-space:nowrap;opacity:.85}
+.srow input{width:54px;background:rgba(0,0,0,.35);border:1px solid var(--border);border-radius:6px;
+      color:var(--cyan);padding:2px 4px;font-size:0.64rem;font-family:inherit;outline:none;text-align:right;flex:0 0 auto}
+.srow input:focus{border-color:var(--cyan)}
+.srow b{font-size:0.72rem;color:var(--t3);min-width:34px;text-align:right;flex:0 0 auto}
 .srow.on{border-color:var(--cyan);background:rgba(0,212,255,.09)}
 .srow.on b{color:var(--cyan)}
 .srow.b{border-color:rgba(255,215,0,.4)}
-.srow.b input{width:62px;background:rgba(0,0,0,.35);border:1px solid var(--border);border-radius:6px;
-      color:var(--gold);padding:3px 5px;font-size:0.7rem;font-family:inherit;outline:none;text-align:right}
+.srow.b input{color:var(--gold)}
 .srow.b input:focus{border-color:var(--gold)}
+.srow.b.on{border-color:var(--gold);background:rgba(255,215,0,.09)}
+.srow.b.on b{color:var(--gold)}
 .warn{background:rgba(255,71,87,.1);border:1px solid var(--red);color:#ffb3ba;border-radius:9px;padding:9px 11px;font-size:0.7rem;line-height:1.7}
 .ok{background:rgba(46,213,115,.1);border:1px solid var(--green);color:#b9f6ca;border-radius:9px;padding:7px 10px;font-size:0.66rem;margin-top:8px;display:none}
 .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:#1e2b3f;border:1px solid var(--border);
@@ -276,15 +281,27 @@ function computeStats() {
 function statPanelHtml() {
   if (!STATS) return '';
   const { out, counted, skipped, other } = computeStats();
-  const row = ([k, cn, u]) => {
-    const v = Math.round((out[k] || 0) * 100) / 100;
-    return '<div class="srow' + (v ? ' on' : '') + '"><i>' + cn + '</i><b>' + (u === '%' ? (+v) + '%' : v) + '</b></div>';
+  const man = k => (manual[k] === undefined ? '' : manual[k]);
+  const num = k => (typeof manual[k] === 'number' ? manual[k] : 0);
+  /* A 组：自动汇总 + 手动追加，显示"自动 N ＋ [输入] ＝ 合计" */
+  const rowA = ([k, cn, u]) => {
+    const a = Math.round((out[k] || 0) * 100) / 100, m = num(k);
+    const total = Math.round((a + m) * 100) / 100;
+    return '<div class="srow' + ((a || m) ? ' on' : '') + '">'
+      + '<i>' + cn + '</i>'
+      + '<span class="auto" title="由所点节点自动汇总">自动 ' + a + (u === '%' ? '%' : '') + '</span>'
+      + '<input type="number" step="any" value="' + esc(man(k)) + '" placeholder="+追加" '
+      + 'oninput="setManual(\'' + k + '\',this.value)" title="手动追加（例如强化/模组/其它来源）">'
+      + '<b>' + total + (u === '%' ? '%' : '') + '</b></div>';
   };
-  const bRow = ([k, cn, u]) => {
-    const v = manual[k] === undefined ? '' : manual[k];
-    return '<label class="srow b"><i>' + cn + '</i>'
-      + '<input type="number" step="any" value="' + esc(v) + '" placeholder="自己填" '
-      + 'onchange="setManual(\'' + k + '\',this.value)" oninput="setManual(\'' + k + '\',this.value)"></label>';
+  /* B 组：引擎没有字段，全靠手填 */
+  const rowB = ([k, cn, u]) => {
+    const m = num(k);
+    return '<div class="srow b' + (m ? ' on' : '') + '">'
+      + '<i>' + cn + '</i><span class="auto">手填</span>'
+      + '<input type="number" step="any" value="' + esc(man(k)) + '" placeholder="自己填" '
+      + 'oninput="setManual(\'' + k + '\',this.value)">'
+      + '<b>' + m + (u === '%' ? '%' : '') + '</b></div>';
   };
   return '<div class="detail" style="margin-top:10px">'
     + '<div class="dh"><b>本船加点属性汇总</b>'
@@ -292,18 +309,31 @@ function statPanelHtml() {
     + (skipped ? '<span class="tag" style="color:var(--gold);border-color:var(--gold)">' + skipped + ' 个多参数节点未计入</span>' : '')
     + (other ? '<span class="tag">' + other + ' 个属于引擎暂未实现的机制</span>' : '')
     + '</div>'
-    + '<div class="hint" style="margin-bottom:6px">下面 10 项由所点节点<b>自动求和</b>（取当前等级的数值）；'
-    +   '后 4 项战斗引擎里还没有对应字段，<b>请你自己填</b>。</div>'
-    + '<div class="sgrid">' + GROUP_A.map(row).join('') + '</div>'
-    + '<div class="sgrid" style="margin-top:6px">' + GROUP_B.map(bRow).join('') + '</div>'
+    + '<div class="hint" style="margin-bottom:6px">前 10 项＝<b>自动汇总</b>（取所点节点当前等级的数值）<b>＋手动追加</b>；'
+    +   '后 4 项引擎里没有对应字段，<b>全靠手填</b>。右边数字是最终合计。</div>'
+    + '<div class="sgrid">' + GROUP_A.map(rowA).join('') + '</div>'
+    + '<div class="sgrid" style="margin-top:6px">' + GROUP_B.map(rowB).join('') + '</div>'
     + '</div>';
 }
 function setManual(k, v) {
   const f = parseFloat(v);
   if (v === '' || isNaN(f)) delete manual[k]; else manual[k] = f;
   persist();
-  // 只更新数字，不重渲染（否则输入框会失焦）
-  document.querySelectorAll('.sgrid .srow.b input').forEach(() => { });
+  // 就地更新该行的合计，不整页重渲染（否则输入框会失焦）
+  const key = k;
+  const rows = document.querySelectorAll('.sgrid .srow');
+  for (const r of rows) r.classList.toggle('on', true);
+  const { out } = computeStats();
+  document.querySelectorAll('.sgrid .srow').forEach(r => {
+    const nm = r.querySelector('i'); if (!nm) return;
+    const found = GROUP_A.concat(GROUP_B).find(g => g[1] === nm.textContent);
+    if (!found) return;
+    const kk = found[0], m = (typeof manual[kk] === 'number' ? manual[kk] : 0);
+    const a = GROUP_A.some(g => g[0] === kk) ? (Math.round((out[kk] || 0) * 100) / 100) : 0;
+    const b = r.querySelector('b');
+    if (b) b.textContent = Math.round((a + m) * 100) / 100 + (found[2] === '%' ? '%' : '');
+    r.classList.toggle('on', !!(a + m));
+  });
 }
 function fillDesc(n, level) {
   let d = n.baseDesc || '';

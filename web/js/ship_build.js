@@ -74,8 +74,11 @@ window.ShipBuild = (function () {
         out[st.stat] += v; counted++;
       } else other++;
     });
+    // 手填：A 组 10 项是「手动追加」（叠加在自动汇总上）；B 组 4 项引擎没有来源，直接用填的值
+    let manualApplied = 0;
+    A.forEach(k => { if (typeof manual[k] === 'number') { out[k] += manual[k]; manualApplied++; } });
     MANUAL.forEach(k => { if (typeof manual[k] === 'number') out[k] = manual[k]; });
-    return { cdnId: e.cdnId, cdnName: e.cdnName, lv, out, counted, skipped, other, used, manual };
+    return { cdnId: e.cdnId, cdnName: e.cdnName, lv, out, counted, skipped, other, used, manual, manualApplied };
   }
 
   /* 找出模拟器舰队里这艘船的强化配置（可能有多条） */
@@ -120,10 +123,23 @@ window.ShipBuild = (function () {
   function apText(b) {
     const L = [];
     L.push('【加点】已点 ' + b.used + ' 个节点' + (b.counted ? '（其中 ' + b.counted + ' 个计入属性）' : ''));
-    const auto = A.map(k => CN[k] + '+' + (Math.round(b.out[k] * 100) / 100) + (k === 'physResist' ? '' : '%'));
-    L.push('  自动汇总（引擎已支持）：' + auto.join('  '));
+    // A 组：把「节点自动汇总」和「手动追加」分开写，合计才是进引擎的值
+    const A_CN = { hp: '结构值', physResist: '物理抵抗', energyResist: '能量抗性', dmgBonus: '伤害加成', crit: '暴击',
+                   lockReduction: '锁定减免', cooldownReduction: '冷却减免', singleDmg: '单发伤害', evasion: '闪避', interceptRate: '拦截率' };
+    const autoLine = [], plusLine = [];
+    let anyPlus = false;
+    A.forEach(k => {
+      const m = (typeof b.manual[k] === 'number') ? b.manual[k] : 0;
+      const total = Math.round(b.out[k] * 100) / 100;
+      const auto = Math.round((total - m) * 100) / 100;
+      const u = k === 'physResist' ? '' : '%';
+      if (m) { anyPlus = true; plusLine.push(A_CN[k] + ' 自动' + auto + u + ' + 手填' + m + u + ' = ' + total + u); }
+      else autoLine.push(A_CN[k] + '+' + total + u);
+    });
+    L.push('  A 组（引擎已支持，自动汇总）：' + autoLine.join('  '));
+    if (anyPlus) L.push('  A 组手动追加：' + plusLine.join('；') + '　（已含在上面合计里）');
     const man = MANUAL.map(k => CN[k] + '+' + b.out[k] + '%');
-    L.push('  手填（引擎原本没有）：' + man.join('  '));
+    L.push('  B 组（引擎原本没有，全靠手填）：' + man.join('  '));
     if (b.skipped) L.push('  ⚠ ' + b.skipped + ' 个多参数节点（说明里有 ≥2 个数值位）未计入');
     if (b.other) L.push('  ⚠ ' + b.other + ' 个节点属于引擎暂未实现的机制（速度/系统血量/打击间隔等），未计入');
     return L.join('\n');
