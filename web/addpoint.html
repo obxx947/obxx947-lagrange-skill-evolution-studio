@@ -181,6 +181,8 @@ const GROUP_B = [['siege', '攻城伤害', '%'], ['repairBonus', '维修量加�
                  ['hitBonus', '命中加成', '%'], ['hangarBonus', '机库加成', '%']];
 /* H 组：机库专用（只作用于本系统机库里的载机）。目前由已译术语节点提供，也支持手动追加 */
 const GROUP_H = [['hangarCritRate', '机库暴击率', '%'], ['hangarCritDmg', '机库暴击伤害', '%']];
+/* M 组：只作用于【本系统的武器】，不做舰船级汇总（按系统生效） */
+const GROUP_M = ['atkReduction', 'antiIntercept', 'sysDmgReduce', 'positionFix'];
 
 let STATS = null;        // data/blueprint_stats.json
 let manual = {};         // B 组手填值
@@ -267,17 +269,17 @@ function resetAll() {
    A 组 10 项自动求和；B 组 4 项引擎还没有 → 手填。 */
 function computeStats() {
   const out = {}; GROUP_A.forEach(g => out[g[0]] = 0); GROUP_B.forEach(g => out[g[0]] = 0); GROUP_H.forEach(g => out[g[0]] = 0);
-  let counted = 0, skipped = 0, other = 0, pureRef = 0, decoded = 0;
+  let counted = 0, skipped = 0, other = 0, pureRef = 0, decoded = 0, modOnly = 0, mech = 0;
   const skippedList = [], pureRefList = [];
-  if (!ship || !STATS) return { out, counted, skipped, other, pureRef, decoded, skippedList, pureRefList };
+  if (!ship || !STATS) return { out, counted, skipped, other, pureRef, decoded, modOnly, mech, skippedList, pureRefList };
   const IN = k => GROUP_A.some(g => g[0] === k) || GROUP_B.some(g => g[0] === k) || GROUP_H.some(g => g[0] === k);
   ship.systems.forEach(s => s.nodes.forEach(n => {
     const L = nodeLv(n.id); if (L <= 0) return;
     const st = STATS.nodes[n.id]; if (!st || st.empty) return;
     // ⚠️ pureRef 必须先判：这类节点的 stat 往往是 unmapped，先判分组会把它误归到"引擎未实现"
     if (st.pureRef) { pureRef++; pureRefList.push({ node: n, token: st.pureRef }); return; }
-    // 已译术语节点：一条同时写多个属性
-    if (st.statMap) {
+    if (st.mechanic) { mech++; return; }                 // 战场机制（协同指挥/打击/优先打击）——已由引擎执行
+    if (st.statMap) {                                    // 已译术语节点：一条同时写多个属性
       let any = false;
       Object.keys(st.statMap).forEach(k => {
         if (!IN(k)) return;
@@ -287,6 +289,7 @@ function computeStats() {
       if (any) { counted++; decoded++; } else skipped++;
       return;
     }
+    if (GROUP_M.indexOf(st.stat) >= 0) { modOnly++; return; }   // 只作用于本系统武器
     if (!IN(st.stat)) { other++; return; }
     let v = null;
     if (st.statValues) v = st.statValues[L];            // 多参数节点：已解出「本属性对应的那个值」
@@ -294,11 +297,11 @@ function computeStats() {
     if (typeof v !== 'number') { skipped++; skippedList.push({ node: n, stat: st.stat }); return; }
     out[st.stat] += v; counted++;
   }));
-  return { out, counted, skipped, other, pureRef, decoded, skippedList, pureRefList };
+  return { out, counted, skipped, other, pureRef, decoded, modOnly, mech, skippedList, pureRefList };
 }
 function statPanelHtml() {
   if (!STATS) return '';
-  const { out, counted, skipped, other, pureRef, decoded, skippedList, pureRefList } = computeStats();
+  const { out, counted, skipped, other, pureRef, decoded, modOnly, mech, skippedList, pureRefList } = computeStats();
   const man = k => (manual[k] === undefined ? '' : manual[k]);
   const num = k => (typeof manual[k] === 'number' ? manual[k] : 0);
   /* A 组：自动汇总 + 手动追加，显示"自动 N ＋ [输入] ＝ 合计" */
@@ -334,6 +337,8 @@ function statPanelHtml() {
     + '<div class="dh"><b>本船加点属性汇总</b>'
     + '<span class="tag" style="color:var(--cyan);border-color:var(--cyan)">自动汇总 ' + counted + ' 个节点</span>'
     + (decoded ? '<span class="tag" style="color:var(--green);border-color:var(--green)">含 ' + decoded + ' 个已译术语节点</span>' : '')
+    + (modOnly ? '<span class="tag" style="color:var(--blue);border-color:var(--blue)">' + modOnly + ' 个按系统生效</span>' : '')
+    + (mech ? '<span class="tag" style="color:var(--green);border-color:var(--green)">' + mech + ' 个战场机制</span>' : '')
     + (skipped ? '<span class="tag" style="color:var(--gold);border-color:var(--gold)">' + skipped + ' 个需手填</span>' : '')
     + (pureRef ? '<span class="tag" style="color:var(--red);border-color:var(--red)">' + pureRef + ' 个无译文</span>' : '')
     + (other ? '<span class="tag">' + other + ' 个属于引擎暂未实现的机制</span>' : '')
