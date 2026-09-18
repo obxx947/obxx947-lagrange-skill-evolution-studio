@@ -2649,20 +2649,46 @@
         }
     }
 
+    /* 部署载机
+       【口径对齐配队页】配队页里载机数量是「整个条目的合计」——
+         容量 = 单舰容量 × 舰船数量（大矛×6 + B2=3/艘 → 显示 18/18），
+         所以这里也必须是合计：把条目上的载机按数量平均分摊给该条目的 N 个单位。
+       ⚠️ 早期版本对每个单位各部署一份整表 → 8 架会变成 8×6=48 架（数量"无故暴增"的根因） */
     function deployAircraft(carrierShips, targetList) {
+        const groups = {};
         carrierShips.slice().forEach(ship => {
             if(ship.position==='aircraft') return;              // 载机不再带载机
             if(!(ship.aircraft && ship.aircraft.length>0)) return;
-            ship.aircraft.forEach(ac => {
-                for(let i=0; i<(ac.count||0); i++) {
-                    const acInst = createShipInstance(ac, ship.side, ship.isEscort, ship.isEscorted);
-                    acInst.carrierId = ship.id;
-                    acInst.carrierName = ship.name;
-                    acInst.position = 'aircraft';
-                    acInst.isEscort = !!ship.isEscort;
-                    acInst.isEscorted = !!ship.isEscorted;
-                    targetList.push(acInst);
+            const k = ship.uid || ship.id;                      // 同一舰队条目（同型舰多套配置用 uid 区分）
+            (groups[k] = groups[k] || []).push(ship);
+        });
+        Object.keys(groups).forEach(k=>{
+            const units = groups[k];
+            const n = units.length;
+            const list = units[0].aircraft || [];
+            // 每种载机按数量尽量平均分给 n 个单位（余数给前面的单位）→ 总数保持不变
+            const buckets = [];
+            for(let i=0;i<n;i++) buckets.push([]);
+            list.forEach(ac=>{
+                const total = ac.count||0; if(total<=0) return;
+                const base = Math.floor(total/n), rem = total % n;
+                for(let i=0;i<n;i++){
+                    const c = base + (i<rem?1:0);
+                    if(c>0) buckets[i].push(Object.assign({}, ac, {count:c}));
                 }
+            });
+            units.forEach((ship,i)=>{
+                buckets[i].forEach(ac=>{
+                    for(let j=0;j<ac.count;j++){
+                        const acInst = createShipInstance(ac, ship.side, ship.isEscort, ship.isEscorted);
+                        acInst.carrierId = ship.id;
+                        acInst.carrierName = ship.name;
+                        acInst.position = 'aircraft';
+                        acInst.isEscort = !!ship.isEscort;
+                        acInst.isEscorted = !!ship.isEscorted;
+                        targetList.push(acInst);
+                    }
+                });
             });
         });
     }

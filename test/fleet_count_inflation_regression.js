@@ -101,10 +101,10 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
   await p.goto(BASE+'simulator.html',{waitUntil:'load',timeout:90000});
   await sleep(4500);
   const F=await ev(()=>({
-    count:fleetData['ally-escort'].main.filter(s=>s.id==='FG300-A').reduce((n,s)=>n+s.count,0),
+    count:fleetData['ally-escort'].main.filter(s=>s.id==='uranus-spear').reduce((n,s)=>n+s.count,0),
     saved:JSON.parse(localStorage.getItem('lagrange_sim_fleets')||'{}')['ally-escort']?.main?.map(s=>s.count)
   }));
-  check('5 刷新后存档里的 40 艘被自动校正为上限', JSON.stringify(F.saved)==='[6]' && (F.live||[]).join()==='6', JSON.stringify(F));
+  check('5 刷新后存档里的 40 艘被自动校正为上限', JSON.stringify(F.saved)==='[6]' && F.count===6, JSON.stringify(F));
 
   /* ===== 6. 缝合模式不被裁 ===== */
   say('\n===== 6. 缝合模式下不裁剪 =====');
