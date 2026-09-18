@@ -33,6 +33,10 @@
 
     function norm(s){ return String(s==null?'':s).replace(/[\s\u3000]/g,'').replace(/[（(].*?[)）]/g,'').trim(); }
 
+    /* 竖线分隔符：三种写法都要认，否则【同站位的多艘舰会被整段吞掉】
+       U+2502 │（Box Drawings，我方输出用）  U+FF5C ｜（全角竖线，用于分隔同站位多舰 / AI 常用）  U+007C |（半角） */
+    const VERT = /[\u2502\uFF5C|]/;
+
     // 在 SHIP_DB 里匹配舰船；返回 {id,name,type,...} 或 null
     function matchShip(raw){
         if(!window.SHIP_DB||!SHIP_DB.all) return null;
@@ -69,13 +73,13 @@
         // 解析单个配置段： pos 为站位（增援时为空）
         function parseSeg(seg, pos){
             if(!seg) return;
-            seg=String(seg).replace(/^[│|\s]+/,'').trim();
+            seg=String(seg).replace(/^[\u2502\uFF5C|\s]+/,'').trim();
             if(!seg) return;
             const qm=seg.match(/[×xX*]\s*(\d+)/);
             const qty=qm?parseInt(qm[1],10):1;
             let core=seg.split(/[×xX*]/)[0].replace(/带.*$/,'').trim();
             const mods=(core.match(/\b([MABCDEFGH]\d)\b/gi)||[]).map(m=>m.toUpperCase());
-            core=core.replace(/\b[MABCDEFGH]\d\b/gi,'').replace(/[（(].*?[)）]/g,'').replace(/^[│|\s]+/,'').trim();
+            core=core.replace(/\b[MABCDEFGH]\d\b/gi,'').replace(/[（(].*?[)）]/g,'').replace(/^[\u2502\uFF5C|\s]+/,'').trim();
             if(!core) return;
             const ship=matchShip(core);
             const entry={ raw:core, id:ship?ship.id:'', name:ship?ship.name:core, qty:isNaN(qty)?1:qty, pos:pos||'', mods:{} };
@@ -95,12 +99,12 @@
         }
         lines.forEach(ln=>{
             let l=ln.trim(); if(!l) return;
-            const hasSep=/[│|]/.test(l);
+            const hasSep=VERT.test(l);
             // 段标题
             if(!hasSep && /增援|reinforcement/i.test(l)){ section='reinforce'; return; }
             if(!hasSep && /(主舰队|主力舰队|主队|main fleet)/i.test(l)){ section='main'; return; }
             if(hasSep){
-                const parts=l.split(/[│|]/).map(x=>x.trim());
+                const parts=l.split(VERT).map(x=>x.trim());
                 const pos=parts[0];
                 if(pos && !/[×xX*]/.test(pos)) parts.slice(1).forEach(seg=>parseSeg(seg,pos));
                 else parts.forEach(seg=>parseSeg(seg,''));      // 整行本身就是配置
@@ -122,7 +126,7 @@
         const t=String(text||'');
         if(!/×\s*\d/.test(t)) return false;
         if(/(前[排列]|中[排列]|后[排列])/.test(t)) return true;
-        if(/[│|]/.test(t) && /(增援|主舰队|主队)/.test(t)) return true;
+        if(VERT.test(t) && /(增援|主舰队|主队)/.test(t)) return true;
         // 「舰名 ×N」密集出现（≥3 个 ×N）也认为是配队
         return (t.match(/×\s*\d+/g)||[]).length>=3;
     }

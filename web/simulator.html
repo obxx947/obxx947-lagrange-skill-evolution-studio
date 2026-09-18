@@ -2325,6 +2325,54 @@
 
     function savePresets() { localStorage.setItem('lagrange_presets',JSON.stringify(presets)); }
     function loadPresets() { try{const d=localStorage.getItem('lagrange_presets');if(d)presets=JSON.parse(d);}catch(e){} }
+    /* ============================================================
+       舰队合法性校正（唯一实现）：按服役上限截断超限数量
+       - 服役上限按【舰船】在「主力+增援」合计（同型舰多套模块组合一起算）
+       - 数量降了 → 载机位容量跟着降 → 超出的载机按位容量裁掉
+       - 缝合模式（stitchMode）下跳过
+       - fixes 传入数组则收集说明文案（用于导入后弹窗告知用户）
+       ============================================================ */
+    function sanitizeFleetLimits(fleetType, fixes){
+        const f=fleetData[fleetType]; if(!f) return [];
+        fixes=fixes||[];
+        const all=[].concat(f.main||[], f.reinforcement||[]);
+        const used={};
+        all.forEach(e=>{
+            const orig=SHIP_DATABASE[e.id]||{};
+            const lim=stitchMode ? 9999 : (orig.serviceLimit||99);
+            const seen=used[e.id]||0;
+            const room=Math.max(0, lim-seen);
+            if((e.count||0)>room){
+                fixes.push((orig.name||e.name||e.id)+'：'+e.count+' → '+room+'（服役上限 '+lim+'）');
+                e.count=room;
+            }
+            used[e.id]=seen+Math.max(0,e.count||0);
+            recalcAircraftSlots(e);
+            // 载机位容量裁剪
+            (e.aircraft||[]).forEach(a=>{
+                const sl=(e.simSlots||[]).find(x=>x.key===a.slot);
+                if(!sl){ a.count=0; return; }
+                const usedInSlot=(e.aircraft||[]).filter(y=>y.slot===sl.key)
+                    .reduce((n,y)=>n+(y.count||0),0);
+                if(usedInSlot>sl.cap){
+                    const cut=Math.min(a.count||0, usedInSlot-sl.cap);
+                    if(cut>0){ fixes.push('「'+(orig.name||e.id)+'」载机 '+a.name+'：-'+cut+'（载机位容量 '+sl.cap+'）'); a.count-=cut; }
+                }
+            });
+            e.aircraft=(e.aircraft||[]).filter(a=>(a.count||0)>0);
+        });
+        f.main=(f.main||[]).filter(e=>(e.count||0)>0);
+        f.reinforcement=(f.reinforcement||[]).filter(e=>(e.count||0)>0);
+        // 载机服役上限（整队口径）提示
+        const airUsed={};
+        all.forEach(e=>(e.aircraft||[]).forEach(a=>{ airUsed[a.id]=(airUsed[a.id]||0)+(a.count||0); }));
+        Object.keys(airUsed).forEach(id=>{
+            const t=SHIP_DATABASE[id]||{}; const lim=stitchMode?9999:(t.serviceLimit||99);
+            if(airUsed[id]>lim) fixes.push('载机「'+(t.name||id)+'」整队 '+airUsed[id]+' 架 > 上限 '+lim+'（建议削减）');
+        });
+        return fixes;
+    }
+
     /* 存储：模拟器自己的 key。
        ⚠️ 老版本这里和「战舰配队」页共用 'lagrange_fleets'，但两者结构不同
           （配队页存 {plans:[...]}，模拟器存 {ally-escort:{...}}），
@@ -2369,6 +2417,15 @@
                         recalcAircraftSlots(s);
                     });
                 });
+                // 校正历史超限数据（例如"同一套配队反复复制"累加出来的 40 艘）
+                FLEET_TYPES.forEach(k=>{
+                    const fixes=sanitizeFleetLimits(k, []);
+                    if(fixes.length){
+                        console.warn('已校正 ['+k+'] 的超限数据 '+fixes.length+' 处：');
+                        fixes.forEach(x=>console.warn('   '+x));
+                    }
+                });
+                saveFleetsToStorage();
             }
         } catch (e) { console.log('Failed to load fleets:', e); }
     }
@@ -3294,12 +3351,19 @@
                 addInto(into.main, mainN); addInto(into.reinforcement, reinN);
                 if(f.flagship && !into.flagship) into.flagship=f.flagship;
             }
+            // —— 安全网：按服役上限校正（同型舰在「主力+增援」合计），超限则截断并报告 ——
+            // 防的是"同一套配队反复复制，数量一路累加"（8→16→24…），或手填了超过上限的数量
+            var fixes=[];
+            sanitizeFleetLimits(target, fixes);
+
             currentFleetType=target; currentFleetTab='main';
             try{ renderFleetPanels(); }catch(e){}
             try{ if(typeof renderFleetEditorContent==='function') renderFleetEditorContent(); }catch(e){}
+            try{ if($('inlineFleetEditor') && $('inlineFleetEditor').style.display!=='none') renderInlineFleetEditor(); }catch(e){}
             try{ saveFleetsToStorage(); }catch(e){}
-            console.log('已导入配队:', f.name, '→', target, '主', mainN.length, '增援', reinN.length);
-            alert('已'+(mode==='replace'?'覆盖':'加入')+'「'+(FLEET_TYPE_NAMES[target]||target)+'」：\\n主舰队 '+mainN.length+' 种 · 增援 '+reinN.length+' 种');
+            console.log('已导入配队:', f.name, '→', target, '主', mainN.length, '增援', reinN.length, fixes.length?('校正'+fixes.length+'处'):'');
+            alert('已'+(mode==='replace'?'覆盖':'加入')+'「'+(FLEET_TYPE_NAMES[target]||target)+'」：\n主舰队 '+mainN.length+' 种 · 增援 '+reinN.length+' 种'
+                + (fixes.length ? ('\n\n⚠️ 已按服役上限校正 '+fixes.length+' 处：\n'+fixes.slice(0,8).join('\n')+(fixes.length>8?'\n…':'')) : ''));
         }catch(e){ console.error('舰队导入失败', e); alert('舰队导入失败：'+(e&&e.message||e)); }
     }
     </script>

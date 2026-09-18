@@ -213,8 +213,8 @@ textarea{min-height:52px;resize:vertical}
         <div id="simTargetList" class="stim"></div>
         <div style="font-size:0.72rem;color:var(--t2);margin:12px 0 6px">加入方式：</div>
         <div class="stim">
-            <label class="stim-item on"><input type="radio" name="simMode" value="append" checked> 追加（与模拟器里现有舰船合并）</label>
-            <label class="stim-item"><input type="radio" name="simMode" value="replace"> 覆盖（清空该舰队后放入）</label>
+            <label class="stim-item on"><input type="radio" name="simMode" value="replace" checked> 覆盖（推荐）— 该舰队直接变成这份配队</label>
+            <label class="stim-item"><input type="radio" name="simMode" value="append"> 追加 — 与模拟器里现有舰船合并（⚠️ 同一套反复复制会不断累加数量，例如 8 艘连点 5 次会变 40 艘）</label>
         </div>
         <div class="pk-foot">
             <button class="btn" style="flex:1" onclick="closeSimTarget()">取消</button>
@@ -876,7 +876,7 @@ function simPick(v,el){
 }
 function closeSimTarget(){ document.getElementById('simTargetModal').classList.remove('show'); }
 function simConfirm(){
-    const mode=document.querySelector('input[name="simMode"]:checked')?.value||'append';
+    const mode=document.querySelector('input[name="simMode"]:checked')?.value||'replace';
     const f=exportFleet();
     f.target=simTarget; f.mode=mode;
     FleetIO.toSim(f);
