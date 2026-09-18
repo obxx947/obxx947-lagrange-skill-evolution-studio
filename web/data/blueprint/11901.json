@@ -1,0 +1,1203 @@
+{
+ "id": "11901",
+ "shipId": 11901,
+ "shipName": "刺鳐-鱼雷轰炸机",
+ "shipType": 1,
+ "shipIcon": "119.png",
+ "namePinyin": "ciyao-yuleihongzhaji",
+ "isRawShipType0": false,
+ "systems": [
+  {
+   "sysId": 1190101,
+   "sysName": "机载投弹系统",
+   "sysLabel": "投射",
+   "sysIcon": "icon_system_type_battle.png",
+   "isWeaponSystem": true,
+   "enhanceLimit": 7,
+   "nodes": [
+    {
+     "id": 119010101,
+     "parentId": [
+      119010102
+     ],
+     "position": [
+      3,
+      3
+     ],
+     "icon": "105",
+     "maxLevel": 5,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      2,
+      2,
+      2,
+      2,
+      2
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "2"
+      ],
+      [
+       "4"
+      ],
+      [
+       "6"
+      ],
+      [
+       "8"
+      ],
+      [
+       "10"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "伤害",
+     "name": "战斗部改进",
+     "baseDesc": "系统内导弹/鱼雷伤害提升{101}%"
+    },
+    {
+     "id": 119010102,
+     "parentId": [
+      119010110,
+      119010113,
+      119010106
+     ],
+     "position": [
+      3,
+      2
+     ],
+     "icon": "105",
+     "maxLevel": 5,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      2,
+      2,
+      2,
+      2,
+      2
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "2"
+      ],
+      [
+       "4"
+      ],
+      [
+       "6"
+      ],
+      [
+       "8"
+      ],
+      [
+       "10"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "伤害",
+     "name": "装药强化",
+     "baseDesc": "系统内导弹/鱼雷伤害提升{101}%"
+    },
+    {
+     "id": 119010103,
+     "parentId": [
+      119010108,
+      119010106
+     ],
+     "position": [
+      1,
+      2
+     ],
+     "icon": "111",
+     "maxLevel": 5,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      2,
+      2,
+      2,
+      2,
+      2
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "6"
+      ],
+      [
+       "12"
+      ],
+      [
+       "18"
+      ],
+      [
+       "24"
+      ],
+      [
+       "30"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "攻城",
+     "name": "攻城弹药强化",
+     "baseDesc": "系统内武器攻城伤害提高{101}%"
+    },
+    {
+     "id": 119010104,
+     "parentId": [
+      119010103
+     ],
+     "position": [
+      1,
+      3
+     ],
+     "icon": "111",
+     "maxLevel": 5,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      2,
+      2,
+      2,
+      2,
+      2
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "6"
+      ],
+      [
+       "12"
+      ],
+      [
+       "18"
+      ],
+      [
+       "24"
+      ],
+      [
+       "30"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "攻城",
+     "name": "城防弱点识别",
+     "baseDesc": "系统内武器攻城伤害提高{101}%"
+    },
+    {
+     "id": 119010105,
+     "parentId": [
+      119010109,
+      119010101
+     ],
+     "position": [
+      2,
+      4
+     ],
+     "icon": "120",
+     "maxLevel": 5,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      2,
+      2,
+      2,
+      2,
+      2
+     ],
+     "levelValue": [
+      [
+       "0",
+       "0"
+      ],
+      [
+       "2",
+       "2"
+      ],
+      [
+       "4",
+       "4"
+      ],
+      [
+       "6",
+       "6"
+      ],
+      [
+       "8",
+       "8"
+      ],
+      [
+       "10",
+       "10"
+      ]
+     ],
+     "valueSymbol": [
+      "+",
+      "+"
+     ],
+     "labelName": "命中",
+     "name": "制导信号增强",
+     "baseDesc": "系统内导弹命中提升{201}%/鱼雷命中提升{101}%"
+    },
+    {
+     "id": 119010106,
+     "parentId": [],
+     "position": [
+      2,
+      1
+     ],
+     "icon": "167",
+     "maxLevel": 5,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      1,
+      1,
+      1,
+      1,
+      1
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "3"
+      ],
+      [
+       "6"
+      ],
+      [
+       "9"
+      ],
+      [
+       "12"
+      ],
+      [
+       "15"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "频率",
+     "name": "装填机构升级",
+     "baseDesc": "系统内武器冷却时间下降{101}%"
+    },
+    {
+     "id": 119010107,
+     "parentId": [
+      119010106
+     ],
+     "position": [
+      2,
+      2
+     ],
+     "icon": "167",
+     "maxLevel": 5,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      1,
+      1,
+      1,
+      1,
+      1
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "3"
+      ],
+      [
+       "6"
+      ],
+      [
+       "9"
+      ],
+      [
+       "12"
+      ],
+      [
+       "15"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "频率",
+     "name": "弹药运输加速",
+     "baseDesc": "系统内武器冷却时间下降{101}%"
+    },
+    {
+     "id": 119010108,
+     "parentId": [],
+     "position": [
+      1,
+      1
+     ],
+     "icon": "113",
+     "maxLevel": 5,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      2,
+      2,
+      2,
+      2,
+      2
+     ],
+     "levelValue": [
+      [
+       "0",
+       "0"
+      ],
+      [
+       "6",
+       "10"
+      ],
+      [
+       "12",
+       "20"
+      ],
+      [
+       "18",
+       "30"
+      ],
+      [
+       "24",
+       "40"
+      ],
+      [
+       "30",
+       "50"
+      ]
+     ],
+     "valueSymbol": [
+      "+",
+      "+"
+     ],
+     "labelName": "暴击",
+     "name": "殉爆攻击",
+     "baseDesc": "系统内武器的攻击将有{101}%概率额外造成{102}%暴击伤害"
+    },
+    {
+     "id": 119010109,
+     "parentId": [
+      119010107
+     ],
+     "position": [
+      2,
+      3
+     ],
+     "icon": "145",
+     "maxLevel": 5,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      2,
+      2,
+      2,
+      2,
+      2
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "6"
+      ],
+      [
+       "12"
+      ],
+      [
+       "18"
+      ],
+      [
+       "24"
+      ],
+      [
+       "30"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "命中",
+     "name": "弹身隐身处理",
+     "baseDesc": "系统内鱼雷被拦截率下降{101}%"
+    },
+    {
+     "id": 119010110,
+     "parentId": [],
+     "position": [
+      3,
+      1
+     ],
+     "icon": "136",
+     "maxLevel": 1,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 3,
+     "priorty": 1,
+     "levelCost": [
+      14
+     ],
+     "levelValue": [
+      [
+       "0",
+       "0",
+       "0",
+       "0"
+      ],
+      [
+       "90",
+       "30",
+       "90",
+       "30"
+      ]
+     ],
+     "valueSymbol": [
+      "+",
+      "+",
+      "+",
+      "+"
+     ],
+     "labelName": "闪避",
+     "name": "隐身攻击",
+     "baseDesc": "每{P}秒触发隐身系统，闪避率提升{101}%，命中率提升{201}%，持续{T}秒。"
+    },
+    {
+     "id": 119010113,
+     "parentId": [],
+     "position": [
+      3,
+      1
+     ],
+     "icon": "170",
+     "maxLevel": 1,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 3,
+     "priorty": 2,
+     "levelCost": [
+      15
+     ],
+     "levelValue": [
+      [
+       "0",
+       "0"
+      ],
+      [
+       "180",
+       "60"
+      ]
+     ],
+     "valueSymbol": [
+      "+",
+      "+"
+     ],
+     "labelName": "攻击系统",
+     "name": "多系统锁定",
+     "baseDesc": "战斗开始后{T}秒内，对系统造成伤害时，有60%概率对系统攻击序列中的另一个系统也同时造成伤害。"
+    },
+    {
+     "id": 119010111,
+     "parentId": [],
+     "position": [
+      4,
+      1
+     ],
+     "icon": "224",
+     "maxLevel": 1,
+     "defaultLevel": 0,
+     "adjustTag": true,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [],
+     "levelValue": [],
+     "valueSymbol": [],
+     "labelName": null,
+     "name": null,
+     "baseDesc": null
+    },
+    {
+     "id": 119010112,
+     "parentId": [],
+     "position": [
+      4,
+      2
+     ],
+     "icon": "222",
+     "maxLevel": 1,
+     "defaultLevel": 0,
+     "adjustTag": true,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [],
+     "levelValue": [],
+     "valueSymbol": [],
+     "labelName": null,
+     "name": null,
+     "baseDesc": null
+    },
+    {
+     "id": 119010131,
+     "parentId": [],
+     "position": [
+      4,
+      3
+     ],
+     "icon": "105",
+     "maxLevel": 1,
+     "defaultLevel": 0,
+     "adjustTag": true,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [],
+     "levelValue": [],
+     "valueSymbol": [],
+     "labelName": null,
+     "name": null,
+     "baseDesc": null
+    }
+   ]
+  },
+  {
+   "sysId": 1190102,
+   "sysName": "装甲系统",
+   "sysLabel": "装甲",
+   "sysIcon": "icon_system_armor.png",
+   "isWeaponSystem": false,
+   "enhanceLimit": 4,
+   "nodes": [
+    {
+     "id": 119010201,
+     "parentId": [
+      119010203
+     ],
+     "position": [
+      2,
+      3
+     ],
+     "icon": "129",
+     "maxLevel": 5,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      1,
+      1,
+      2,
+      2,
+      2
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "2"
+      ],
+      [
+       "4"
+      ],
+      [
+       "6"
+      ],
+      [
+       "9"
+      ],
+      [
+       "12"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "结构",
+     "name": "航空装甲强化",
+     "baseDesc": "舰船血量提升{101}%"
+    },
+    {
+     "id": 119010202,
+     "parentId": [
+      119010201
+     ],
+     "position": [
+      2,
+      4
+     ],
+     "icon": "129",
+     "maxLevel": 5,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      1,
+      1,
+      2,
+      2,
+      2
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "2"
+      ],
+      [
+       "4"
+      ],
+      [
+       "6"
+      ],
+      [
+       "9"
+      ],
+      [
+       "12"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "结构",
+     "name": "焊接工艺强化",
+     "baseDesc": "舰船血量提升{101}%"
+    },
+    {
+     "id": 119010203,
+     "parentId": [
+      119010205,
+      119010204
+     ],
+     "position": [
+      2,
+      2
+     ],
+     "icon": "129",
+     "maxLevel": 5,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      1,
+      1,
+      2,
+      2,
+      2
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "2"
+      ],
+      [
+       "4"
+      ],
+      [
+       "6"
+      ],
+      [
+       "9"
+      ],
+      [
+       "12"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "结构",
+     "name": "附加护甲强化",
+     "baseDesc": "舰船血量提升{101}%"
+    },
+    {
+     "id": 119010204,
+     "parentId": [],
+     "position": [
+      1,
+      1
+     ],
+     "icon": "131",
+     "maxLevel": 5,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      1,
+      1,
+      1,
+      1,
+      2
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "2"
+      ],
+      [
+       "4"
+      ],
+      [
+       "6"
+      ],
+      [
+       "8"
+      ],
+      [
+       "10"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "抵抗",
+     "name": "装甲能量涂层",
+     "baseDesc": "能量伤害抵抗提高{101}%"
+    },
+    {
+     "id": 119010205,
+     "parentId": [],
+     "position": [
+      2,
+      1
+     ],
+     "icon": "137",
+     "maxLevel": 1,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      6
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "20"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "增益",
+     "name": "识别干扰涂层",
+     "baseDesc": "使自身受防空武器锁定效率影响下降{101}%（受到敌方攻击后失效）"
+    },
+    {
+     "id": 119010206,
+     "parentId": [],
+     "position": [
+      3,
+      1
+     ],
+     "icon": "129",
+     "maxLevel": 1,
+     "defaultLevel": 0,
+     "adjustTag": true,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [],
+     "levelValue": [],
+     "valueSymbol": [],
+     "labelName": null,
+     "name": null,
+     "baseDesc": null
+    },
+    {
+     "id": 119010207,
+     "parentId": [],
+     "position": [
+      3,
+      2
+     ],
+     "icon": "222",
+     "maxLevel": 1,
+     "defaultLevel": 0,
+     "adjustTag": true,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [],
+     "levelValue": [],
+     "valueSymbol": [],
+     "labelName": null,
+     "name": null,
+     "baseDesc": null
+    },
+    {
+     "id": 119010231,
+     "parentId": [],
+     "position": [
+      3,
+      3
+     ],
+     "icon": "129",
+     "maxLevel": 1,
+     "defaultLevel": 0,
+     "adjustTag": true,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [],
+     "levelValue": [],
+     "valueSymbol": [],
+     "labelName": null,
+     "name": null,
+     "baseDesc": null
+    }
+   ]
+  },
+  {
+   "sysId": 1190103,
+   "sysName": "动力系统",
+   "sysLabel": "动力",
+   "sysIcon": "icon_system_dynamic.png",
+   "isWeaponSystem": false,
+   "enhanceLimit": 3,
+   "nodes": [
+    {
+     "id": 119010301,
+     "parentId": [],
+     "position": [
+      2,
+      1
+     ],
+     "icon": "136",
+     "maxLevel": 4,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      2,
+      2,
+      2,
+      3
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "2"
+      ],
+      [
+       "4"
+      ],
+      [
+       "6"
+      ],
+      [
+       "8"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "闪避",
+     "name": "动态推力调整",
+     "baseDesc": "舰船闪避率提升{101}%"
+    },
+    {
+     "id": 119010302,
+     "parentId": [],
+     "position": [
+      1,
+      1
+     ],
+     "icon": "178",
+     "maxLevel": 4,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      2,
+      2,
+      2,
+      3
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "7.5"
+      ],
+      [
+       "15"
+      ],
+      [
+       "22.5"
+      ],
+      [
+       "30"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "频率",
+     "name": "加力燃烧强化",
+     "baseDesc": "使舰载机主武器选择目标时间下降{101}%"
+    },
+    {
+     "id": 119010303,
+     "parentId": [
+      119010301,
+      119010302,
+      119010304
+     ],
+     "position": [
+      2,
+      2
+     ],
+     "icon": "178",
+     "maxLevel": 4,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      2,
+      2,
+      2,
+      3
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "7.5"
+      ],
+      [
+       "15"
+      ],
+      [
+       "22.5"
+      ],
+      [
+       "30"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "频率",
+     "name": "加力燃烧强化",
+     "baseDesc": "使舰载机主武器选择目标时间下降{101}%"
+    },
+    {
+     "id": 119010304,
+     "parentId": [],
+     "position": [
+      3,
+      1
+     ],
+     "icon": "152",
+     "maxLevel": 5,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      2,
+      2,
+      2,
+      3,
+      3
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "8"
+      ],
+      [
+       "16"
+      ],
+      [
+       "24"
+      ],
+      [
+       "32"
+      ],
+      [
+       "40"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "频率",
+     "name": "机动飞行改良",
+     "baseDesc": "往复式舰载机飞行时间下降{101}%"
+    }
+   ]
+  },
+  {
+   "sysId": 1190104,
+   "sysName": "往复式指挥系统",
+   "sysLabel": "指挥",
+   "sysIcon": "icon_system_type_command.png",
+   "isWeaponSystem": false,
+   "enhanceLimit": 1,
+   "nodes": [
+    {
+     "id": 119010401,
+     "parentId": [],
+     "position": [
+      3,
+      1
+     ],
+     "icon": "180",
+     "maxLevel": 1,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      5
+     ],
+     "levelValue": [
+      [],
+      []
+     ],
+     "valueSymbol": [],
+     "labelName": "攻击序列",
+     "name": "目标重设置",
+     "baseDesc": "本舰船主武器优先打击小型主力舰目标。"
+    },
+    {
+     "id": 119010402,
+     "parentId": [],
+     "position": [
+      2,
+      1
+     ],
+     "icon": "139",
+     "maxLevel": 5,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      1,
+      1,
+      1,
+      1,
+      1
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "5"
+      ],
+      [
+       "10"
+      ],
+      [
+       "15"
+      ],
+      [
+       "20"
+      ],
+      [
+       "25"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "自维修",
+     "name": "系统自维修强化",
+     "baseDesc": "提升本系统自动维修效率{101}%"
+    },
+    {
+     "id": 119010403,
+     "parentId": [],
+     "position": [
+      1,
+      1
+     ],
+     "icon": "157",
+     "maxLevel": 1,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      5
+     ],
+     "levelValue": [
+      [],
+      []
+     ],
+     "valueSymbol": [],
+     "labelName": "攻击序列",
+     "name": "攻击系统重置",
+     "baseDesc": "本船所有包含攻击系统的武器，优先打击动力系统，攻击效率为中"
+    }
+   ]
+  }
+ ]
+}

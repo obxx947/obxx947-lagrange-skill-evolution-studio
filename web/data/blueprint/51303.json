@@ -1,0 +1,338 @@
+{
+ "id": "51303",
+ "shipId": 51303,
+ "shipName": "星空巡游者-游骑兵级民用观光船",
+ "shipType": 5,
+ "shipIcon": "513.png",
+ "namePinyin": "xingkongxunyouzhe-youqibingjiminyongguanguangchuan",
+ "isRawShipType0": false,
+ "systems": [
+  {
+   "sysId": 5130301,
+   "sysName": "“三角龙”综合观光系统",
+   "sysLabel": "游轮",
+   "sysIcon": "icon_system_type_subsystem.png",
+   "isWeaponSystem": false,
+   "enhanceLimit": 4,
+   "nodes": [
+    {
+     "id": 513030101,
+     "parentId": [],
+     "position": [
+      2,
+      1
+     ],
+     "icon": "237",
+     "maxLevel": 1,
+     "defaultLevel": 1,
+     "adjustTag": false,
+     "type": 4,
+     "priorty": 0,
+     "levelCost": [
+      0
+     ],
+     "levelValue": [
+      [
+       "00",
+       "00",
+       "12",
+       "10"
+      ]
+     ],
+     "valueSymbol": [],
+     "labelName": "巡游",
+     "name": "星系巡游",
+     "baseDesc": "舰船将自动在全星系范围内进行巡游。每日0时，巡游的舰船为持有者随机发放任务。\n同时将拜访{101}名小队内其他成员，使之随机获得一项任务。每名玩家每天最多获得10次来自队友游轮的任务"
+    },
+    {
+     "id": 513030102,
+     "parentId": [
+      513030104,
+      513030105
+     ],
+     "position": [
+      2,
+      3
+     ],
+     "icon": "222",
+     "maxLevel": 1,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 1,
+     "levelCost": [
+      2
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "10"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "奖励类型",
+     "name": "巡游分享I",
+     "baseDesc": "同小队成员每日获得“手气大旺”任务的概率提高{101}%"
+    },
+    {
+     "id": 513030103,
+     "parentId": [
+      513030104,
+      513030105
+     ],
+     "position": [
+      2,
+      3
+     ],
+     "icon": "142",
+     "maxLevel": 1,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 2,
+     "levelCost": [
+      2
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "10"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "奖励类型",
+     "name": "巡游分享II",
+     "baseDesc": "同小队成员每日获得“高效动员I”或“生产激励I”任务的概率提高{101}%"
+    },
+    {
+     "id": 513030104,
+     "parentId": [
+      513030101
+     ],
+     "position": [
+      2,
+      2
+     ],
+     "icon": "222",
+     "maxLevel": 4,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 1,
+     "levelCost": [
+      10,
+      10,
+      10,
+      10
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "12"
+      ],
+      [
+       "25"
+      ],
+      [
+       "37"
+      ],
+      [
+       "50"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "奖励类型",
+     "name": "差异化服务I",
+     "baseDesc": "舰船的持有者每日获得“鸿运当头”任务的概率提高{101}%"
+    },
+    {
+     "id": 513030105,
+     "parentId": [
+      513030101
+     ],
+     "position": [
+      2,
+      2
+     ],
+     "icon": "142",
+     "maxLevel": 4,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 2,
+     "levelCost": [
+      10,
+      10,
+      10,
+      10
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "12"
+      ],
+      [
+       "25"
+      ],
+      [
+       "37"
+      ],
+      [
+       "50"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "奖励类型",
+     "name": "差异化服务II",
+     "baseDesc": "舰船的持有者每日获得“高效动员II”或“生产激励II”任务的概率提高{101}%"
+    },
+    {
+     "id": 513030106,
+     "parentId": [
+      513030101
+     ],
+     "position": [
+      3,
+      2
+     ],
+     "icon": "222",
+     "maxLevel": 2,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      10,
+      10
+     ],
+     "levelValue": [
+      [
+       "0"
+      ],
+      [
+       "20"
+      ],
+      [
+       "40"
+      ]
+     ],
+     "valueSymbol": [
+      "+"
+     ],
+     "labelName": "成功率",
+     "name": "精准调校",
+     "baseDesc": "同小队成员“手气大旺”任务的调校成功率提升{101}%"
+    },
+    {
+     "id": 513030107,
+     "parentId": [
+      513030101
+     ],
+     "position": [
+      1,
+      2
+     ],
+     "icon": "193",
+     "maxLevel": 2,
+     "defaultLevel": 0,
+     "adjustTag": false,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [
+      5,
+      10
+     ],
+     "levelValue": [
+      [
+       "0",
+       "0",
+       "0",
+       "0",
+       "0"
+      ],
+      [
+       "1",
+       "08",
+       "00",
+       "16",
+       "00"
+      ],
+      [
+       "2",
+       "08",
+       "00",
+       "16",
+       "00"
+      ]
+     ],
+     "valueSymbol": [
+      "+",
+      "+",
+      "",
+      "+",
+      ""
+     ],
+     "labelName": "奖励量",
+     "name": "增值服务",
+     "baseDesc": "舰船的持有者每日查收奖励并派出巡游后，次日8时、16时将各额外获得{101}次相同的任务奖励"
+    },
+    {
+     "id": 513030111,
+     "parentId": [],
+     "position": [
+      4,
+      1
+     ],
+     "icon": "222",
+     "maxLevel": 1,
+     "defaultLevel": 0,
+     "adjustTag": true,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [],
+     "levelValue": [],
+     "valueSymbol": [],
+     "labelName": null,
+     "name": null,
+     "baseDesc": null
+    },
+    {
+     "id": 513030131,
+     "parentId": [],
+     "position": [
+      4,
+      2
+     ],
+     "icon": "237",
+     "maxLevel": 1,
+     "defaultLevel": 0,
+     "adjustTag": true,
+     "type": 0,
+     "priorty": 0,
+     "levelCost": [],
+     "levelValue": [],
+     "valueSymbol": [],
+     "labelName": null,
+     "name": null,
+     "baseDesc": null
+    }
+   ]
+  }
+ ]
+}

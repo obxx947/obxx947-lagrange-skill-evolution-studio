@@ -1,0 +1,1064 @@
+[
+ {
+  "id": "10201",
+  "shipType": 1,
+  "name": "SC002型-量子侦察机",
+  "namePinyin": "SC002xing-liangzizhenchaji"
+ },
+ {
+  "id": "10701",
+  "shipType": 1,
+  "name": "砂龙-大气层拦截机",
+  "namePinyin": "shalong-daqicenglanjieji"
+ },
+ {
+  "id": "10801",
+  "shipType": 1,
+  "name": "牛蛙型-两栖轰炸机",
+  "namePinyin": "niuwaxing-liangqihongzhaji"
+ },
+ {
+  "id": "10901",
+  "shipType": 1,
+  "name": "林鸮A100型-联合攻击机",
+  "namePinyin": "linxiaoA100xing-lianhegongjiji"
+ },
+ {
+  "id": "11301",
+  "shipType": 1,
+  "name": "海氏追随者型-脉冲战斗机",
+  "namePinyin": "haishizhuisuizhexing-maichongzhandouji"
+ },
+ {
+  "id": "11401",
+  "shipType": 1,
+  "name": "平衡安德森SC020-侦察机",
+  "namePinyin": "pinghengandesenSC020-zhenchaji"
+ },
+ {
+  "id": "11501",
+  "shipType": 1,
+  "name": "维塔斯A021-重型攻击机",
+  "namePinyin": "weitasiA021-zhongxinggongjiji"
+ },
+ {
+  "id": "11601",
+  "shipType": 1,
+  "name": "维塔斯-B010-轰炸机",
+  "namePinyin": "weitasi-B010-hongzhaji"
+ },
+ {
+  "id": "11701",
+  "shipType": 1,
+  "name": "B192新大地-重型攻击机",
+  "namePinyin": "B192xindadi-zhongxinggongjiji"
+ },
+ {
+  "id": "11801",
+  "shipType": 1,
+  "name": "孢子A404-轻型战斗机",
+  "namePinyin": "baoziA404-qingxingzhandouji"
+ },
+ {
+  "id": "11901",
+  "shipType": 1,
+  "name": "刺鳐-鱼雷轰炸机",
+  "namePinyin": "ciyao-yuleihongzhaji"
+ },
+ {
+  "id": "12001",
+  "shipType": 1,
+  "name": "佩刀Aer410-强击攻击机",
+  "namePinyin": "peidaoAer410-qiangjigongjiji"
+ },
+ {
+  "id": "12401",
+  "shipType": 1,
+  "name": "米斯特拉-战斗攻击机",
+  "namePinyin": "misitela-zhandougongjiji"
+ },
+ {
+  "id": "12501",
+  "shipType": 1,
+  "name": "AT021-脉冲攻击机",
+  "namePinyin": "AT021-maichonggongjiji"
+ },
+ {
+  "id": "12502",
+  "shipType": 1,
+  "name": "AT021-战术攻击机",
+  "namePinyin": "AT021-zhanshugongjiji"
+ },
+ {
+  "id": "12503",
+  "shipType": 1,
+  "name": "AT021-重型攻击机",
+  "namePinyin": "AT021-zhongxinggongjiji"
+ },
+ {
+  "id": "12601",
+  "shipType": 1,
+  "name": "BR050-标准轰炸机",
+  "namePinyin": "BR050-biaozhunhongzhaji"
+ },
+ {
+  "id": "12602",
+  "shipType": 1,
+  "name": "BR050-多用途轰炸机",
+  "namePinyin": "BR050-duoyongtuhongzhaji"
+ },
+ {
+  "id": "12603",
+  "shipType": 1,
+  "name": "BR050-鱼雷轰炸机",
+  "namePinyin": "BR050-yuleihongzhaji"
+ },
+ {
+  "id": "12701",
+  "shipType": 1,
+  "name": "理智A101-战斗攻击机",
+  "namePinyin": "lizhiA101-zhandougongjiji"
+ },
+ {
+  "id": "12801",
+  "shipType": 1,
+  "name": "雷火V022-轻型战斗机",
+  "namePinyin": "leihuoV022-qingxingzhandouji"
+ },
+ {
+  "id": "12802",
+  "shipType": 1,
+  "name": "雷火V022-特种战斗机",
+  "namePinyin": "leihuoV022-tezhongzhandouji"
+ },
+ {
+  "id": "12803",
+  "shipType": 1,
+  "name": "雷火V022-两栖战斗机",
+  "namePinyin": "leihuoV022-liangqizhandouji"
+ },
+ {
+  "id": "15701",
+  "shipType": 1,
+  "name": "天璇-轻型攻击机",
+  "namePinyin": "tianxuan-qingxinggongjiji"
+ },
+ {
+  "id": "15702",
+  "shipType": 1,
+  "name": "天璇-战斗攻击机",
+  "namePinyin": "tianxuan-zhandougongjiji"
+ },
+ {
+  "id": "20301",
+  "shipType": 2,
+  "name": "鳐-装甲护航艇",
+  "namePinyin": "yao-zhuangjiahuhangting"
+ },
+ {
+  "id": "20302",
+  "shipType": 2,
+  "name": "鳐-特种护航艇",
+  "namePinyin": "yao-tezhonghuhangting"
+ },
+ {
+  "id": "20401",
+  "shipType": 2,
+  "name": "CV-II003型-轻型护航艇",
+  "namePinyin": "CV-II003xing-qingxinghuhangting"
+ },
+ {
+  "id": "20701",
+  "shipType": 2,
+  "name": "RB7-13型-导弹艇",
+  "namePinyin": "RB7-13xing-daodanting"
+ },
+ {
+  "id": "20702",
+  "shipType": 2,
+  "name": "RB7-13型-突防护航艇",
+  "namePinyin": "RB7-13xing-tufanghuhangting"
+ },
+ {
+  "id": "20801",
+  "shipType": 2,
+  "name": "蜂巢守卫者-重型鱼雷艇",
+  "namePinyin": "fengchaoshouweizhe-zhongxingyuleiting"
+ },
+ {
+  "id": "20901",
+  "shipType": 2,
+  "name": "星云追逐者-重型护航艇",
+  "namePinyin": "xingyunzhuizhuzhe-zhongxinghuhangting"
+ },
+ {
+  "id": "20902",
+  "shipType": 2,
+  "name": "星云追逐者-脉冲炮艇",
+  "namePinyin": "xingyunzhuizhuzhe-maichongpaoting"
+ },
+ {
+  "id": "21001",
+  "shipType": 2,
+  "name": "虚灵-隐身导弹艇",
+  "namePinyin": "xuling-yinshendaodanting"
+ },
+ {
+  "id": "21101",
+  "shipType": 2,
+  "name": "CV-M011型-重型导弹艇",
+  "namePinyin": "CV-M011xing-zhongxingdaodanting"
+ },
+ {
+  "id": "21102",
+  "shipType": 2,
+  "name": "CV-M011型-重炮艇",
+  "namePinyin": "CV-M011xing-zhongpaoting"
+ },
+ {
+  "id": "21103",
+  "shipType": 2,
+  "name": "CV-M011型-高速导弹艇",
+  "namePinyin": "CV-M011xing-gaosudaodanting"
+ },
+ {
+  "id": "21301",
+  "shipType": 2,
+  "name": "CV-T800型-脉冲炮艇",
+  "namePinyin": "CV-T800xing-maichongpaoting"
+ },
+ {
+  "id": "21401",
+  "shipType": 2,
+  "name": "S-列维9号-重型鱼雷艇",
+  "namePinyin": "S-liewei9hao-zhongxingyuleiting"
+ },
+ {
+  "id": "21501",
+  "shipType": 2,
+  "name": "海尔波普-系统支援护航艇",
+  "namePinyin": "haierbopu-xitongzhiyuanhuhangting"
+ },
+ {
+  "id": "21502",
+  "shipType": 2,
+  "name": "海尔波普-维修支援护航艇",
+  "namePinyin": "haierbopu-weixiuzhiyuanhuhangting"
+ },
+ {
+  "id": "21601",
+  "shipType": 2,
+  "name": "坦普尔1号-信息护航艇",
+  "namePinyin": "tanpuer1hao-xinxihuhangting"
+ },
+ {
+  "id": "21602",
+  "shipType": 2,
+  "name": "坦普尔1号-预警护航艇",
+  "namePinyin": "tanpuer1hao-yujinghuhangting"
+ },
+ {
+  "id": "21701",
+  "shipType": 2,
+  "name": "野火-战术鱼雷护航艇",
+  "namePinyin": "yehuo-zhanshuyuleihuhangting"
+ },
+ {
+  "id": "21702",
+  "shipType": 2,
+  "name": "野火-格斗护航艇",
+  "namePinyin": "yehuo-gedouhuhangting"
+ },
+ {
+  "id": "22101",
+  "shipType": 2,
+  "name": "索姆河之影-装甲飞行坦克",
+  "namePinyin": "suomuhezhiying-zhuangjiafeixingtanke"
+ },
+ {
+  "id": "22201",
+  "shipType": 2,
+  "name": "天玑-重型护航艇",
+  "namePinyin": "tianji-zhongxinghuhangting"
+ },
+ {
+  "id": "22202",
+  "shipType": 2,
+  "name": "天玑-攻击护航艇",
+  "namePinyin": "tianji-gongjihuhangting"
+ },
+ {
+  "id": "22301",
+  "shipType": 2,
+  "name": "天枪-战术护航艇",
+  "namePinyin": "tianqiang-zhanshuhuhangting"
+ },
+ {
+  "id": "22302",
+  "shipType": 2,
+  "name": "天枪-重型鱼雷艇",
+  "namePinyin": "tianqiang-zhongxingyuleiting"
+ },
+ {
+  "id": "30101",
+  "shipType": 3,
+  "name": "FG300型-多用途护卫舰",
+  "namePinyin": "FG300xing-duoyongtuhuweijian"
+ },
+ {
+  "id": "30102",
+  "shipType": 3,
+  "name": "FG300型-装甲护卫舰",
+  "namePinyin": "FG300xing-zhuangjiahuweijian"
+ },
+ {
+  "id": "30103",
+  "shipType": 3,
+  "name": "FG300型-侦察护卫舰",
+  "namePinyin": "FG300xing-zhenchahuweijian"
+ },
+ {
+  "id": "30201",
+  "shipType": 3,
+  "name": "静海级-导弹护卫舰",
+  "namePinyin": "jinghaiji-daodanhuweijian"
+ },
+ {
+  "id": "30202",
+  "shipType": 3,
+  "name": "静海级-脉冲炮护卫舰",
+  "namePinyin": "jinghaiji-maichongpaohuweijian"
+ },
+ {
+  "id": "30203",
+  "shipType": 3,
+  "name": "静海级-拦截护卫舰",
+  "namePinyin": "jinghaiji-lanjiehuweijian"
+ },
+ {
+  "id": "30301",
+  "shipType": 3,
+  "name": "云海级-轻型登陆舰",
+  "namePinyin": "yunhaiji-qingxingdenglujian"
+ },
+ {
+  "id": "30302",
+  "shipType": 3,
+  "name": "云海级-防空护卫舰",
+  "namePinyin": "yunhaiji-fangkonghuweijian"
+ },
+ {
+  "id": "30401",
+  "shipType": 3,
+  "name": "刺水母级-战术护卫舰",
+  "namePinyin": "cishuimuji-zhanshuhuweijian"
+ },
+ {
+  "id": "30402",
+  "shipType": 3,
+  "name": "刺水母级-防御护卫舰",
+  "namePinyin": "cishuimuji-fangyuhuweijian"
+ },
+ {
+  "id": "30403",
+  "shipType": 3,
+  "name": "刺水母级-无人机登陆舰",
+  "namePinyin": "cishuimuji-wurenjidenglujian"
+ },
+ {
+  "id": "30501",
+  "shipType": 3,
+  "name": "红宝石级-重型轨道炮护卫舰",
+  "namePinyin": "hongbaoshiji-zhongxingguidaopaohuweijian"
+ },
+ {
+  "id": "30502",
+  "shipType": 3,
+  "name": "红宝石级-实验型离子炮护卫舰",
+  "namePinyin": "hongbaoshiji-shiyanxinglizipaohuweijian"
+ },
+ {
+  "id": "30503",
+  "shipType": 3,
+  "name": "红宝石级-重型防御护卫舰",
+  "namePinyin": "hongbaoshiji-zhongxingfangyuhuweijian"
+ },
+ {
+  "id": "30701",
+  "shipType": 3,
+  "name": "诺玛M470级-重型登陆舰",
+  "namePinyin": "nuomaM470ji-zhongxingdenglujian"
+ },
+ {
+  "id": "30702",
+  "shipType": 3,
+  "name": "诺玛M470级-支援护卫舰",
+  "namePinyin": "nuomaM470ji-zhiyuanhuweijian"
+ },
+ {
+  "id": "30703",
+  "shipType": 3,
+  "name": "诺玛M470级-防空护卫舰",
+  "namePinyin": "nuomaM470ji-fangkonghuweijian"
+ },
+ {
+  "id": "30801",
+  "shipType": 3,
+  "name": "卡利莱恩级-侦察护卫舰",
+  "namePinyin": "kalilaienji-zhenchahuweijian"
+ },
+ {
+  "id": "30802",
+  "shipType": 3,
+  "name": "卡利莱恩级-重炮护卫舰",
+  "namePinyin": "kalilaienji-zhongpaohuweijian"
+ },
+ {
+  "id": "30803",
+  "shipType": 3,
+  "name": "卡利莱恩级-特种护卫舰",
+  "namePinyin": "kalilaienji-tezhonghuweijian"
+ },
+ {
+  "id": "31201",
+  "shipType": 3,
+  "name": "澄海级-重型护卫舰",
+  "namePinyin": "chenghaiji-zhongxinghuweijian"
+ },
+ {
+  "id": "31202",
+  "shipType": 3,
+  "name": "澄海级-导弹护卫舰",
+  "namePinyin": "chenghaiji-daodanhuweijian"
+ },
+ {
+  "id": "31203",
+  "shipType": 3,
+  "name": "澄海级-防空护卫舰",
+  "namePinyin": "chenghaiji-fangkonghuweijian"
+ },
+ {
+  "id": "31301",
+  "shipType": 3,
+  "name": "雨海级-突击护卫舰",
+  "namePinyin": "yuhaiji-tujihuweijian"
+ },
+ {
+  "id": "31302",
+  "shipType": 3,
+  "name": "雨海级-实验型脉冲炮护卫舰",
+  "namePinyin": "yuhaiji-shiyanxingmaichongpaohuweijian"
+ },
+ {
+  "id": "31601",
+  "shipType": 3,
+  "name": "雷里亚特级-快速鱼雷护卫舰",
+  "namePinyin": "leiliyateji-kuaisuyuleihuweijian"
+ },
+ {
+  "id": "31602",
+  "shipType": 3,
+  "name": "雷里亚特级-战术鱼雷护卫舰",
+  "namePinyin": "leiliyateji-zhanshuyuleihuweijian"
+ },
+ {
+  "id": "31603",
+  "shipType": 3,
+  "name": "雷里亚特级-隐身护卫舰",
+  "namePinyin": "leiliyateji-yinshenhuweijian"
+ },
+ {
+  "id": "31801",
+  "shipType": 3,
+  "name": "狼蜥级-防御护卫舰",
+  "namePinyin": "langxiji-fangyuhuweijian"
+ },
+ {
+  "id": "31802",
+  "shipType": 3,
+  "name": "狼蜥级-突击护卫舰",
+  "namePinyin": "langxiji-tujihuweijian"
+ },
+ {
+  "id": "31803",
+  "shipType": 3,
+  "name": "狼蜥级-攻坚护卫舰",
+  "namePinyin": "langxiji-gongjianhuweijian"
+ },
+ {
+  "id": "31901",
+  "shipType": 3,
+  "name": "锆石级-突击护卫舰",
+  "namePinyin": "gaoshiji-tujihuweijian"
+ },
+ {
+  "id": "31902",
+  "shipType": 3,
+  "name": "锆石级-特种护卫舰",
+  "namePinyin": "gaoshiji-tezhonghuweijian"
+ },
+ {
+  "id": "32301",
+  "shipType": 3,
+  "name": "瑶光级-通用护卫舰",
+  "namePinyin": "yaoguangji-tongyonghuweijian"
+ },
+ {
+  "id": "32302",
+  "shipType": 3,
+  "name": "瑶光级-特种护卫舰",
+  "namePinyin": "yaoguangji-tezhonghuweijian"
+ },
+ {
+  "id": "37801",
+  "shipType": 3,
+  "name": "XT-6级-火炮护卫舰",
+  "namePinyin": "XT-6ji-huopaohuweijian"
+ },
+ {
+  "id": "40101",
+  "shipType": 4,
+  "name": "AC721-重型运载驱逐舰",
+  "namePinyin": "AC721-zhongxingyunzaiquzhujian"
+ },
+ {
+  "id": "40102",
+  "shipType": 4,
+  "name": "AC721-重型导弹驱逐舰",
+  "namePinyin": "AC721-zhongxingdaodanquzhujian"
+ },
+ {
+  "id": "40103",
+  "shipType": 4,
+  "name": "AC721-重型离子炮驱逐舰",
+  "namePinyin": "AC721-zhongxinglizipaoquzhujian"
+ },
+ {
+  "id": "40104",
+  "shipType": 4,
+  "name": "AC721-重型两栖突击舰",
+  "namePinyin": "AC721-zhongxingliangqitujijian"
+ },
+ {
+  "id": "40105",
+  "shipType": 4,
+  "name": "AC720-艾格勒姆未名者",
+  "namePinyin": "AC720-aigeleimuweimingzhe"
+ },
+ {
+  "id": "40201",
+  "shipType": 4,
+  "name": "阋神星I级-机动突击驱逐舰",
+  "namePinyin": "xishenxingIji-jidongtujiquzhujian"
+ },
+ {
+  "id": "40202",
+  "shipType": 4,
+  "name": "阋神星I级-重炮驱逐舰",
+  "namePinyin": "xishenxingIji-zhongpaoquzhujian"
+ },
+ {
+  "id": "40203",
+  "shipType": 4,
+  "name": "阋神星I级-装甲驱逐舰",
+  "namePinyin": "xishenxingIji-zhuangjiaquzhujian"
+ },
+ {
+  "id": "40401",
+  "shipType": 4,
+  "name": "谷神星级-载机驱逐舰",
+  "namePinyin": "gushenxingji-zaijiquzhujian"
+ },
+ {
+  "id": "40402",
+  "shipType": 4,
+  "name": "谷神星级-支援驱逐舰",
+  "namePinyin": "gushenxingji-zhiyuanquzhujian"
+ },
+ {
+  "id": "40403",
+  "shipType": 4,
+  "name": "谷神星级-战术驱逐舰",
+  "namePinyin": "gushenxingji-zhanshuquzhujian"
+ },
+ {
+  "id": "40501",
+  "shipType": 4,
+  "name": "斗牛级-脉冲炮驱逐舰",
+  "namePinyin": "douniuji-maichongpaoquzhujian"
+ },
+ {
+  "id": "40502",
+  "shipType": 4,
+  "name": "斗牛级-突击攻击舰",
+  "namePinyin": "douniuji-tujigongjijian"
+ },
+ {
+  "id": "40503",
+  "shipType": 4,
+  "name": "斗牛级-防御驱逐舰",
+  "namePinyin": "douniuji-fangyuquzhujian"
+ },
+ {
+  "id": "40701",
+  "shipType": 4,
+  "name": "苔原级-战术驱逐舰",
+  "namePinyin": "taiyuanji-zhanshuquzhujian"
+ },
+ {
+  "id": "40702",
+  "shipType": 4,
+  "name": "苔原级-载机驱逐舰",
+  "namePinyin": "taiyuanji-zaijiquzhujian"
+ },
+ {
+  "id": "40801",
+  "shipType": 4,
+  "name": "枪骑兵级-轻型导弹驱逐舰",
+  "namePinyin": "qiangqibingji-qingxingdaodanquzhujian"
+ },
+ {
+  "id": "40802",
+  "shipType": 4,
+  "name": "枪骑兵级-综合导弹驱逐舰",
+  "namePinyin": "qiangqibingji-zonghedaodanquzhujian"
+ },
+ {
+  "id": "40803",
+  "shipType": 4,
+  "name": "枪骑兵级-区域防空驱逐舰",
+  "namePinyin": "qiangqibingji-quyufangkongquzhujian"
+ },
+ {
+  "id": "41001",
+  "shipType": 4,
+  "name": "卫士-支援驱逐舰",
+  "namePinyin": "weishi-zhiyuanquzhujian"
+ },
+ {
+  "id": "41002",
+  "shipType": 4,
+  "name": "卫士-两栖突击舰",
+  "namePinyin": "weishi-liangqitujijian"
+ },
+ {
+  "id": "41003",
+  "shipType": 4,
+  "name": "卫士-实验型脉冲突击舰",
+  "namePinyin": "weishi-shiyanxingmaichongtujijian"
+ },
+ {
+  "id": "41101",
+  "shipType": 4,
+  "name": "创神星级-轨道炮驱逐舰",
+  "namePinyin": "chuangshenxingji-guidaopaoquzhujian"
+ },
+ {
+  "id": "41102",
+  "shipType": 4,
+  "name": "创神星级-鱼雷驱逐舰",
+  "namePinyin": "chuangshenxingji-yuleiquzhujian"
+ },
+ {
+  "id": "41201",
+  "shipType": 4,
+  "name": "亚达伯拉级-重型火炮驱逐舰",
+  "namePinyin": "yadabolaji-zhongxinghuopaoquzhujian"
+ },
+ {
+  "id": "41202",
+  "shipType": 4,
+  "name": "亚达伯拉级-重型攻坚驱逐舰",
+  "namePinyin": "yadabolaji-zhongxinggongjianquzhujian"
+ },
+ {
+  "id": "41203",
+  "shipType": 4,
+  "name": "亚达伯拉级-重型防空驱逐舰",
+  "namePinyin": "yadabolaji-zhongxingfangkongquzhujian"
+ },
+ {
+  "id": "41301",
+  "shipType": 4,
+  "name": "先登级-两栖突击舰",
+  "namePinyin": "xiandengji-liangqitujijian"
+ },
+ {
+  "id": "41302",
+  "shipType": 4,
+  "name": "先登级-载机驱逐舰",
+  "namePinyin": "xiandengji-zaijiquzhujian"
+ },
+ {
+  "id": "41401",
+  "shipType": 4,
+  "name": "塔拉萨萤石级-信息驱逐舰",
+  "namePinyin": "talasayingshiji-xinxiquzhujian"
+ },
+ {
+  "id": "41402",
+  "shipType": 4,
+  "name": "塔拉萨萤石级-电子驱逐舰",
+  "namePinyin": "talasayingshiji-dianziquzhujian"
+ },
+ {
+  "id": "41501",
+  "shipType": 4,
+  "name": "灼热级-重炮突击舰",
+  "namePinyin": "zhuoreji-zhongpaotujijian"
+ },
+ {
+  "id": "41502",
+  "shipType": 4,
+  "name": "灼热级-战术突击舰",
+  "namePinyin": "zhuoreji-zhanshutujijian"
+ },
+ {
+  "id": "42001",
+  "shipType": 4,
+  "name": "开阳级-机动驱逐舰",
+  "namePinyin": "kaiyangji-jidongquzhujian"
+ },
+ {
+  "id": "42002",
+  "shipType": 4,
+  "name": "开阳级-鱼雷驱逐舰",
+  "namePinyin": "kaiyangji-yuleiquzhujian"
+ },
+ {
+  "id": "47501",
+  "shipType": 4,
+  "name": "XT-11级-导弹驱逐舰",
+  "namePinyin": "XT-11ji-daodanquzhujian"
+ },
+ {
+  "id": "50101",
+  "shipType": 5,
+  "name": "KCCPV2.0-轻型攻击巡洋舰",
+  "namePinyin": "KCCPV2.0-qingxinggongjixunyangjian"
+ },
+ {
+  "id": "50102",
+  "shipType": 5,
+  "name": "KCCPV2.0-轻型脉冲攻击巡洋舰",
+  "namePinyin": "KCCPV2.0-qingxingmaichonggongjixunyangjian"
+ },
+ {
+  "id": "50103",
+  "shipType": 5,
+  "name": "KCCPV2.0-轻型轨道炮巡洋舰",
+  "namePinyin": "KCCPV2.0-qingxingguidaopaoxunyangjian"
+ },
+ {
+  "id": "50104",
+  "shipType": 5,
+  "name": "KCCPV2.0-轻型载机巡洋舰",
+  "namePinyin": "KCCPV2.0-qingxingzaijixunyangjian"
+ },
+ {
+  "id": "50201",
+  "shipType": 5,
+  "name": "CAS066级-通用巡洋舰",
+  "namePinyin": "CAS066ji-tongyongxunyangjian"
+ },
+ {
+  "id": "50202",
+  "shipType": 5,
+  "name": "CAS066级-炮击巡洋舰",
+  "namePinyin": "CAS066ji-paojixunyangjian"
+ },
+ {
+  "id": "50203",
+  "shipType": 5,
+  "name": "CAS066级-载机巡洋舰",
+  "namePinyin": "CAS066ji-zaijixunyangjian"
+ },
+ {
+  "id": "50204",
+  "shipType": 5,
+  "name": "CAS066级-支援巡洋舰",
+  "namePinyin": "CAS066ji-zhiyuanxunyangjian"
+ },
+ {
+  "id": "50301",
+  "shipType": 5,
+  "name": "艾奥级-攻坚离子炮巡洋舰",
+  "namePinyin": "aiaoji-gongjianlizipaoxunyangjian"
+ },
+ {
+  "id": "50302",
+  "shipType": 5,
+  "name": "艾奥级-高速离子炮巡洋舰",
+  "namePinyin": "aiaoji-gaosulizipaoxunyangjian"
+ },
+ {
+  "id": "50303",
+  "shipType": 5,
+  "name": "艾奥级-攻城离子炮巡洋舰",
+  "namePinyin": "aiaoji-gongchenglizipaoxunyangjian"
+ },
+ {
+  "id": "50401",
+  "shipType": 5,
+  "name": "卡利斯托-集束鱼雷袭击舰",
+  "namePinyin": "kalisituo-jishuyuleixijijian"
+ },
+ {
+  "id": "50402",
+  "shipType": 5,
+  "name": "卡利斯托-重型鱼雷袭击舰",
+  "namePinyin": "kalisituo-zhongxingyuleixijijian"
+ },
+ {
+  "id": "50403",
+  "shipType": 5,
+  "name": "卡利斯托-重型无人机巡洋舰",
+  "namePinyin": "kalisituo-zhongxingwurenjixunyangjian"
+ },
+ {
+  "id": "50501",
+  "shipType": 5,
+  "name": "光锥级-综合导弹巡洋舰",
+  "namePinyin": "guangzhuiji-zonghedaodanxunyangjian"
+ },
+ {
+  "id": "50502",
+  "shipType": 5,
+  "name": "光锥级-区域防空巡洋舰",
+  "namePinyin": "guangzhuiji-quyufangkongxunyangjian"
+ },
+ {
+  "id": "50503",
+  "shipType": 5,
+  "name": "光锥级-攻击导弹巡洋舰",
+  "namePinyin": "guangzhuiji-gongjidaodanxunyangjian"
+ },
+ {
+  "id": "50601",
+  "shipType": 5,
+  "name": "奇美拉级-重型巡洋舰",
+  "namePinyin": "qimeilaji-zhongxingxunyangjian"
+ },
+ {
+  "id": "50602",
+  "shipType": 5,
+  "name": "奇美拉级-火炮巡洋舰",
+  "namePinyin": "qimeilaji-huopaoxunyangjian"
+ },
+ {
+  "id": "50603",
+  "shipType": 5,
+  "name": "奇美拉级-防御巡洋舰",
+  "namePinyin": "qimeilaji-fangyuxunyangjian"
+ },
+ {
+  "id": "51001",
+  "shipType": 5,
+  "name": "狩猎者级-载机巡洋舰",
+  "namePinyin": "shouliezheji-zaijixunyangjian"
+ },
+ {
+  "id": "51002",
+  "shipType": 5,
+  "name": "狩猎者级-战术载机巡洋舰",
+  "namePinyin": "shouliezheji-zhanshuzaijixunyangjian"
+ },
+ {
+  "id": "51003",
+  "shipType": 5,
+  "name": "狩猎者级-防空载机巡洋舰",
+  "namePinyin": "shouliezheji-fangkongzaijixunyangjian"
+ },
+ {
+  "id": "51101",
+  "shipType": 5,
+  "name": "猎兵级-重型载机巡洋舰",
+  "namePinyin": "liebingji-zhongxingzaijixunyangjian"
+ },
+ {
+  "id": "51102",
+  "shipType": 5,
+  "name": "猎兵级-重型火炮巡洋舰",
+  "namePinyin": "liebingji-zhongxinghuopaoxunyangjian"
+ },
+ {
+  "id": "51201",
+  "shipType": 5,
+  "name": "康纳马拉混沌级-轨道炮巡洋舰",
+  "namePinyin": "kangnamalahundunji-guidaopaoxunyangjian"
+ },
+ {
+  "id": "51202",
+  "shipType": 5,
+  "name": "康纳马拉混沌级-高速等离子体巡洋舰",
+  "namePinyin": "kangnamalahundunji-gaosudenglizitixunyangjian"
+ },
+ {
+  "id": "51301",
+  "shipType": 5,
+  "name": "游骑兵级-综合作战巡洋舰",
+  "namePinyin": "youqibingji-zonghezuozhanxunyangjian"
+ },
+ {
+  "id": "51302",
+  "shipType": 5,
+  "name": "游骑兵级-重型离子炮巡洋舰",
+  "namePinyin": "youqibingji-zhongxinglizipaoxunyangjian"
+ },
+ {
+  "id": "51303",
+  "shipType": 5,
+  "name": "星空巡游者-游骑兵级民用观光船",
+  "namePinyin": "xingkongxunyouzhe-youqibingjiminyongguanguangchuan"
+ },
+ {
+  "id": "51401",
+  "shipType": 5,
+  "name": "棕熊级-综合巡洋舰",
+  "namePinyin": "zongxiongji-zonghexunyangjian"
+ },
+ {
+  "id": "51402",
+  "shipType": 5,
+  "name": "棕熊级-防空巡洋舰",
+  "namePinyin": "zongxiongji-fangkongxunyangjian"
+ },
+ {
+  "id": "51403",
+  "shipType": 5,
+  "name": "棕熊级-重型巡洋舰",
+  "namePinyin": "zongxiongji-zhongxingxunyangjian"
+ },
+ {
+  "id": "52001",
+  "shipType": 5,
+  "name": "玉衡级-维修巡洋舰",
+  "namePinyin": "yuhengji-weixiuxunyangjian"
+ },
+ {
+  "id": "52002",
+  "shipType": 5,
+  "name": "玉衡级-防御巡洋舰",
+  "namePinyin": "yuhengji-fangyuxunyangjian"
+ },
+ {
+  "id": "52003",
+  "shipType": 5,
+  "name": "玉衡级-支援巡洋舰",
+  "namePinyin": "yuhengji-zhiyuanxunyangjian"
+ },
+ {
+  "id": "52101",
+  "shipType": 5,
+  "name": "白垩级-战术无人机巡洋舰",
+  "namePinyin": "baieji-zhanshuwurenjixunyangjian"
+ },
+ {
+  "id": "52102",
+  "shipType": 5,
+  "name": "白垩级-综合防空巡洋舰",
+  "namePinyin": "baieji-zonghefangkongxunyangjian"
+ },
+ {
+  "id": "60201",
+  "shipType": 6,
+  "name": "永恒风暴级-攻击战列巡洋舰",
+  "namePinyin": "yonghengfengbaoji-gongjizhanliexunyangjian"
+ },
+ {
+  "id": "60301",
+  "shipType": 6,
+  "name": "ST59级-防御战列巡洋舰",
+  "namePinyin": "ST59ji-fangyuzhanliexunyangjian"
+ },
+ {
+  "id": "60401",
+  "shipType": 6,
+  "name": "新君士坦丁大帝级-综合战列巡洋舰",
+  "namePinyin": "xinjunshitandingdadiji-zonghezhanliexunyangjian"
+ },
+ {
+  "id": "60501",
+  "shipType": 6,
+  "name": "乌拉诺斯之矛级-重型战列巡洋舰",
+  "namePinyin": "wulanuosizhimaoji-zhongxingzhanliexunyangjian"
+ },
+ {
+  "id": "60601",
+  "shipType": 6,
+  "name": "雷火之星-综合武库舰",
+  "namePinyin": "leihuozhixing-zonghewukujian"
+ },
+ {
+  "id": "60701",
+  "shipType": 6,
+  "name": "普鲁图斯之盾级-防护战列巡洋舰",
+  "namePinyin": "pulutusizhidunji-fanghuzhanliexunyangjian"
+ },
+ {
+  "id": "60801",
+  "shipType": 6,
+  "name": "安东塔斯持剑者级-指挥舰",
+  "namePinyin": "andongtasichijianzheji-zhihuijian"
+ },
+ {
+  "id": "61301",
+  "shipType": 6,
+  "name": "天权级-重型防御战列巡洋舰",
+  "namePinyin": "tianquanji-zhongxingfangyuzhanliexunyangjian"
+ },
+ {
+  "id": "70301",
+  "shipType": 7,
+  "name": "FSV830-快速战术支援舰",
+  "namePinyin": "FSV830-kuaisuzhanshuzhiyuanjian"
+ },
+ {
+  "id": "70501",
+  "shipType": 7,
+  "name": "埃迪卡拉级-重型火力支援舰",
+  "namePinyin": "aidikalaji-zhongxinghuolizhiyuanjian"
+ },
+ {
+  "id": "80101",
+  "shipType": 8,
+  "name": "太阳鲸-武装战略航空母舰",
+  "namePinyin": "taiyangjing-wuzhuangzhanlvehangkongmujian"
+ },
+ {
+  "id": "80201",
+  "shipType": 8,
+  "name": "CV3000级-快速航空母舰",
+  "namePinyin": "CV3000ji-kuaisuhangkongmujian"
+ },
+ {
+  "id": "80301",
+  "shipType": 8,
+  "name": "南十字星元帅级-武装航空母舰",
+  "namePinyin": "nanshizixingyuanshuaiji-wuzhuanghangkongmujian"
+ },
+ {
+  "id": "80401",
+  "shipType": 8,
+  "name": "永恒苍穹级-无人机航空母舰",
+  "namePinyin": "yonghengcangqiongji-wurenjihangkongmujian"
+ },
+ {
+  "id": "80801",
+  "shipType": 8,
+  "name": "天枢级-支援航空母舰",
+  "namePinyin": "tianshuji-zhiyuanhangkongmujian"
+ },
+ {
+  "id": "80901",
+  "shipType": 8,
+  "name": "雷火之辉-无人机航空母舰",
+  "namePinyin": "leihuozhihui-wurenjihangkongmujian"
+ },
+ {
+  "id": "97201",
+  "shipType": 9,
+  "name": "止战级-攻坚战列舰",
+  "namePinyin": "zhizhanji-gongjianzhanliejian"
+ }
+]
