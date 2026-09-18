@@ -94,7 +94,7 @@
             if(section==='reinforce') out.reinforce.push(entry); else out.main.push(entry);
         }
         lines.forEach(ln=>{
-            const l=ln.trim(); if(!l) return;
+            let l=ln.trim(); if(!l) return;
             const hasSep=/[│|]/.test(l);
             // 段标题
             if(!hasSep && /增援|reinforcement/i.test(l)){ section='reinforce'; return; }
@@ -106,30 +106,49 @@
                 else parts.forEach(seg=>parseSeg(seg,''));      // 整行本身就是配置
                 return;
             }
-            // 无分隔符：增援段（或已进入增援）里的配置行也解析（如 "CV3000 ×5 带 海尔波普A×10"）
-            if(section==='reinforce' && /[×xX*]\s*\d/.test(l)) parseSeg(l,'增援');
+            // 无分隔符的配置行（我方 fleetToText 的通用格式 / AI 自由排版）
+            if(/[×xX*]\s*\d/.test(l)){
+                const pm=l.match(/^(前[排列]|中[排列]|后[排列])\s*/);   // 行首站位前缀
+                let pos='';
+                if(pm){ pos=pm[1]; l=l.slice(pm[0].length).trim(); }
+                if(!pos && section==='reinforce') pos='增援';
+                if(l) parseSeg(l,pos);
+            }
         });
         return out;
     }
+    // 去掉行首站位前缀后是否像一份配置（宽松：不强制要求 │）
     function looksLikeFleet(text){
         const t=String(text||'');
-        if(!/[│|]/.test(t)) return false;
-        return /×\s*\d/.test(t) && /(前排|中排|后排|增援|主舰队|主队)/.test(t);
+        if(!/×\s*\d/.test(t)) return false;
+        if(/(前[排列]|中[排列]|后[排列])/.test(t)) return true;
+        if(/[│|]/.test(t) && /(增援|主舰队|主队)/.test(t)) return true;
+        // 「舰名 ×N」密集出现（≥3 个 ×N）也认为是配队
+        return (t.match(/×\s*\d+/g)||[]).length>=3;
     }
 
-    // 舰队 → 给 AI 的文本
+    // 舰队 → 给 AI 的文本（按站位分组，带带载机；保证可被 parseFleetText 读回）
     function fleetToText(plan){
         const f=(plan.fleets&&plan.fleets[plan.active||0])||{main:[],reinforce:[]};
         const L=[];
         L.push('方案名称：'+(plan.name||'未命名'));
         if(plan.desc) L.push('方案介绍：'+plan.desc);
-        const dump=(arr,tag)=>arr.map(s=>{
+        const one=s=>{
             const mods=Object.keys(s.mods||{}).filter(k=>s.mods[k]).map(k=>s.mods[k]).join('+');
-            const air=(s.air||[]).map(a=>a.name+'×'+a.qty).join(' ');
-            return `${s.name}${mods?' '+mods:''} ×${s.qty}${air?' 带 '+air:''}`;
-        });
-        if(f.reinforce.length) L.push('【增援 — '+f.reinforce.reduce((a,s)=>a+s.qty,0)+'位】\n'+dump(f.reinforce).join('\n'));
-        if(f.main.length) L.push('【主舰队】\n'+dump(f.main).join('\n'));
+            const air=(s.air||[]).map(a=>'带 '+a.name+'×'+a.qty).join(' ');
+            return (s.name||s.id)+(mods?' '+mods:'')+' ×'+(s.qty||1)+(air?' '+air:'');
+        };
+        if(f.reinforce.length) L.push('【增援 — '+f.reinforce.reduce((a,s)=>a+s.qty,0)+'位】\n'+f.reinforce.map(one).join('\n'));
+        if(f.main.length){
+            const order=['前排','中排','后排'];
+            const g={};
+            f.main.forEach(s=>{ const p=s.pos||''; (g[p]=g[p]||[]).push(one(s)); });
+            const keys=Object.keys(g).sort((a,b)=>{
+                const ia=order.indexOf(a), ib=order.indexOf(b);
+                return (ia<0?9:ia)-(ib<0?9:ib);
+            });
+            L.push('【主舰队】\n'+keys.map(p=>p ? (p+'│'+g[p].join(' ｜ ')) : g[p].join(' ｜ ')).join('\n'));
+        }
         return L.join('\n');
     }
 

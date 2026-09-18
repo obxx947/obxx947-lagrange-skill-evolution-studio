@@ -1080,6 +1080,14 @@ function paintMode(){ const r=currentRunMode(); document.querySelectorAll('.mode
 window.__fleetCards = window.__fleetCards || [];
 function _fcEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function _fcShipInfo(f){
+    // 统计一律由舰船库精确计算（「战舰配队」= 权威口径），不采用 AI 正文里的数字
+    if(window.FleetCheck && window.SHIP_DB && SHIP_DB.get){
+        try{
+            const r=FleetCheck.check({name:f.name,desc:f.desc,reason:f.reason,main:f.main,reinforcement:f.reinforcement},{stitch:false});
+            return {pop:r.stats.pop, air:r.stats.airCnt, airCap:r.stats.airCap, mods:r.stats.mods,
+                    kinds:r.stats.mainKinds+r.stats.reinKinds, rein:r.stats.reinShips, errors:r.errors};
+        }catch(e){}
+    }
     let pop=0, air=0, mods=0, kinds=0;
     (f.main||[]).forEach(x=>{
         const s=(window.SHIP_DB&&SHIP_DB.get)?SHIP_DB.get(x.id):null;
@@ -1089,7 +1097,7 @@ function _fcShipInfo(f){
         kinds++;
     });
     let rq=0; (f.reinforcement||[]).forEach(x=>{ rq+=(x.qty||1); air+=(x.air||[]).reduce((a,b)=>a+(b.qty||0),0); kinds++; });
-    return {pop,air,mods,kinds,rein:rq};
+    return {pop,air,airCap:0,mods,kinds,rein:rq,errors:[]};
 }
 function _fcRow(x, showPos){
     const mods=Object.keys(x.mods||{}).filter(k=>x.mods[k]).map(k=>x.mods[k]).join('/');
@@ -1107,7 +1115,11 @@ function _fcHtml(f){
     let h='<div class="fc-hd">⚓ '+_fcEsc(f.name||'配队方案')+'</div>';
     if((f.main||[]).length){ h+='<div class="fc-sec">主舰队（占人口）</div>'+f.main.map(x=>_fcRow(x,true)).join(''); }
     if((f.reinforcement||[]).length){ h+='<div class="fc-sec">增援（不占人口）</div>'+f.reinforcement.map(x=>_fcRow(x,false)).join(''); }
-    h+='<div class="fc-stats"><span>人口 <b>'+st.pop+'</b></span><span>增援 <b>'+st.rein+'</b></span><span>舰载机 <b>'+st.air+'</b></span><span>模块 <b>'+st.mods+'</b></span></div>';
+    h+='<div class="fc-stats"><span>人口 <b>'+st.pop+'</b></span><span>增援 <b>'+st.rein+'</b>/9</span>'
+      +'<span>舰载机 <b>'+(st.airCap? (st.air+'/'+st.airCap) : st.air)+'</b></span><span>模块 <b>'+st.mods+'</b></span></div>';
+    if(st.errors && st.errors.length){
+        h+='<div class="fc-err" style="font-size:11px;color:#ff8a94;line-height:1.5;margin-top:6px">⚠ '+st.errors.slice(0,3).map(_fcEsc).join('<br>⚠ ')+'</div>';
+    }
     if(f.reason) h+='<div class="fc-reason">理由：'+_fcEsc(f.reason)+'</div>';
     if(f.desc) h+='<div class="fc-reason">'+_fcEsc(f.desc)+'</div>';
     h+='<div class="fc-go">👆 点击卡片进入「战舰配队」查看 / 编辑 →</div>';
@@ -2338,6 +2350,8 @@ try{
 <script src="js/qa.js"></script>
 <script src="js/user_ships.js"></script>
 <script src="js/fleet_io.js"></script>
+<script src="js/fleet_check.js"></script>
+<script src="js/fleet_lib.js"></script>
 <script src="js/agent.js"></script>
 <script src="js/skills.js"></script>
 <script src="voice/sherpa/sherpa-onnx-asr.js"></script>
