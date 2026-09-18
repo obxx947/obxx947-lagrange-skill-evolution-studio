@@ -2519,6 +2519,42 @@
         return true;
     }
 
+    /* 拦截率合成：把「所装模块」的拦截率折算成舰船级 interceptRate/interceptType。
+       依据 数据/战斗机制.md §五：拦截率 = 1-(1-x)^n×(1-y)^m —— 同一艘船的多个拦截来源同样累乘；
+       类型取覆盖范围最宽的那个（global > sameRow > self），executeShot 直接读合成后的值。
+       数据侧：模块（含 moduleGroup 的所选变体）上写 interceptRate/interceptType。 */
+    function applyIntercept(s) {
+        if(s.baseInterceptRate === undefined){
+            s.baseInterceptRate = (typeof s.interceptRate === 'number') ? s.interceptRate : 0;
+            s.baseInterceptType = s.interceptType || 'self';
+        }
+        const rank = { self:0, sameRow:1, global:2 };
+        let noInt = 1 - (s.baseInterceptRate||0)/100;
+        let best = s.baseInterceptRate > 0 ? (s.baseInterceptType||'self') : null;
+        const consider = (o) => {
+            const r = (o && o.interceptRate) || 0;
+            if(r <= 0) return;
+            noInt *= (1 - r/100);
+            const t = o.interceptType || 'self';
+            if(best === null || (rank[t]??0) > (rank[best]??0)) best = t;
+        };
+        if(s.modules) {
+            for(const key of Object.keys(s.modules)) {
+                if(key.startsWith('_')) continue;
+                const mod = s.modules[key];
+                if(!mod) continue;
+                if(mod.type === 'moduleGroup' && mod.variants) {
+                    const selKey = (s.selectedModules && s.selectedModules[key]) || Object.keys(mod.variants)[0];
+                    consider(mod.variants[selKey]);
+                } else {
+                    consider(mod);
+                }
+            }
+        }
+        s.interceptRate = (1 - noInt) * 100;
+        s.interceptType = best || 'self';
+    }
+
     function createShipInstance(shipEntry, side, isEscort, isEscorted) {
         const s = {...shipEntry};
         // 结构值兜底：条目缺 hp（旧存档/自定义数据）会让整场战斗变成 NaN
@@ -2584,6 +2620,8 @@
                 }
             }
         }
+        // 拦截率合成（读 selectedModules，必须放在上面模块解析之后）
+        applyIntercept(s);
         // Subsystems
         s.subSystems = [];
         if(s.modules) {
@@ -2639,6 +2677,9 @@
             const sys = shipInstance.subSystems.find(s => s.key === slotKey);
             if(sys) sys.name = resolvedMod.name || sys.name;
         }
+
+        // 换了拦截模块 → 拦截率必须跟着变（否则切换模块对拦截无效）
+        applyIntercept(shipInstance);
     }
 
     /* 部署载机，并把载机实例放进【与母舰相同的编队分组】——
