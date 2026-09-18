@@ -215,13 +215,22 @@ const AgentEngine = (function(){
         }}
     }};
 
+    // 舰船配置（加点 + 强化）工具：始终可用——用户要求让 AI 能读到自己的加点/强化
+    const SHIP_BUILD_TOOL = {type:"function", function:{
+        name:"get_ship_builds",
+        description:"查询玩家给舰船配的【加点】与【强化】。【用途】①分析/改进配队前：先查这艘船到底加了多少点、强化了什么，再基于真实加成给建议，别假设舰船是白板或满配。②回答「我这艘船现在什么水平/该怎么加点/还差什么」：用本工具读现状。③解释模拟器战斗结果时：加点与强化会改变伤害与生存，先读配置再解释。不传 ship_name 返回玩家所有配过加点/强化的舰船清单。",
+        parameters:{type:"object", properties:{
+            ship_name:{type:"string", description:"可选。舰船名称或ID，如 '大帝'、'constantine'。不传则返回配置清单。"}
+        }}
+    }};
+
     // ======== 工具执行 ========
     // 完整工具集 = 内置 TOOLS + 已激活的自定义工具（LLM 自主创建，自检通过后注册）
     function getTools(){
         let custom=[];
         try{ custom = (window.SkillSystem && SkillSystem.getActiveTools) ? SkillSystem.getActiveTools() : []; }catch(e){}
-        let extra=[];
-        try{ if(window.UserShipDB && UserShipDB.aiEnabled && UserShipDB.aiEnabled()) extra=[USER_SHIP_TOOL]; }catch(e){}
+        let extra=[SHIP_BUILD_TOOL];   // 舰船加点/强化读取：始终可用
+        try{ if(window.UserShipDB && UserShipDB.aiEnabled && UserShipDB.aiEnabled()) extra=extra.concat([USER_SHIP_TOOL]); }catch(e){}
         // 配队工具始终可用（AI 用它输出配队卡片）
         return TOOLS.concat(FLEET_TOOLS).concat(custom).concat(extra);
     }
@@ -270,6 +279,11 @@ const AgentEngine = (function(){
             // 用户口头要求"保存为skill" → LLM 直接创建
             try{ return await window.SkillSystem.createSkillFromRequest(args); }
             catch(e){ return JSON.stringify({error:'创建skill失败: '+String(e.message||e).substring(0,200)}); }
+        }
+        if(name==='get_ship_builds'){
+            // 舰船加点/强化：底层 ShipBuild（纯前端读 localStorage + 加成数据）
+            try{ return window.ShipBuild && window.ShipBuild.searchTool ? await window.ShipBuild.searchTool((args&&args.ship_name)||'') : JSON.stringify({error:'ShipBuild 模块未加载'}); }
+            catch(e){ return JSON.stringify({error:'get_ship_builds 查询失败: '+String(e.message||e).substring(0,120)}); }
         }
         if(name==='get_user_ships'){
             // 用户舰船库：仅在用户开启AI检索时注册；底层 UserShipDB.searchTool

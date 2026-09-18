@@ -2147,13 +2147,48 @@
         const physResist = shipEntry.physResistBonus || 0;
         const energyResist = shipEntry.energyResistBonus || 0;
         const hpBonus = shipEntry.hpBonus || 0;
-        
+        const dmgBonus = shipEntry.dmgBonus || 0;
+        const evasion = shipEntry.evasion || 0;
+        const interceptRate = shipEntry.interceptRate || 0;
+        const intType = shipEntry.interceptType || 'sameRow';
+        const hitBonus = shipEntry.hitBonus || 0;
+        const repairBonus = shipEntry.repairBonus || 0;
+        const hangarBonus = shipEntry.hangarBonus || 0;
+        const siegeBonus = shipEntry.siegeBonus || 0;
+        const bpInfo = (typeof addpointSummary === 'function') ? addpointSummary(shipId) : null;
+
+        const num = (id, key, val, extra) => `<div>${id}: <input type="number" value="${val}" `
+            + `onchange="updateShipStat('${shipId}','${key}',parseFloat(this.value)||0)" `
+            + `style="width:55px;padding:1px 3px;" min="0" ${extra||''}>%</div>`;
+
         let html = `<div style="margin-bottom:12px;"><b>${origShip.name}</b></div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+                <button class="btn btn-primary" style="font-size:10px;padding:4px 9px"
+                    onclick="importAddPoint('${shipId}')">⬆ 从加点导入</button>
+                ${bpInfo ? `<span style="font-size:9px;color:var(--text-secondary)">${bpInfo}</span>` : ''}
+            </div>
+            <div style="font-size:9px;color:var(--text-secondary);margin-bottom:4px;">引擎已支持的加成</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;font-size:10px;">
+                <div>物理抵抗: <input type="number" value="${physResist}" onchange="updateShipStat('${shipId}','physResistBonus',parseFloat(this.value)||0)" style="width:55px;padding:1px 3px;" min="0"> (固定)</div>
+                ${num('能量抗性','energyResistBonus',energyResist,'max="100"')}
+                ${num('结构值','hpBonus',hpBonus,'max="100"')}
+                ${num('伤害加成','dmgBonus',dmgBonus)}
+                ${num('闪避','evasion',evasion)}
+                <div>拦截率: <input type="number" value="${interceptRate}" onchange="updateShipStat('${shipId}','interceptRate',parseFloat(this.value)||0)" style="width:45px;padding:1px 3px;" min="0" max="100">
+                    <select onchange="updateShipStat('${shipId}','interceptType',this.value)" style="padding:1px 2px;font-size:9px;">
+                        <option value="self"${intType==='self'?' selected':''}>自身</option>
+                        <option value="sameRow"${intType==='sameRow'?' selected':''}>同排</option>
+                        <option value="global"${intType==='global'?' selected':''}>全域</option>
+                    </select></div>
+            </div>
+            <div style="font-size:9px;color:var(--text-secondary);margin-bottom:4px;">引擎原本没有、由加点补上的（可手填）</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px;font-size:10px;">
-                <div>物理抵抗: <input type="number" value="${physResist}" onchange="updateShipStat('${shipId}','physResistBonus',parseInt(this.value)||0)" style="width:55px;padding:1px 3px;" min="0"> (固定)</div>
-                <div>能量抗性: <input type="number" value="${energyResist}" onchange="updateShipStat('${shipId}','energyResistBonus',parseInt(this.value)||0)" style="width:55px;padding:1px 3px;" min="0" max="100">%</div>
-                <div>结构值: <input type="number" value="${hpBonus}" onchange="updateShipStat('${shipId}','hpBonus',parseInt(this.value)||0)" style="width:55px;padding:1px 3px;" min="0" max="100">%</div>
-            </div>`;
+                ${num('命中加成','hitBonus',hitBonus)}
+                ${num('维修量加成','repairBonus',repairBonus)}
+                ${num('机库加成','hangarBonus',hangarBonus)}
+                ${num('攻城伤害','siegeBonus',siegeBonus,'title="本模拟器没有建筑目标，仅记录"')}
+            </div>
+            <div style="font-size:9px;color:var(--text-secondary);margin-bottom:4px;">逐武器强化</div>`;
         
         // Collect all weapons from the ship, resolving moduleGroup variants
         let weaponList = [];
@@ -2224,6 +2259,138 @@
         if(!shipEntry) return;
         shipEntry[field] = value;
         openStrengthen(shipId);
+    }
+
+    /* ================= 加点（蓝图）→ 战斗加成 =================
+       加点页把结果存在 localStorage['lagrange_addpoint']：
+         { [官方编号]: { lv:{节点id:等级}, manual:{siege,repairBonus,hitBonus,hangarBonus} } }
+       这里用 blueprint_map.json（slug→编号）+ blueprint_stats.json（节点→属性归类）
+       把所点节点汇总成属性加成，再写进舰队条目。数值取 perLevel[当前等级]（不累加）。
+       多参数节点（说明里有 ≥2 个数值位）不硬算，如实报数。 */
+    const AP_KEY = 'lagrange_addpoint';
+    const AP_A = ['hp','physResist','energyResist','dmgBonus','crit','lockReduction',
+                  'cooldownReduction','singleDmg','evasion','interceptRate'];
+    let BP_MAP = null, BP_STATS = null;
+
+    function apStore() { try { return JSON.parse(localStorage.getItem(AP_KEY) || '{}') || {}; } catch(e) { return {}; } }
+    function apOf(slug) {
+        if(!BP_MAP) return null;
+        const e = BP_MAP[slug];
+        if(!e || !e.cdnId) return null;
+        const rec = apStore()[e.cdnId];
+        if(!rec) return null;
+        return { cdnId: e.cdnId, lv: rec.lv || {}, manual: rec.manual || {} };
+    }
+    /* 汇总某个舰队条目的加点加成；返回 null 表示这艘船没有加点配置 */
+    function buildAddPointBonus(slug) {
+        const ap = apOf(slug);
+        if(!ap || !BP_STATS) return null;
+        const out = {}; AP_A.forEach(k => out[k] = 0);
+        ['siege','repairBonus','hitBonus','hangarBonus'].forEach(k => out[k] = 0);
+        let counted = 0, skipped = 0, other = 0;
+        Object.keys(ap.lv).forEach(nid => {
+            const L = ap.lv[nid]; if(!L || L <= 0) return;
+            const st = BP_STATS.nodes[nid]; if(!st || st.empty) return;
+            const k = st.stat;
+            if(AP_A.indexOf(k) >= 0 || ['siege','repairBonus','hitBonus','hangarBonus'].indexOf(k) >= 0) {
+                if(st.multi > 1) { skipped++; return; }
+                const v = st.perLevel ? st.perLevel[L] : null;
+                if(typeof v !== 'number') { skipped++; return; }
+                out[k] += v; counted++;
+            } else other++;
+        });
+        // 手填的 4 项直接覆盖/叠加
+        ['siege','repairBonus','hitBonus','hangarBonus'].forEach(k => {
+            if(typeof ap.manual[k] === 'number') out[k] = ap.manual[k];
+        });
+        out._counted = counted; out._skipped = skipped; out._other = other;
+        out._used = Object.keys(ap.lv).filter(k => ap.lv[k] > 0).length;
+        return out;
+    }
+    /* 打开强化弹窗时显示一行小字：这艘船有没有加点配置 */
+    function addpointSummary(slug) {
+        const ap = apOf(slug);
+        if(!ap) return '';
+        const b = buildAddPointBonus(slug);
+        if(!b) return '';
+        return '加点配置已存在（' + b._used + ' 个节点）' + (b._skipped ? '，' + b._skipped + ' 个多参数节点未计入' : '');
+    }
+    /* ⬆ 从加点导入：把汇总结果写进舰队条目 */
+    function importAddPoint(shipId) {
+        (async () => {
+            if(!BP_MAP || !BP_STATS) {
+                try {
+                    const [m, s] = await Promise.all([
+                        fetch('data/blueprint_map.json', {cache:'no-cache'}).then(r=>r.json()),
+                        fetch('data/blueprint_stats.json', {cache:'no-cache'}).then(r=>r.json())
+                    ]);
+                    BP_MAP = m; BP_STATS = s;
+                } catch(e) { alert('读不到加点数据文件（data/blueprint_map.json / blueprint_stats.json）'); return; }
+            }
+            const fleet = fleetData[currentFleetType];
+            const list = currentFleetTab === 'main' ? fleet.main : fleet.reinforcement;
+            const e = findRow(list, shipId);
+            if(!e) { alert('找不到这个条目'); return; }
+            const b = buildAddPointBonus(e.id);
+            if(!b) { alert('「' + (e.name||e.id) + '」还没有加点配置。\n去配队页勾「加点」→ 点舰船右上角 ⬆ 配好后再来。'); return; }
+
+            // 重新导入时先清掉上一次由加点写入的逐武器加成，避免累加
+            if(e._apApplied) {
+                Object.keys(e.strengthen||{}).forEach(sk => {
+                    (e.strengthen[sk]||[]).forEach(st => {
+                        if(st){ st.dmgBonus=0; st.critRate=0; st.lockReduction=0; st.cooldownReduction=0; }
+                    });
+                });
+            }
+            e.hpBonus = Math.round(b.hp*10)/10;
+            e.physResistBonus = Math.round(b.physResist*10)/10;
+            e.energyResistBonus = Math.round(b.energyResist*10)/10;
+            e.dmgBonus = Math.round(b.dmgBonus*10)/10;
+            e.evasion = Math.round(b.evasion*10)/10;
+            e.interceptRate = Math.round(b.interceptRate*10)/10;
+            e.interceptType = e.interceptType || 'sameRow';
+            e.hitBonus = Math.round(b.hitBonus*10)/10;
+            e.repairBonus = Math.round(b.repairBonus*10)/10;
+            e.hangarBonus = Math.round(b.hangarBonus*10)/10;
+            e.siegeBonus = Math.round(b.siege*10)/10;
+            // 逐武器：单发伤害 / 暴击 / 锁定减免 / 冷却减免
+            if(!e.strengthen) e.strengthen = {};
+            const shipTex = SHIP_DATABASE[e.id] || {};
+            Object.keys(shipTex.modules||{}).forEach(key => {
+                if(key.startsWith('_')) return;
+                const mod = shipTex.modules[key];
+                if(mod.type === 'moduleGroup' && mod.variants) {
+                    Object.keys(mod.variants).forEach(vk => {
+                        const arr = e.strengthen[key+'_'+vk] || (e.strengthen[key+'_'+vk] = []);
+                        (mod.variants[vk].weapons||[]).forEach((w, wi) => {
+                            arr[wi] = arr[wi] || {dmgBonus:0,lockReduction:0,cooldownReduction:0,critRate:0,critDmg:0,flightTimeReduction:0};
+                            arr[wi].dmgBonus = Math.round(b.singleDmg*10)/10;
+                            arr[wi].critRate = Math.round(b.crit*10)/10;
+                            arr[wi].lockReduction = Math.round(b.lockReduction*10)/10;
+                            arr[wi].cooldownReduction = Math.round(b.cooldownReduction*10)/10;
+                        });
+                    });
+                } else if(mod.weapons) {
+                    const arr = e.strengthen[key] || (e.strengthen[key] = []);
+                    mod.weapons.forEach((w, wi) => {
+                        arr[wi] = arr[wi] || {dmgBonus:0,lockReduction:0,cooldownReduction:0,critRate:0,critDmg:0,flightTimeReduction:0};
+                        arr[wi].dmgBonus = Math.round(b.singleDmg*10)/10;
+                        arr[wi].critRate = Math.round(b.crit*10)/10;
+                        arr[wi].lockReduction = Math.round(b.lockReduction*10)/10;
+                        arr[wi].cooldownReduction = Math.round(b.cooldownReduction*10)/10;
+                    });
+                }
+            });
+            e._apApplied = true;
+            openStrengthen(shipId);
+            alert('已从加点导入「' + (e.name||e.id) + '」：\n'
+                + '结构值+' + e.hpBonus + '%  物理抵抗+' + e.physResistBonus + '  能量抗性+' + e.energyResistBonus + '%\n'
+                + '伤害加成+' + e.dmgBonus + '%  闪避+' + e.evasion + '%  拦截率+' + e.interceptRate + '%\n'
+                + '逐武器：单发+' + b.singleDmg + '% 暴击+' + b.crit + '% 锁定-' + b.lockReduction + '% 冷却-' + b.cooldownReduction + '%\n'
+                + '手填：命中+' + e.hitBonus + '% 维修+' + e.repairBonus + '% 机库+' + e.hangarBonus + '% 攻城+' + e.siegeBonus + '%'
+                + (b._skipped ? '\n（' + b._skipped + ' 个多参数节点未计入）' : '')
+                + (b._other ? '\n（' + b._other + ' 个节点属于引擎暂未实现的机制，未计入）' : ''));
+        })();
     }
 
     function showShipDetail(shipId) {
@@ -2575,6 +2742,12 @@
         s.energyResistBonus = shipEntry.energyResistBonus || 0;
         s.hpBonus = shipEntry.hpBonus || 0;
         s.prioritizeSuperCapital = shipEntry.prioritizeSuperCapital || false;
+        // 加点/强化带来的其它加成（由「⬆ 从加点导入」写进条目，或手动填）
+        s.dmgBonus = shipEntry.dmgBonus || 0;            // 舰船级伤害加成 %
+        s.hitBonus = shipEntry.hitBonus || 0;            // 命中加成 %（引擎原本没有这个字段）
+        s.repairBonus = shipEntry.repairBonus || 0;      // 维修量加成 %（同上）
+        s.hangarBonus = shipEntry.hangarBonus || 0;      // 机库加成 %（同上，作用于本舰载机）
+        s.siegeBonus = shipEntry.siegeBonus || 0;        // 攻城伤害 %（本模拟器没有建筑目标，仅记录）
         // Apply HP bonus
         s.hp = Math.round(s.hp * (1 + (s.hpBonus||0)/100));
         s.maxHp = s.hp;
@@ -2732,6 +2905,13 @@
                         acInst.position = 'aircraft';
                         acInst.isEscort = !!ship.isEscort;
                         acInst.isEscorted = !!ship.isEscorted;
+                        // 母舰「机库加成」→ 本舰载机（加点里"本系统机库内载机/无人机伤害/命中提升"）
+                        const hb = ship.hangarBonus || 0;
+                        if(hb){
+                            acInst.dmgBonus = (acInst.dmgBonus||0) + hb;
+                            acInst.hitBonus = (acInst.hitBonus||0) + hb;
+                            acInst.hangarBonus = hb;
+                        }
                         targetList.push(acInst);
                     }
                 });
@@ -2994,10 +3174,11 @@
             }
         }
         let hitRate = (hitMin + Math.random() * (hitMax - hitMin)) / 100;
-        // 命中 = 基础命中 × (1 + 命中加成 - 敌方闪避)（战斗机制.txt）
+        // 命中 = 基础命中 × (1 + 命中加成 + 武器锁定效率 − 敌方闪避)（战斗机制.txt）
         const evasion = target.evasion || 0;
         const lockEff = weapon.lockEfficiency || 0;
-        hitRate *= (1 + (lockEff - evasion) / 100);
+        const hitBonus = attacker.hitBonus || 0;      // 加点/强化带来的命中加成 %
+        hitRate *= (1 + (hitBonus + lockEff - evasion) / 100);
         hitRate = clamp(hitRate, 0.01, 0.99);
 
         // Bomb distance effect
@@ -3155,10 +3336,11 @@
                 const repairDpm = w.dpm?.repair;
                 if(!repairDpm) continue;
 
-                // 维修量 = 面板维修量/60 × (100%+受维修加成%)
+                // 维修量 = 面板维修量/60 × (100%+受维修加成%+修者维修量加成%)
                 // 一点物理护甲=0.25%受维修加成, 最高到150%
-                const repairBonus = Math.min((ship.physicalArmor||0)*0.25, 150);
-                const repairPerSec = (repairDpm / 60) * (1 + repairBonus/100);
+                const armorBonus = Math.min((ship.physicalArmor||0)*0.25, 150);
+                // repairBonus：加点/强化里「系统内无人机维修效果提升」这类，引擎原本没有
+                const repairPerSec = (repairDpm / 60) * (1 + armorBonus/100) * (1 + (ship.repairBonus||0)/100);
                 const actualRepair = repairPerSec * dt;
 
                 // Find repair target following repair priority
