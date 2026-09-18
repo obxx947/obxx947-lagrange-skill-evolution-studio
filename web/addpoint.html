@@ -2,36 +2,106 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>舰船加点 — 拉格朗日智能体</title>
 <link rel="icon" href="data:,">
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#0a0e1a;color:#e8f4ff;min-height:100vh}
-:root{--bg2:#111827;--card:#1a2332;--border:#2d4a6f;--blue:#4a9eff;--cyan:#00d4ff;--gold:#ffd700;--green:#2ed573;--red:#ff4757;--t1:#e8f4ff;--t2:#8ba3c7;--t3:#5a7a9a}
-.topbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:50}
-.topbar .logo{font-size:0.86rem;font-weight:800;white-space:nowrap;background:linear-gradient(135deg,var(--blue),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#0a0e1a;color:#e8f4ff;min-height:100vh;overflow-x:hidden}
+:root{--bg2:#111827;--card:#1a2332;--card2:#141c2b;--border:#2d4a6f;--blue:#4a9eff;--cyan:#00d4ff;--gold:#ffd700;--green:#2ed573;--red:#ff4757;--t1:#e8f4ff;--t2:#8ba3c7;--t3:#5a7a9a}
+.topbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:60}
+.topbar .logo{font-size:0.84rem;font-weight:800;white-space:nowrap;background:linear-gradient(135deg,var(--blue),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .topbar .links{display:flex;gap:4px;margin-left:auto}
-.topbar .links a{color:var(--t2);text-decoration:none;font-size:0.66rem;padding:4px 7px;border-radius:6px;white-space:nowrap}
+.topbar .links a{color:var(--t2);text-decoration:none;font-size:0.64rem;padding:4px 7px;border-radius:6px;white-space:nowrap}
 .topbar .links a:hover{color:#fff;background:rgba(255,255,255,.05)}
-.container{max-width:820px;margin:0 auto;padding:14px 14px 60px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:10px}
-.card h3{font-size:0.8rem;margin-bottom:8px;display:flex;align-items:center;gap:6px}
-.card h3 .cnt{font-size:0.62rem;color:var(--t3);font-weight:400}
-.btn{background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--t2);border-radius:8px;padding:6px 12px;font-size:0.7rem;cursor:pointer;font-family:inherit;transition:all .15s}
+.wrap{max-width:1000px;margin:0 auto;padding:10px 10px 40px}
+
+/* ---- 顶部：舰船选择 / 总消耗 / 重置 ---- */
+.topctl{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:9px 11px;margin-bottom:8px}
+.topctl select{flex:1;min-width:150px;background:rgba(0,0,0,.35);border:1px solid var(--border);border-radius:8px;color:var(--t1);padding:7px 9px;font-size:0.74rem;font-family:inherit;outline:none}
+.topctl select:focus{border-color:var(--cyan)}
+.cost{display:flex;align-items:center;gap:5px;background:rgba(0,212,255,.1);border:1px solid var(--cyan);border-radius:9px;padding:6px 10px;white-space:nowrap}
+.cost i{font-style:normal;font-size:0.6rem;color:var(--t2)}
+.cost b{font-size:0.9rem;color:var(--cyan)}
+.hex{display:inline-block;width:11px;height:12px;background:var(--cyan);clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%);flex:0 0 auto}
+.btn{background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--t2);border-radius:8px;padding:7px 11px;font-size:0.68rem;cursor:pointer;font-family:inherit;transition:all .15s;white-space:nowrap}
 .btn:hover{color:var(--t1);border-color:var(--blue)}
 .btn.pri{background:rgba(0,212,255,.16);border-color:var(--cyan);color:#fff}
-.shiphd{display:flex;align-items:flex-start;gap:10px}
-.shiphd .ic{flex:0 0 auto;width:34px;height:34px;border-radius:50%;background:rgba(0,212,255,.14);border:1px solid var(--cyan);color:var(--cyan);display:flex;align-items:center;justify-content:center;font-size:0.95rem}
-.shiphd .nm{flex:1;min-width:0;font-size:0.9rem;font-weight:700;line-height:1.35}
-.shiphd .nm small{display:block;color:var(--t3);font-size:0.64rem;font-weight:400;margin-top:2px}
-.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;margin-top:10px}
-.kv div{background:rgba(0,0,0,.25);border:1px solid var(--border);border-radius:8px;padding:6px 8px}
-.kv b{display:block;font-size:0.8rem;color:var(--cyan)}
-.kv i{font-style:normal;font-size:0.6rem;color:var(--t3)}
-.tag{display:inline-block;background:rgba(255,215,0,.12);border:1px solid var(--gold);color:var(--gold);border-radius:6px;padding:1px 7px;font-size:0.62rem;margin:2px 4px 2px 0}
-.todo{border:1px dashed var(--border);border-radius:10px;padding:14px;text-align:center;color:var(--t3);font-size:0.7rem;line-height:1.7}
-.warn{background:rgba(255,71,87,.1);border:1px solid var(--red);color:#ffb3ba;border-radius:8px;padding:8px 10px;font-size:0.68rem;margin-top:8px}
+.btn.gold{color:var(--gold);border-color:var(--gold)}
+.btn.red{color:var(--red);border-color:var(--red)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* ---- 主体：左系统 / 右网格 ---- */
+.main{display:flex;gap:8px;align-items:flex-start}
+@media(max-width:680px){.main{flex-direction:column}}
+.syslist{flex:0 0 96px;display:flex;flex-direction:column;gap:7px;position:sticky;top:52px}
+@media(max-width:680px){.syslist{flex:1 1 auto;flex-direction:row;overflow-x:auto;position:static;width:100%;padding-bottom:4px}}
+.syscard{position:relative;background:var(--card);border:2px solid var(--border);border-radius:11px;padding:8px 6px 7px;cursor:pointer;text-align:center;transition:all .15s;user-select:none}
+.syscard:hover{border-color:var(--blue)}
+.syscard.on{border-color:var(--gold);background:linear-gradient(160deg,rgba(255,215,0,.13),rgba(0,0,0,.2))}
+.syscard .nm{font-size:0.72rem;font-weight:700;line-height:1.25}
+.syscard .sec{font-size:0.54rem;color:var(--t3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.syscard .bar{display:flex;gap:2px;margin-top:6px;justify-content:center}
+.syscard .bar i{width:5px;height:5px;border-radius:1px;background:rgba(255,255,255,.16)}
+.syscard .bar i.f{background:var(--gold)}
+.syscard .lock{position:absolute;top:3px;right:4px;font-size:0.6rem}
+
+.board{flex:1;min-width:0;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:10px}
+.syshead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:9px}
+.syshead .t{font-size:0.8rem;font-weight:700}
+.syshead .n{font-size:0.68rem;color:var(--var,var(--gold));background:rgba(255,215,0,.12);border:1px solid rgba(255,215,0,.45);border-radius:7px;padding:2px 7px}
+.scroll{overflow-x:auto;overflow-y:hidden;padding-bottom:4px}
+.grid{position:relative}
+.grid svg{position:absolute;left:0;top:0;pointer-events:none}
+
+/* ---- 节点 ---- */
+.node{position:absolute;border-radius:9px;border:2px solid #35516f;background:linear-gradient(150deg,#1c2740,#131a2a);
+      display:flex;flex-direction:column;align-items:center;justify-content:flex-start;cursor:pointer;overflow:visible;
+      transition:border-color .13s,transform .1s}
+.node .lb{font-size:0.74rem;font-weight:800;margin-top:9px;line-height:1}
+.node .nm{font-size:0.52rem;color:var(--t3);margin-top:3px;padding:0 3px;text-align:center;line-height:1.15;
+          display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.node .ft{margin-top:auto;width:100%;text-align:center;font-size:0.7rem;font-weight:800;padding:2px 0 3px;border-top:1px solid rgba(255,255,255,.09)}
+.node.avail{border-color:var(--cyan);box-shadow:0 0 0 1px rgba(0,212,255,.28),0 0 10px rgba(0,212,255,.18)}
+.node.avail:hover{transform:translateY(-2px)}
+.node.has{border-color:var(--gold);background:linear-gradient(150deg,#2a2410,#171307)}
+.node.has .ft{color:var(--gold)}
+.node.avail .ft{color:var(--cyan)}
+.node.locked{opacity:.55;cursor:not-allowed}
+.node.locked .lb{color:var(--t2)}
+.node.empty{border-style:dashed;border-color:#2a3d55;background:rgba(0,0,0,.18);opacity:.5;cursor:default}
+.node.empty .lb{color:var(--t3);font-weight:600;font-size:0.62rem}
+.node.max{border-color:var(--green)}
+.node.max .ft{color:var(--green)}
+.node .minus{position:absolute;top:-8px;right:-8px;width:20px;height:20px;border-radius:6px;border:1px solid var(--red);
+      background:#2a1116;color:var(--red);font-size:0.82rem;line-height:1;display:flex;align-items:center;justify-content:center;
+      cursor:pointer;font-weight:800;z-index:4}
+.node .minus:hover{background:var(--red);color:#fff}
+.node .tbadge{position:absolute;top:-8px;left:-8px;width:19px;height:19px;border-radius:50%;font-size:0.6rem;font-weight:900;
+      display:flex;align-items:center;justify-content:center;z-index:4;border:1px solid rgba(0,0,0,.5)}
+.node .tbadge.t2{background:linear-gradient(135deg,#c084fc,#7c3aed);color:#fff}
+.node .tbadge.t3{background:linear-gradient(135deg,#22d3ee,#0891b2);color:#04222a}
+.node .tbadge.t4{background:linear-gradient(135deg,#fb923c,#ea580c);color:#2a1200}
+
+/* ---- 选中节点详情 ---- */
+.detail{background:var(--card2);border:1px solid var(--border);border-radius:11px;padding:10px 11px;margin-top:10px}
+.detail .dh{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:6px}
+.detail .dh b{font-size:0.8rem}
+.detail .tag{font-size:0.56rem;border-radius:6px;padding:1px 6px;border:1px solid var(--border);color:var(--t2)}
+.detail .desc{font-size:0.7rem;color:var(--t1);line-height:1.75}
+.detail .desc .hl{color:var(--cyan);font-weight:800}
+.detail .lvtab{display:flex;gap:5px;flex-wrap:wrap;margin-top:9px}
+.detail .lv{background:rgba(0,0,0,.3);border:1px solid var(--border);border-radius:7px;padding:4px 7px;font-size:0.6rem;line-height:1.5;text-align:center}
+.detail .lv.on{border-color:var(--gold);background:rgba(255,215,0,.12)}
+.detail .lv i{display:block;font-style:normal;color:var(--t3);font-size:0.54rem}
+.hint{font-size:0.62rem;color:var(--t3);line-height:1.7}
+.warn{background:rgba(255,71,87,.1);border:1px solid var(--red);color:#ffb3ba;border-radius:9px;padding:9px 11px;font-size:0.7rem;line-height:1.7}
+.ok{background:rgba(46,213,115,.1);border:1px solid var(--green);color:#b9f6ca;border-radius:9px;padding:7px 10px;font-size:0.66rem;margin-top:8px;display:none}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:#1e2b3f;border:1px solid var(--border);
+      color:var(--t1);padding:9px 15px;border-radius:10px;font-size:0.72rem;opacity:0;pointer-events:none;transition:all .22s;z-index:99}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.err{border-color:var(--red);color:#ffb3ba}
+.sl{display:none}
 </style>
 </head>
 <body>
@@ -39,122 +109,354 @@ body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#
     <div class="logo">⬆ 舰船加点</div>
     <div class="links">
         <a href="#" id="backLink">← 返回配队</a>
-        <a href="ships.html">🚀 舰船库</a>
+        <a href="fleet.html">🚀 配队</a>
         <a href="chat.html">🤖 AI对话</a>
     </div>
 </div>
 
-<div class="container">
-    <div class="card" id="headCard">
-        <div class="shiphd">
-            <div class="ic">⬆</div>
-            <div class="nm" id="shipName">加载中…<small id="shipSub"></small></div>
-        </div>
-        <div class="kv" id="shipKv"></div>
-        <div id="modBox" style="margin-top:10px"></div>
-        <div class="warn" id="missBox" style="display:none"></div>
+<div class="wrap">
+    <div class="topctl">
+        <select id="shipSel"></select>
+        <div class="cost"><span class="hex"></span><i>总计使用技术值</i><b id="totalCost">0</b></div>
+        <button class="btn red" onclick="resetAll()">重置</button>
+        <button class="btn gold" onclick="copyCode()">导出配置码</button>
+        <button class="btn" onclick="importCode()">导入配置码</button>
     </div>
 
-    <div class="card">
-        <h3>🎯 加点面板 <span class="cnt">（本轮只做了入口，功能待下一轮）</span></h3>
-        <div class="todo" id="todoBox">
-            这里将按该舰的<b>系统 / 模块 / 载机</b>逐个列出可加点项，并给出加点后的数值预览。<br>
-            本轮先打通「配队页勾选『加点』→ 右上角 ⬆ 角标 → 点舰船跳到这里」这条链路。
-        </div>
-    </div>
+    <div id="ctxLine" class="hint" style="margin:-2px 0 8px 2px"></div>
 
-    <div class="card" id="ctxCard">
-        <h3>📋 传入的上下文 <span class="cnt">（配队页带过来的参数，便于下一轮接着做）</span></h3>
-        <div id="ctxBox" style="font-size:0.66rem;color:var(--t2);line-height:1.9;word-break:break-all"></div>
-    </div>
+    <div id="body"></div>
 </div>
 
+<div class="toast" id="toast"></div>
+
 <script>
-/* ========== 加点页（骨架）==========
-   从配队页跳进来时带：ship / name / sec / idx / fleet / qty / mods / air / airslot / airname
-   本轮只负责：把「这一条」显示清楚 + 留好加点面板的位置；具体加点功能下一轮做。 */
+/* ========== 舰船加点页 ==========
+   数据：data/blueprint/<cdnId>.json（每艘船的加点树）
+        data/blueprint_map.json（舰船库 slug → CDN 编号）
+        data/blueprint_ships.json（有加点数据的舰船总表）
+   节点含义：
+     position [行,列]  列1 贴左侧主干；行 1 在最上
+     parentId []       前置节点（必须全部已点开才解锁；空数组=根节点，一开始就能点）
+     maxLevel          等级上限
+     levelCost[]       每一级消耗的蓝点（逐级不同，可为 0）
+     levelValue[]      每一级的数值（下标 = 等级）
+     adjustTag=true    空槽（无数值、不可点）
+     type 2/3/4        特殊节点（2=指挥策略 3=战术技能 4=特殊）
+*/
+const $ = s => document.getElementById(s);
+const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const KEY = 'lagrange_addpoint';        // { [cdnId]: { [nodeId]: level } }
+const P = new URLSearchParams(location.search);
+const TYPE_NAME = { 2: '指挥策略', 3: '战术技能', 4: '特殊' };
+const SAVE = {};
 
-const P=new URLSearchParams(location.search);
-const q=s=>P.get(s)||'';
-let SHIP=null, ALLMAP=null;
+let SHIPS = [];          // 全部有加点数据的舰船
+let SHIPMAP = null;      // slug → cdnId
+let ship = null;         // 当前船（加点树）
+let sysIdx = 0;
+let lv = {};             // nodeId → 等级
+let selNode = null;      // 当前选中（显示说明）的节点
 
-function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-const TYPE_LABEL={frigate:'护卫舰',destroyer:'驱逐舰',cruiser:'巡洋舰',corvette:'护航艇',fighter:'战机',battlecruiser:'战列巡洋舰',battleship:'战列舰',aircraftcarrier:'航空母舰',support:'支援舰'};
-function typeLabel(t){ return TYPE_LABEL[t]||t||''; }
-function wan(x){ return (x>=10000)? (x/10000).toFixed(1)+'万' : String(x==null?'—':Math.round(x)); }
+const NODE_W = 84, NODE_H = 74, GAP_X = 26, GAP_Y = 14;
 
-/* 返回配队页：回到「我的配队」还是配队页由来源决定；统一回 fleet.html 即可（配队存在 localStorage 里，不会丢） */
-document.getElementById('backLink').href='fleet.html';
+function toast(m, t) { const e = $('toast'); e.textContent = m; e.className = 'toast ' + (t || '') + ' show'; setTimeout(() => e.classList.remove('show'), 2200); }
 
-function renderCtx(){
-    const keys=['ship','name','sec','idx','fleet','qty','mods','air','airslot','airname'];
-    document.getElementById('ctxBox').innerHTML=keys.map(k=>{
-        const v=P.get(k);
-        return '<div><b style="color:var(--t3)">'+k+'</b> = '+(v==null?'<span style="color:var(--t3)">（未传）</span>':esc(v))+'</div>';
-    }).join('')
-    + '<div style="margin-top:6px;color:var(--t3)">完整 URL：<br>'+esc(location.href)+'</div>';
+/* ---------- 状态读写 ---------- */
+function loadStore() { try { const o = JSON.parse(localStorage.getItem(KEY) || '{}'); return (o && typeof o === 'object') ? o : {}; } catch (e) { return {}; } }
+function saveStore() { try { localStorage.setItem(KEY, JSON.stringify(SAVE)); } catch (e) { } }
+function curSys() { return ship ? ship.systems[sysIdx] : null; }
+
+/* ---------- 加点规则 ---------- */
+function nodeLv(id) { return lv[id] || 0; }
+function isEmptyNode(n) { return !n.name; }                                   // 空槽
+function parentsOk(n) { const p = n.parentId || []; return p.every(x => nodeLv(x) > 0); }
+function unlocked(n) { return nodeLv(n.id) > 0 || parentsOk(n); }
+function isMax(n) { return nodeLv(n.id) >= (n.maxLevel || 1); }
+function nextCost(n) { const c = n.levelCost || []; return (nodeLv(n.id) < c.length) ? c[nodeLv(n.id)] : null; }
+function canAdd(n) { return !!n && !isEmptyNode(n) && !isMax(n) && unlocked(n); }
+function slotUsed(sys) { return sys.nodes.filter(n => nodeLv(n.id) > 0).length; }
+function slotFull(sys) { return slotUsed(sys) >= (sys.enhanceLimit || 99); }
+/* 点了但前置没满足的（换了配置/导入后可能出现）——不阻止显示，只提示 */
+function brokenNodes(sys) { return sys.nodes.filter(n => nodeLv(n.id) > 0 && !isEmptyNode(n) && !parentsOk(n)); }
+
+function totalCost() {
+  if (!ship) return 0;
+  let t = 0;
+  ship.systems.forEach(s => s.nodes.forEach(n => {
+    const L = nodeLv(n.id), c = n.levelCost || [];
+    for (let i = 0; i < Math.min(L, c.length); i++) t += (c[i] || 0);
+  }));
+  return t;
 }
 
-function renderShip(){
-    const name=q('name')||(SHIP&&SHIP.name)||'未知舰船';
-    document.getElementById('shipName').innerHTML=esc(name)
-        +'<small>'
-        +(SHIP? (typeLabel(SHIP.type)+(SHIP.size?' · 体型 '+esc(SHIP.size):'')) : '（舰船库里没找到这艘，可能是已删除的自定义条目）')
-        +(q('fleet')?(' · 来自舰队「'+esc(q('fleet'))+'」'):'')
-        +'</small>';
-
-    const mods=q('mods');
-    const modTags=mods? mods.split(',').filter(Boolean).map(x=>'<span class="tag">模块 '+esc(x.replace(':',' → '))+'</span>').join('') : '';
-    const airTag=q('airname')? '<span class="tag">载机 '+esc(q('airname'))+'</span>'+(q('airslot')?'<span class="tag">载机位 '+esc(q('airslot'))+'</span>':'') : '';
-    document.getElementById('modBox').innerHTML=(modTags||airTag)
-        ? ('<div style="font-size:0.62rem;color:var(--t3);margin-bottom:4px">当前所带</div>'+modTags+airTag)
-        : '<div style="font-size:0.62rem;color:var(--t3)">（没有传模块/载机信息）</div>';
-
-    if(!SHIP){
-        const mb=document.getElementById('missBox');
-        mb.style.display='block';
-        mb.textContent='⚠ 舰船库里找不到 id='+q('ship')+'：加点需要读该舰的系统/模块数据，请从配队页正常点进来，或确认这艘船是否已被删除。';
-        document.getElementById('shipKv').innerHTML='';
-        return;
-    }
-    const slots=Object.keys(SHIP.modules||{}).filter(k=>k[0]!=='_');
-    // 载机位：把 base + 各模块变体的容量按机型汇总（直接写 '有/无' 对航母是错的）
-    const airSlots=SHIP.airSlots||SHIP.aircraftSlots||null;
-    let airTxt='无';
-    if(airSlots){
-        const acc={};
-        const add=arr=>(arr||[]).forEach(sl=>{ const k=sl.kind||'?'; acc[k]=(acc[k]||0)+(sl.cap||0); });
-        add(airSlots.base);
-        Object.keys(airSlots.byModule||{}).forEach(m=>add(airSlots.byModule[m]));
-        const parts=Object.keys(acc).filter(k=>acc[k]>0).map(k=>(TYPE_LABEL[k]||k)+' '+acc[k]+'位');
-        airTxt=parts.length? parts.join(' / ') : '无';
-    }
-    document.getElementById('shipKv').innerHTML=[
-        ['结构值', wan(SHIP.hp)],
-        ['物理护甲', SHIP.physicalArmor==null?'—':SHIP.physicalArmor],
-        ['能量护甲', (SHIP.energyArmor==null?'—':SHIP.energyArmor+'%')],
-        ['人口', SHIP.commandValue==null?'—':SHIP.commandValue],
-        ['服役上限', SHIP.serviceLimit==null?'—':SHIP.serviceLimit],
-        ['站位', SHIP.position||'—'],
-        ['本队数量', q('qty')||'—'],
-        ['模块槽', slots.length? slots.join(' / ') : '—'],
-        ['载机位', airTxt]
-    ].map(([k,v])=>'<div><b>'+esc(v)+'</b><i>'+esc(k)+'</i></div>').join('');
+/* ---------- 加 / 减 ---------- */
+function addPoint(id) {
+  const sys = curSys(); if (!sys || !ship) return;
+  const n = sys.nodes.find(x => x.id === id); if (!n) return;
+  if (isEmptyNode(n)) { toast('这是空槽，不能加点', 'err'); return; }
+  if (!unlocked(n)) { toast('前置还没点开', 'err'); return; }
+  if (isMax(n)) { toast('已经满了', 'err'); return; }
+  if (nodeLv(n.id) === 0 && slotFull(sys)) {
+    toast('「' + (sys.sysName || sys.sysLabel) + '」的 ' + sys.enhanceLimit + ' 个槽位已用完', 'err'); return;
+  }
+  const c = nextCost(n);
+  lv[n.id] = nodeLv(n.id) + 1;
+  selNode = n;
+  persist(); render();
+  toast((n.labelName || n.name) + ' +1' + (c ? '（-' + c + '）' : '（免费）'));
+}
+function subPoint(id) {
+  const sys = curSys(); if (!sys) return;
+  const n = sys.nodes.find(x => x.id === id); if (!n) return;
+  if (nodeLv(n.id) <= 0) return;
+  // 退点前检查：不能把别人锁住（有子节点依赖我）
+  const child = sys.nodes.find(c => (c.parentId || []).indexOf(n.id) >= 0 && nodeLv(c.id) > 0);
+  if (child && nodeLv(n.id) === 1) { toast('「' + (child.labelName || child.name) + '」还依赖它，先退那个', 'err'); return; }
+  lv[n.id] = nodeLv(n.id) - 1;
+  if (lv[n.id] === 0) delete lv[n.id];
+  selNode = n;
+  persist(); render();
+  toast((n.labelName || n.name) + ' -1');
+}
+function resetAll() {
+  if (!ship) return;
+  if (!confirm('把「' + ship.shipName + '」的加点全部清空？')) return;
+  lv = {}; selNode = null;
+  SAVE[ship.id] = {}; saveStore(); render();
+  toast('已重置');
 }
 
-(async function init(){
-    renderCtx();
-    try{
-        const r=await fetch('data/ship_database.json',{cache:'no-cache'});
-        const arr=await r.json();
-        ALLMAP={}; arr.forEach(s=>ALLMAP[s.id]=s);
-        SHIP=ALLMAP[q('ship')]||null;
-    }catch(e){
-        // 舰船库读不到也不阻塞页面（入口链路仍可验证）
-        SHIP=null;
+/* ---------- 说明文字：{占位符} 代入 ---------- */
+function fillDesc(n, level) {
+  let d = n.baseDesc || '';
+  if (!d) return { text: '', ok: false };
+  const phs = [...new Set(d.match(/\{[0-9A-Za-z]+\}/g) || [])];
+  const vals = (n.levelValue || [])[level];
+  if (vals && vals.length === phs.length) {
+    let t = d;
+    phs.forEach((p, i) => { t = t.split(p).join('<span class="hl">' + esc(vals[i]) + '</span>'); });
+    return { text: t, ok: true };
+  }
+  return { text: esc(d), ok: false };
+}
+
+/* ---------- 渲染 ---------- */
+function render() {
+  if (!ship) return;
+  const sys = curSys();
+  $('totalCost').textContent = totalCost();
+  $('body').innerHTML =
+      '<div class="main">'
+    +   '<div class="syslist">' + ship.systems.map((s, i) => sysCardHtml(s, i)).join('') + '</div>'
+    +   '<div class="board">' + boardHtml(sys) + detailHtml() + '</div>'
+    + '</div>';
+}
+
+function sysCardHtml(s, i) {
+  const used = slotUsed(s), lim = s.enhanceLimit || 0;
+  const bars = Array.from({ length: Math.min(lim, 12) }, (_, k) => '<i class="' + (k < used ? 'f' : '') + '"></i>').join('');
+  return '<div class="syscard' + (i === sysIdx ? ' on' : '') + '" onclick="pickSys(' + i + ')">'
+    + '<div class="nm">' + esc(s.sysLabel || s.sysName || '系统') + '</div>'
+    + '<div class="sec">' + esc((s.sysName || '').slice(0, 8)) + '</div>'
+    + '<div class="bar">' + bars + '</div>'
+    + '<div class="sec" style="color:var(--gold)">' + used + '/' + lim + '</div>'
+    + (s.isWeaponSystem ? '<div class="lock">⚔️</div>' : '')
+    + '</div>';
+}
+
+function boardHtml(s) {
+  if (!s) return '<div class="warn">这艘船没有加点数据。</div>';
+  const rows = Math.max(...s.nodes.map(n => n.position[0]));
+  const cols = Math.max(...s.nodes.map(n => n.position[1]));
+  const W = cols * NODE_W + (cols - 1) * GAP_X;
+  const H = rows * NODE_H + (rows - 1) * GAP_Y;
+  const at = n => ({ x: (n.position[1] - 1) * (NODE_W + GAP_X), y: (n.position[0] - 1) * (NODE_H + GAP_Y) });
+  const byId = {}; s.nodes.forEach(n => byId[n.id] = n);
+
+  // 连线：前置 → 本节点
+  let lines = '';
+  s.nodes.forEach(n => {
+    const a = at(n);
+    (n.parentId || []).forEach(pid => {
+      const p = byId[pid]; if (!p) return;
+      const b = at(p);
+      const x1 = b.x + NODE_W, y1 = b.y + NODE_H / 2, x2 = a.x, y2 = a.y + NODE_H / 2;
+      const on = nodeLv(pid) > 0;
+      const stroke = on ? '#ffd700' : '#2d4a6f';
+      const mx = (x1 + x2) / 2;
+      lines += '<path d="M' + x1 + ' ' + y1 + ' H' + mx + ' V' + y2 + ' H' + x2 + '" fill="none" stroke="' + stroke + '" stroke-width="2" opacity="' + (on ? .85 : .5) + '"/>'
+             + '<circle cx="' + x1 + '" cy="' + y1 + '" r="3" fill="none" stroke="' + stroke + '" stroke-width="2"/>';
+    });
+  });
+
+  const nodes = s.nodes.map(n => {
+    const p = at(n);
+    const L = nodeLv(n.id), mx = n.maxLevel || 1;
+    const empty = isEmptyNode(n), ok = unlocked(n), full = slotFull(s);
+    let cls = 'node';
+    if (empty) cls += ' empty';
+    else if (!ok) cls += ' locked';
+    else if (L > 0) cls += (L >= mx ? ' max' : ' has');
+    else cls += ' avail';
+    const badge = n.type ? '<span class="tbadge t' + n.type + '" title="' + (TYPE_NAME[n.type] || '') + '">' + (n.type === 2 ? '策' : n.type === 3 ? '⬆' : '★') + '</span>' : '';
+    const minus = L > 0 ? '<span class="minus" onclick="event.stopPropagation();subPoint(' + n.id + ')" title="退一级">−</span>' : '';
+    let ft;
+    if (empty) ft = '空槽';
+    else if (L > 0) ft = L + '/' + mx;
+    else if (!ok) ft = '🔒';
+    else { const c = nextCost(n); ft = c === null ? '—' : (c === 0 ? '免费' : '<span class="hex" style="width:8px;height:9px"></span> ' + c); }
+    const click = empty ? '' : ' onclick="addPoint(' + n.id + ')"';
+    return '<div class="' + cls + '" style="left:' + p.x + 'px;top:' + p.y + 'px;width:' + NODE_W + 'px;height:' + NODE_H + 'px"' + click + ' title="' + esc(n.name || '') + '">'
+      + badge + minus
+      + '<div class="lb">' + esc(empty ? '＋' : (n.labelName || '·')) + '</div>'
+      + '<div class="nm">' + esc(empty ? '' : (n.name || '')) + '</div>'
+      + '<div class="ft">' + ft + '</div>'
+      + '</div>';
+  }).join('');
+
+  const used = slotUsed(s), lim = s.enhanceLimit || 0;
+  const bad = brokenNodes(s);
+  return '<div class="syshead">'
+    +   '<span class="t">' + esc(s.sysName || s.sysLabel || '') + '</span>'
+    +   '<span class="n">' + used + '/' + lim + '</span>'
+    +   (s.isWeaponSystem ? '<span class="tag" style="font-size:.56rem;border:1px solid var(--border);border-radius:6px;padding:1px 6px;color:var(--t2)">武器系统</span>' : '')
+    +   '<span style="flex:1"></span>'
+    +   '<span class="hint">点节点加点 · 右上角 − 退一级 · 灰=前置没开</span>'
+    + '</div>'
+    + (bad.length ? '<div class="warn" style="margin-bottom:8px">⚠ ' + bad.length + ' 个已加点的节点前置没满足（'+ bad.map(n => esc(n.labelName || n.name)).join('、') +'），可能是导入的配置来自别的船。</div>' : '')
+    + '<div class="scroll"><div class="grid" style="width:' + W + 'px;height:' + H + 'px">'
+    +   '<svg width="' + W + '" height="' + H + '">' + lines + '</svg>' + nodes
+    + '</div></div>';
+}
+
+function detailHtml() {
+  const s = curSys();
+  if (!s) return '';
+  const n = selNode && s.nodes.find(x => x.id === selNode.id) ? selNode : null;
+  if (!n) return '<div class="detail"><div class="hint">点上面任意一个节点，这里会显示它的<b>说明与每级数值</b>。</div></div>';
+  const L = nodeLv(n.id), mx = n.maxLevel || 1;
+  const d = fillDesc(n, L);
+  const tab = Array.from({ length: mx + 1 }, (_, k) => {
+    const v = (n.levelValue || [])[k];
+    const c = k > 0 ? (n.levelCost || [])[k - 1] : null;
+    return '<div class="lv' + (k === L ? ' on' : '') + '"><i>' + (k === 0 ? '未点' : 'Lv' + k) + '</i>'
+      + (v ? esc(v.join(' / ')) : '—') + (c !== null && c !== undefined ? '<i style="color:var(--cyan)">-' + c + '</i>' : '') + '</div>';
+  }).join('');
+  return '<div class="detail">'
+    + '<div class="dh"><b>' + esc(n.name || n.labelName || '') + '</b>'
+    +   '<span class="tag">' + esc(n.labelName || '') + '</span>'
+    +   (n.type ? '<span class="tag" style="color:var(--cyan);border-color:var(--cyan)">' + (TYPE_NAME[n.type] || '') + '</span>' : '')
+    +   '<span class="tag" style="color:var(--gold);border-color:var(--gold)">' + L + '/' + mx + '</span>'
+    +   (L < mx && unlocked(n) ? '<span class="tag">下一级 -' + (nextCost(n) ?? 0) + '</span>' : '')
+    + '</div>'
+    + '<div class="desc">' + (d.text || '<span class="hint">（这条没有说明文字）</span>') + '</div>'
+    + (d.ok ? '' : '<div class="hint" style="margin-top:4px">↑ 原文照录（占位符个数与数值个数对不上，没敢代入）</div>')
+    + '<div class="lvtab">' + tab + '</div>'
+    + '</div>';
+}
+
+function pickSys(i) { sysIdx = i; selNode = null; render(); }
+
+/* ---------- 持久化 / 导入导出 ---------- */
+function persist() {
+  if (!ship) return;
+  const clean = {}; Object.keys(lv).forEach(k => { if (lv[k] > 0) clean[k] = lv[k]; });
+  SAVE[ship.id] = clean; saveStore();
+}
+function codeOf() {
+  if (!ship) return '';
+  const clean = {}; Object.keys(lv).forEach(k => { if (lv[k] > 0) clean[k] = lv[k]; });
+  return btoa(unescape(encodeURIComponent(JSON.stringify({ v: 1, ship: ship.id, lv: clean }))));
+}
+function copyCode() {
+  const c = codeOf();
+  if (!c) return;
+  navigator.clipboard?.writeText(c).then(() => toast('配置码已复制（本工具的格式，不是游戏的分享码）'))
+    .catch(() => { prompt('复制下面这串配置码：', c); });
+}
+function importCode() {
+  const c = prompt('粘贴配置码（本工具导出的那种）：');
+  if (!c) return;
+  try {
+    const o = JSON.parse(decodeURIComponent(escape(atob(c.trim()))));
+    if (!o || !o.lv) throw new Error('格式不对');
+    if (String(o.ship) !== String(ship.id)) {
+      if (!confirm('这串配置属于另一艘船（' + o.ship + '）。仍然按本船节点 id 尽量套用？')) return;
     }
-    renderShip();
-    document.title='加点 · '+(q('name')||(SHIP&&SHIP.name)||'舰船')+' — 拉格朗日智能体';
+    lv = {}; Object.keys(o.lv).forEach(k => { lv[k] = o.lv[k]; });
+    // 不匹配的节点 id 会自然落空，here 提示一下
+    const all = {}; ship.systems.forEach(s => s.nodes.forEach(n => all[n.id] = 1));
+    const unknown = Object.keys(lv).filter(k => !all[k]).length;
+    persist(); render();
+    toast(unknown ? ('已导入，其中 ' + unknown + ' 个节点本船没有、已忽略') : '已导入');
+  } catch (e) { toast('配置码无法解析', 'err'); }
+}
+
+/* ---------- 启动 ---------- */
+function ctxLine() {
+  const nm = P.get('name') || (ship && ship.shipName) || '';
+  const parts = [];
+  if (P.get('fleet')) parts.push('来自舰队「' + P.get('fleet') + '」');
+  if (P.get('mods')) parts.push('模块 ' + P.get('mods').replace(/,/g, ' · '));
+  if (P.get('airname')) parts.push('载机「' + P.get('airname') + '」');
+  if (P.get('qty')) parts.push('本队 ' + P.get('qty') + ' 艘');
+  $('ctxLine').innerHTML = nm ? ('<b style="color:var(--t1)">' + esc(nm) + '</b>' + (parts.length ? ' ｜ ' + esc(parts.join(' ｜ ')) : '')) : '';
+}
+
+async function boot() {
+  ctxLine();
+  try {
+    const [ships, map] = await Promise.all([
+      fetch('data/blueprint_ships.json', { cache: 'no-cache' }).then(r => r.json()),
+      fetch('data/blueprint_map.json', { cache: 'no-cache' }).then(r => r.json()).catch(() => ({}))
+    ]);
+    SHIPS = ships; SHIPMAP = map;
+  } catch (e) { $('body').innerHTML = '<div class="warn">读不到加点数据（data/blueprint_ships.json）。请从配队页正常进入，或确认文件存在。</div>'; return; }
+
+  const sel = $('shipSel');
+  sel.innerHTML = SHIPS.map(s => '<option value="' + s.id + '">' + esc(s.name) + '</option>').join('');
+
+  // 从配队页进来：把 slug 换成 CDN 编号
+  const slug = P.get('ship');
+  const entry = slug && SHIPMAP ? SHIPMAP[slug] : null;
+  let want = entry && entry.cdnId ? String(entry.cdnId) : (P.get('bp') || '');
+  let matched = !!want;                       // 是否真的定位到这艘船
+  if (!want) {
+    // 没有来源就按名字找一次
+    const nm = P.get('name');
+    if (nm) { const f = SHIPS.find(s => s.name === nm || s.name.indexOf(nm) >= 0); if (f) { want = String(f.id); matched = true; } }
+  }
+  if (!want) want = String(SHIPS[0].id);
+  sel.value = want;
+  sel.onchange = () => openShip(sel.value);
+
+  // 只有在「确实没有这艘船的加点数据」时才警告——按名字找回来的不算
+  if (slug && !matched) {
+    $('ctxLine').innerHTML += ' <span style="color:var(--red)">（官方加点数据里没有这艘船，下面显示的是别的船）</span>';
+  } else if (slug && entry && !entry.exact && !entry.viaAlias) {
+    $('ctxLine').innerHTML += ' <span style="color:var(--t3)">（按名近似匹配到「' + esc(entry.cdnName || '') + '」）</span>';
+  }
+  openShip(want);
+}
+
+async function openShip(cdnId) {
+  if (!SHIPS.some(s => String(s.id) === String(cdnId))) cdnId = String(SHIPS[0].id);
+  $('shipSel').value = cdnId;
+  try {
+    ship = await fetch('data/blueprint/' + cdnId + '.json', { cache: 'no-cache' }).then(r => r.json());
+  } catch (e) { $('body').innerHTML = '<div class="warn">读不到 ' + cdnId + '.json</div>'; return; }
+  SAVE[ship.id] = SAVE[ship.id] || (loadStore()[ship.id] || {});
+  lv = Object.assign({}, SAVE[ship.id] || {});
+  sysIdx = 0; selNode = null;
+  document.title = '加点 · ' + ship.shipName + ' — 拉格朗日智能体';
+  render();
+}
+
+(async () => {
+  const s = loadStore(); Object.keys(s).forEach(k => SAVE[k] = s[k]);
+  $('backLink').href = 'fleet.html';
+  await boot();
 })();
 </script>
 </body>

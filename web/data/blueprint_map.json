@@ -1,0 +1,1317 @@
+{
+ "eternal-storm": {
+  "cdnId": "60201",
+  "dbName": "永恒风暴级-攻击战列巡洋舰",
+  "cdnName": "永恒风暴级-攻击战列巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "thunder-star": {
+  "cdnId": "60601",
+  "dbName": "雷火之星-综合武库舰",
+  "cdnName": "雷火之星-综合武库舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "constantine": {
+  "cdnId": "60401",
+  "dbName": "新君士坦丁大帝级-综合战列巡洋舰",
+  "cdnName": "新君士坦丁大帝级-综合战列巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "ST59": {
+  "cdnId": "60301",
+  "dbName": "ST59级-防御战列巡洋舰",
+  "cdnName": "ST59级-防御战列巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "plutus-shield": {
+  "cdnId": "60701",
+  "dbName": "普鲁图斯之盾级-防护战列巡洋舰",
+  "cdnName": "普鲁图斯之盾级-防护战列巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "antontas": {
+  "cdnId": "60801",
+  "dbName": "安东塔斯持剑者级-指挥舰",
+  "cdnName": "安东塔斯持剑者级-指挥舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "uranus-spear": {
+  "cdnId": "60501",
+  "dbName": "乌拉诺斯之矛",
+  "cdnName": "乌拉诺斯之矛级-重型战列巡洋舰",
+  "exact": false,
+  "viaAlias": false
+ },
+ "buqu": {
+  "cdnId": null,
+  "dbName": "不屈级-TE-导弹战列巡洋舰"
+ },
+ "tianquan": {
+  "cdnId": "61301",
+  "dbName": "天权级-重型防御战列巡洋舰",
+  "cdnName": "天权级-重型防御战列巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "zhizhan": {
+  "cdnId": "97201",
+  "dbName": "止战级-攻坚战列舰",
+  "cdnName": "止战级-攻坚战列舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "CV3000": {
+  "cdnId": "80201",
+  "dbName": "CV3000级-快速航空母舰",
+  "cdnName": "CV3000级-快速航空母舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "sun-whale": {
+  "cdnId": "80101",
+  "dbName": "太阳鲸-武装战略航空母舰",
+  "cdnName": "太阳鲸-武装战略航空母舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "tianshu": {
+  "cdnId": "80801",
+  "dbName": "天枢级-支援航空母舰",
+  "cdnName": "天枢级-支援航空母舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "eternal-vault": {
+  "cdnId": "80401",
+  "dbName": "永恒苍穹级-无人机航空母舰",
+  "cdnName": "永恒苍穹级-无人机航空母舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "south-cross": {
+  "cdnId": "80301",
+  "dbName": "南十字星元帅级-武装航空母舰",
+  "cdnName": "南十字星元帅级-武装航空母舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "leihuo-hui": {
+  "cdnId": "80901",
+  "dbName": "雷火之辉",
+  "cdnName": "雷火之辉-无人机航空母舰",
+  "exact": false,
+  "viaAlias": false
+ },
+ "ediacara": {
+  "cdnId": "70501",
+  "dbName": "埃迪卡拉级-重型火力支援舰",
+  "cdnName": "埃迪卡拉级-重型火力支援舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "FSV830": {
+  "cdnId": "70301",
+  "dbName": "FSV830-快速战术支援舰",
+  "cdnName": "FSV830-快速战术支援舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "CAS066-A": {
+  "cdnId": "50201",
+  "dbName": "CAS066级-通用巡洋舰",
+  "cdnName": "CAS066级-通用巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "CAS066-B": {
+  "cdnId": "50202",
+  "dbName": "CAS066级-炮击巡洋舰",
+  "cdnName": "CAS066级-炮击巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "ranger-A": {
+  "cdnId": "51301",
+  "dbName": "游骑兵级-综合作战巡洋舰",
+  "cdnName": "游骑兵级-综合作战巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "ranger-B": {
+  "cdnId": "51302",
+  "dbName": "游骑兵级-重型离子炮巡洋舰",
+  "cdnName": "游骑兵级-重型离子炮巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "KCCPV2-A": {
+  "cdnId": "50101",
+  "dbName": "KCCPV2.0-轻型攻击巡洋舰",
+  "cdnName": "KCCPV2.0-轻型攻击巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "chimera-A": {
+  "cdnId": "50601",
+  "dbName": "奇美拉级-重型巡洋舰",
+  "cdnName": "奇美拉级-重型巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "CAS066-C": {
+  "cdnId": "50203",
+  "dbName": "CAS066级-载机巡洋舰",
+  "cdnName": "CAS066级-载机巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "CAS066-D": {
+  "cdnId": "50204",
+  "dbName": "CAS066级-支援巡洋舰",
+  "cdnName": "CAS066级-支援巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "connemara-A": {
+  "cdnId": "51201",
+  "dbName": "康纳马拉混沌级-轨道炮巡洋舰",
+  "cdnName": "康纳马拉混沌级-轨道炮巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "connemara-B": {
+  "cdnId": "51202",
+  "dbName": "康纳马拉混沌级-高速等离子体巡洋舰",
+  "cdnName": "康纳马拉混沌级-高速等离子体巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "KCCPV2-B": {
+  "cdnId": "50102",
+  "dbName": "KCCPV2.0-轻型脉冲攻击巡洋舰",
+  "cdnName": "KCCPV2.0-轻型脉冲攻击巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "KCCPV2-C": {
+  "cdnId": "50103",
+  "dbName": "KCCPV2.0-轻型轨道炮巡洋舰",
+  "cdnName": "KCCPV2.0-轻型轨道炮巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "KCCPV2-D": {
+  "cdnId": "50104",
+  "dbName": "KCCPV2.0-轻型载机巡洋舰",
+  "cdnName": "KCCPV2.0-轻型载机巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "hunter-A": {
+  "cdnId": "51001",
+  "dbName": "狩猎者级-载机巡洋舰",
+  "cdnName": "狩猎者级-载机巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "hunter-C": {
+  "cdnId": "51003",
+  "dbName": "狩猎者级-防空载机巡洋舰",
+  "cdnName": "狩猎者级-防空载机巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "chimera-B": {
+  "cdnId": "50602",
+  "dbName": "奇美拉级-火炮巡洋舰",
+  "cdnName": "奇美拉级-火炮巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "chimera-C": {
+  "cdnId": "50603",
+  "dbName": "奇美拉级-防御巡洋舰",
+  "cdnName": "奇美拉级-防御巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "callisto-A": {
+  "cdnId": "50401",
+  "dbName": "卡利斯托-集束鱼雷袭击舰",
+  "cdnName": "卡利斯托-集束鱼雷袭击舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "callisto-B": {
+  "cdnId": "50402",
+  "dbName": "卡利斯托-重型鱼雷袭击舰",
+  "cdnName": "卡利斯托-重型鱼雷袭击舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "callisto-C": {
+  "cdnId": "50403",
+  "dbName": "卡利斯托-重型无人机巡洋舰",
+  "cdnName": "卡利斯托-重型无人机巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "aio-A": {
+  "cdnId": "50301",
+  "dbName": "艾奥级-攻坚离子炮巡洋舰",
+  "cdnName": "艾奥级-攻坚离子炮巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "aio-B": {
+  "cdnId": "50302",
+  "dbName": "艾奥级-高速离子炮巡洋舰",
+  "cdnName": "艾奥级-高速离子炮巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "chalk-A": {
+  "cdnId": "52101",
+  "dbName": "白垩级-战术无人机巡洋舰",
+  "cdnName": "白垩级-战术无人机巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "lightcone-A": {
+  "cdnId": "50501",
+  "dbName": "光锥级-综合导弹巡洋舰",
+  "cdnName": "光锥级-综合导弹巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "lightcone-B": {
+  "cdnId": "50502",
+  "dbName": "光锥级-区域防空巡洋舰",
+  "cdnName": "光锥级-区域防空巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "lightcone-C": {
+  "cdnId": "50503",
+  "dbName": "光锥级-攻击导弹巡洋舰",
+  "cdnName": "光锥级-攻击导弹巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "brownbear-A": {
+  "cdnId": "51401",
+  "dbName": "棕熊级-综合巡洋舰",
+  "cdnName": "棕熊级-综合巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "brownbear-B": {
+  "cdnId": "51402",
+  "dbName": "棕熊级-防空巡洋舰",
+  "cdnName": "棕熊级-防空巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "brownbear-C": {
+  "cdnId": "51403",
+  "dbName": "棕熊级-重型巡洋舰",
+  "cdnName": "棕熊级-重型巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "quanneng-TE": {
+  "cdnId": null,
+  "dbName": "全能级-TE-离子炮巡洋舰"
+ },
+ "xunjie-A": {
+  "cdnId": null,
+  "dbName": "迅捷级-武装运输船"
+ },
+ "xunjie-B": {
+  "cdnId": null,
+  "dbName": "迅捷级-载机运输船"
+ },
+ "XT20-A": {
+  "cdnId": null,
+  "dbName": "XT-20级-护航巡洋舰"
+ },
+ "XT20-B": {
+  "cdnId": null,
+  "dbName": "XT-20级-载机巡洋舰"
+ },
+ "XT20-C": {
+  "cdnId": null,
+  "dbName": "XT-20级-支援巡洋舰"
+ },
+ "yuheng-A": {
+  "cdnId": "52001",
+  "dbName": "玉衡级-维修巡洋舰",
+  "cdnName": "玉衡级-维修巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "yuheng-B": {
+  "cdnId": "52002",
+  "dbName": "玉衡级-防御巡洋舰",
+  "cdnName": "玉衡级-防御巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "yuheng-C": {
+  "cdnId": "52003",
+  "dbName": "玉衡级-支援巡洋舰",
+  "cdnName": "玉衡级-支援巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "hunter-B": {
+  "cdnId": "51002",
+  "dbName": "狩猎者级-战术载机巡洋舰",
+  "cdnName": "狩猎者级-战术载机巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "chalk-B": {
+  "cdnId": "52102",
+  "dbName": "白垩级-综合防空巡洋舰",
+  "cdnName": "白垩级-综合防空巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "liebing-carrier": {
+  "cdnId": "51101",
+  "dbName": "猎兵级-重型载机巡洋舰",
+  "cdnName": "猎兵级-重型载机巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "liebing-B": {
+  "cdnId": "51102",
+  "dbName": "猎兵级-重型火炮巡洋舰",
+  "cdnName": "猎兵级-重型火炮巡洋舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "xunjie": {
+  "cdnId": null,
+  "dbName": "迅捷级-TE-高速载机运输船（载机型A）"
+ },
+ "alert-destroyer": {
+  "cdnId": null,
+  "dbName": "警惕级-战术驱逐舰"
+ },
+ "chill-destroyer": {
+  "cdnId": null,
+  "dbName": "凛冽级-导弹驱逐舰"
+ },
+ "scorch-destroyer": {
+  "cdnId": "41501",
+  "dbName": "灼热级-重炮突击舰",
+  "cdnName": "灼热级-重炮突击舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "yadabola-destroyer": {
+  "cdnId": "41203",
+  "dbName": "亚达伯拉级-重型防空驱逐舰",
+  "cdnName": "亚达伯拉级-重型防空驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "AC720-hero": {
+  "cdnId": "40105",
+  "dbName": "AC720-艾格勒姆未名者",
+  "cdnName": "AC720-艾格勒姆未名者",
+  "exact": true,
+  "viaAlias": false
+ },
+ "chill-B": {
+  "cdnId": null,
+  "dbName": "凛冽级-防御驱逐舰"
+ },
+ "chill-TE": {
+  "cdnId": null,
+  "dbName": "凛冽级-TE-高速导弹驱逐舰"
+ },
+ "XT11-missile": {
+  "cdnId": "47501",
+  "dbName": "XT-11级-导弹驱逐舰",
+  "cdnName": "XT-11级-导弹驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "XT10-torpedo": {
+  "cdnId": null,
+  "dbName": "XT-10级-武装鱼雷驱逐舰"
+ },
+ "xiandeng-A": {
+  "cdnId": "41301",
+  "dbName": "先登级-两栖突击舰",
+  "cdnName": "先登级-两栖突击舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "kaiyang-A": {
+  "cdnId": "42001",
+  "dbName": "开阳级-机动驱逐舰",
+  "cdnName": "开阳级-机动驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "kaiyang-B": {
+  "cdnId": "42002",
+  "dbName": "开阳级-鱼雷驱逐舰",
+  "cdnName": "开阳级-鱼雷驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "yadabola-A": {
+  "cdnId": "41201",
+  "dbName": "亚达伯拉级-重型火炮驱逐舰",
+  "cdnName": "亚达伯拉级-重型火炮驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "yadabola-B": {
+  "cdnId": "41202",
+  "dbName": "亚达伯拉级-重型攻坚驱逐舰",
+  "cdnName": "亚达伯拉级-重型攻坚驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "scorch-B": {
+  "cdnId": "41502",
+  "dbName": "灼热级-战术突击舰",
+  "cdnName": "灼热级-战术突击舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "scorch-TE-gun": {
+  "cdnId": "41501",
+  "dbName": "灼热级-TE-重型火炮突击舰",
+  "cdnName": "灼热级-重炮突击舰",
+  "exact": false,
+  "viaAlias": true
+ },
+ "scorch-TE-torp": {
+  "cdnId": null,
+  "dbName": "灼热级-TE-重型鱼雷突击舰"
+ },
+ "douniu-A": {
+  "cdnId": "40501",
+  "dbName": "斗牛级-脉冲炮驱逐舰",
+  "cdnName": "斗牛级-脉冲炮驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "douniu-B": {
+  "cdnId": "40502",
+  "dbName": "斗牛级-突击攻击舰",
+  "cdnName": "斗牛级-突击攻击舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "douniu-C": {
+  "cdnId": "40503",
+  "dbName": "斗牛级-防御驱逐舰",
+  "cdnName": "斗牛级-防御驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "weishi-A": {
+  "cdnId": "41001",
+  "dbName": "卫士-支援驱逐舰",
+  "cdnName": "卫士-支援驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "weishi-B": {
+  "cdnId": "41002",
+  "dbName": "卫士-两栖突击舰",
+  "cdnName": "卫士-两栖突击舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "weishi-C": {
+  "cdnId": "41003",
+  "dbName": "卫士-实验型脉冲突击舰",
+  "cdnName": "卫士-实验型脉冲突击舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "taixian-A": {
+  "cdnId": "40701",
+  "dbName": "苔原级-战术驱逐舰",
+  "cdnName": "苔原级-战术驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "taixian-B": {
+  "cdnId": "40702",
+  "dbName": "苔原级-载机驱逐舰",
+  "cdnName": "苔原级-载机驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "gushenxing-A": {
+  "cdnId": "40401",
+  "dbName": "谷神星级-载机驱逐舰",
+  "cdnName": "谷神星级-载机驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "gushenxing-B": {
+  "cdnId": "40402",
+  "dbName": "谷神星级-支援驱逐舰",
+  "cdnName": "谷神星级-支援驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "AC721-A": {
+  "cdnId": "40101",
+  "dbName": "AC721-重型运载驱逐舰",
+  "cdnName": "AC721-重型运载驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "AC721-B": {
+  "cdnId": "40102",
+  "dbName": "AC721-重型导弹驱逐舰",
+  "cdnName": "AC721-重型导弹驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "AC721-D": {
+  "cdnId": "40104",
+  "dbName": "AC721-重型两栖突击舰",
+  "cdnName": "AC721-重型两栖突击舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "talasa-A": {
+  "cdnId": "41401",
+  "dbName": "塔拉萨萤石级-信息驱逐舰",
+  "cdnName": "塔拉萨萤石级-信息驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "yueshenxing-A": {
+  "cdnId": "40201",
+  "dbName": "阅神星Ⅰ级-机动突击驱逐舰",
+  "cdnName": "阋神星I级-机动突击驱逐舰",
+  "exact": false,
+  "viaAlias": true
+ },
+ "yueshenxing-B": {
+  "cdnId": "40202",
+  "dbName": "阅神星Ⅰ级-重炮驱逐舰",
+  "cdnName": "阋神星I级-重炮驱逐舰",
+  "exact": false,
+  "viaAlias": true
+ },
+ "chuangshenxing-A": {
+  "cdnId": "41101",
+  "dbName": "创神星级-轨道炮驱逐舰",
+  "cdnName": "创神星级-轨道炮驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "chuangshenxing-B": {
+  "cdnId": "41102",
+  "dbName": "创神星级-鱼雷驱逐舰",
+  "cdnName": "创神星级-鱼雷驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "qiangqibing-A": {
+  "cdnId": "40801",
+  "dbName": "枪骑兵级-轻型导弹驱逐舰",
+  "cdnName": "枪骑兵级-轻型导弹驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "qiangqibing-B": {
+  "cdnId": "40802",
+  "dbName": "枪骑兵级-综合导弹驱逐舰",
+  "cdnName": "枪骑兵级-综合导弹驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "qiangqibing-C": {
+  "cdnId": "40803",
+  "dbName": "枪骑兵级-区域防空驱逐舰",
+  "cdnName": "枪骑兵级-区域防空驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "gushenxing-C": {
+  "cdnId": "40403",
+  "dbName": "谷神星级-战术驱逐舰",
+  "cdnName": "谷神星级-战术驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "talasa-B": {
+  "cdnId": "41402",
+  "dbName": "塔拉萨萤石级-电子驱逐舰",
+  "cdnName": "塔拉萨萤石级-电子驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "yueshenxing-C": {
+  "cdnId": "40203",
+  "dbName": "阅神星Ⅰ级-装甲驱逐舰",
+  "cdnName": "阋神星I级-装甲驱逐舰",
+  "exact": false,
+  "viaAlias": true
+ },
+ "xiandeng-B": {
+  "cdnId": "41302",
+  "dbName": "先登级-载机驱逐舰",
+  "cdnName": "先登级-载机驱逐舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "fury-frigate": {
+  "cdnId": null,
+  "dbName": "愤怒级-快速护卫舰"
+ },
+ "severe-frigate": {
+  "cdnId": null,
+  "dbName": "严酷级-攻坚护卫舰"
+ },
+ "XT8-landing": {
+  "cdnId": null,
+  "dbName": "XT-8级-两栖登陆舰"
+ },
+ "normaM470-support": {
+  "cdnId": "30702",
+  "dbName": "诺玛M470级-支援护卫舰",
+  "cdnName": "诺玛M470级-支援护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "yunhai-AA-B": {
+  "cdnId": "30302",
+  "dbName": "云海级-防空护卫舰",
+  "cdnName": "云海级-防空护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "jinghai-A": {
+  "cdnId": "30201",
+  "dbName": "静海区-导弹护卫舰",
+  "cdnName": "静海级-导弹护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "jinghai-B": {
+  "cdnId": "30202",
+  "dbName": "静海区-脉冲炮护卫舰",
+  "cdnName": "静海级-脉冲炮护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "jinghai-C": {
+  "cdnId": "30203",
+  "dbName": "静海区-拦截护卫舰",
+  "cdnName": "静海级-拦截护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "FG300-A": {
+  "cdnId": "30101",
+  "dbName": "FG300型-多用途护卫舰",
+  "cdnName": "FG300型-多用途护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "FG300-B": {
+  "cdnId": "30102",
+  "dbName": "FG300型-装甲护卫舰",
+  "cdnName": "FG300型-装甲护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "FG300-C": {
+  "cdnId": "30103",
+  "dbName": "FG300型-侦察护卫舰",
+  "cdnName": "FG300型-侦察护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "norma330-TE": {
+  "cdnId": null,
+  "dbName": "诺玛330-TE-快速武装调查船"
+ },
+ "fury-torpedo": {
+  "cdnId": null,
+  "dbName": "愤怒级-鱼雷护卫舰"
+ },
+ "XT6-gun": {
+  "cdnId": "37801",
+  "dbName": "XT-6级-火炮护卫舰",
+  "cdnName": "XT-6级-火炮护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "yaoguang-A": {
+  "cdnId": "32301",
+  "dbName": "瑶光级-通用护卫舰",
+  "cdnName": "瑶光级-通用护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "cishuimu-A": {
+  "cdnId": "30401",
+  "dbName": "刺水母级-战术护卫舰",
+  "cdnName": "刺水母级-战术护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "cishuimu-B": {
+  "cdnId": "30402",
+  "dbName": "刺水母级-防御护卫舰",
+  "cdnName": "刺水母级-防御护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "langxi-A": {
+  "cdnId": "31801",
+  "dbName": "狼蜥级-防御护卫舰",
+  "cdnName": "狼蜥级-防御护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "yuhai-A": {
+  "cdnId": "31301",
+  "dbName": "雨海级-突击护卫舰",
+  "cdnName": "雨海级-突击护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "chenghai-A": {
+  "cdnId": "31201",
+  "dbName": "澄海级-重型护卫舰",
+  "cdnName": "澄海级-重型护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "ruby-A": {
+  "cdnId": "30501",
+  "dbName": "红宝石级-重型轨道炮护卫舰",
+  "cdnName": "红宝石级-重型轨道炮护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "leiliyate-A": {
+  "cdnId": "31601",
+  "dbName": "雷里亚特级-快速鱼雷护卫舰",
+  "cdnName": "雷里亚特级-快速鱼雷护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "kalilaien-C": {
+  "cdnId": "30803",
+  "dbName": "卡利莱恩级-特种护卫舰",
+  "cdnName": "卡利莱恩级-特种护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "zircon-A": {
+  "cdnId": "31901",
+  "dbName": "锆石级-突击护卫舰",
+  "cdnName": "锆石级-突击护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "zircon-B": {
+  "cdnId": "31902",
+  "dbName": "锆石级-特种护卫舰",
+  "cdnName": "锆石级-特种护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "normaM470-AA": {
+  "cdnId": "30703",
+  "dbName": "诺玛M470级-防空护卫舰",
+  "cdnName": "诺玛M470级-防空护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "yuhai-B": {
+  "cdnId": "31302",
+  "dbName": "雨海级-脉冲炮护卫舰",
+  "cdnName": "雨海级-实验型脉冲炮护卫舰",
+  "exact": false,
+  "viaAlias": true
+ },
+ "chenghai-B": {
+  "cdnId": "31202",
+  "dbName": "澄海级-导弹护卫舰",
+  "cdnName": "澄海级-导弹护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "chenghai-C": {
+  "cdnId": "31203",
+  "dbName": "澄海级-防空护卫舰",
+  "cdnName": "澄海级-防空护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "ruby-B": {
+  "cdnId": "30502",
+  "dbName": "红宝石级-离子炮护卫舰",
+  "cdnName": "红宝石级-实验型离子炮护卫舰",
+  "exact": false,
+  "viaAlias": true
+ },
+ "ruby-C": {
+  "cdnId": "30503",
+  "dbName": "红宝石级-重型防御护卫舰",
+  "cdnName": "红宝石级-重型防御护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "leiliyate-B": {
+  "cdnId": "31602",
+  "dbName": "雷里亚特级-战术鱼雷护卫舰",
+  "cdnName": "雷里亚特级-战术鱼雷护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "leiliyate-C": {
+  "cdnId": "31603",
+  "dbName": "雷里亚特级-隐身护卫舰",
+  "cdnName": "雷里亚特级-隐身护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "kalilaien-B": {
+  "cdnId": "30802",
+  "dbName": "卡利莱恩级-重炮护卫舰",
+  "cdnName": "卡利莱恩级-重炮护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "langxi-B": {
+  "cdnId": "31802",
+  "dbName": "狼蜥级-突击护卫舰",
+  "cdnName": "狼蜥级-突击护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "langxi-C": {
+  "cdnId": "31803",
+  "dbName": "狼蜥级-攻坚护卫舰",
+  "cdnName": "狼蜥级-攻坚护卫舰",
+  "exact": true,
+  "viaAlias": false
+ },
+ "yunhai": {
+  "cdnId": "30301",
+  "dbName": "云海级-轻型登陆舰（突击型A）",
+  "cdnName": "云海级-轻型登陆舰",
+  "exact": false,
+  "viaAlias": false
+ },
+ "cishuimu": {
+  "cdnId": "30403",
+  "dbName": "刺水母级-无人机登陆舰（登陆型C）",
+  "cdnName": "刺水母级-无人机登陆舰",
+  "exact": false,
+  "viaAlias": false
+ },
+ "kalilaien": {
+  "cdnId": "30801",
+  "dbName": "卡利莱恩级-侦察护卫舰（侦察型A）",
+  "cdnName": "卡利莱恩级-侦察护卫舰",
+  "exact": false,
+  "viaAlias": false
+ },
+ "yaoguang": {
+  "cdnId": "32302",
+  "dbName": "瑶光级-特种护卫舰（特种型B）",
+  "cdnName": "瑶光级-特种护卫舰",
+  "exact": false,
+  "viaAlias": false
+ },
+ "normaM470": {
+  "cdnId": "30701",
+  "dbName": "诺玛M470级-重型登陆舰（攻城型A）",
+  "cdnName": "诺玛M470级-重型登陆舰",
+  "exact": false,
+  "viaAlias": false
+ },
+ "s-levi9": {
+  "cdnId": "21401",
+  "dbName": "S-列维9号-重型鱼雷艇",
+  "cdnName": "S-列维9号-重型鱼雷艇",
+  "exact": true,
+  "viaAlias": false
+ },
+ "cv-t800": {
+  "cdnId": "21301",
+  "dbName": "CV-T800型-脉冲炮艇",
+  "cdnName": "CV-T800型-脉冲炮艇",
+  "exact": true,
+  "viaAlias": false
+ },
+ "hayabusa-corvette": {
+  "cdnId": "21501",
+  "dbName": "海尔波普-系统支援护航艇",
+  "cdnName": "海尔波普-系统支援护航艇",
+  "exact": true,
+  "viaAlias": false
+ },
+ "nebula-corvette": {
+  "cdnId": "20901",
+  "dbName": "星云追逐者-重型护航艇",
+  "cdnName": "星云追逐者-重型护航艇",
+  "exact": true,
+  "viaAlias": false
+ },
+ "void-corvette": {
+  "cdnId": "21001",
+  "dbName": "虚灵-隐身导弹艇",
+  "cdnName": "虚灵-隐身导弹艇",
+  "exact": true,
+  "viaAlias": false
+ },
+ "somme-shadow": {
+  "cdnId": "22101",
+  "dbName": "索姆河之影-装甲飞行坦克",
+  "cdnName": "索姆河之影-装甲飞行坦克",
+  "exact": true,
+  "viaAlias": false
+ },
+ "tianji-A": {
+  "cdnId": "22201",
+  "dbName": "天玑-重型护航艇",
+  "cdnName": "天玑-重型护航艇",
+  "exact": true,
+  "viaAlias": false
+ },
+ "wildfire-AA-A": {
+  "cdnId": "21702",
+  "dbName": "野火-格斗护航艇-A型（主动防空）",
+  "cdnName": "野火-格斗护航艇",
+  "exact": false,
+  "viaAlias": false
+ },
+ "temple1-A": {
+  "cdnId": "21601",
+  "dbName": "坦普尔1号-信息护航艇",
+  "cdnName": "坦普尔1号-信息护航艇",
+  "exact": true,
+  "viaAlias": false
+ },
+ "hayabusa-B": {
+  "cdnId": "21502",
+  "dbName": "海尔波普-维修支援护航艇",
+  "cdnName": "海尔波普-维修支援护航艇",
+  "exact": true,
+  "viaAlias": false
+ },
+ "nebula-pulse-B": {
+  "cdnId": "20902",
+  "dbName": "星云追逐者-脉冲炮艇",
+  "cdnName": "星云追逐者-脉冲炮艇",
+  "exact": true,
+  "viaAlias": false
+ },
+ "CVM011-A": {
+  "cdnId": "21101",
+  "dbName": "CV-M011型-重型导弹艇",
+  "cdnName": "CV-M011型-重型导弹艇",
+  "exact": true,
+  "viaAlias": false
+ },
+ "hive-guardian": {
+  "cdnId": "20801",
+  "dbName": "蜂巢守卫者-重型鱼雷艇",
+  "cdnName": "蜂巢守卫者-重型鱼雷艇",
+  "exact": true,
+  "viaAlias": false
+ },
+ "yao-A": {
+  "cdnId": "20301",
+  "dbName": "鳐-装甲护航艇",
+  "cdnName": "鳐-装甲护航艇",
+  "exact": true,
+  "viaAlias": false
+ },
+ "yao-B": {
+  "cdnId": "20302",
+  "dbName": "鳐-特种护航艇",
+  "cdnName": "鳐-特种护航艇",
+  "exact": true,
+  "viaAlias": false
+ },
+ "CVM011-B": {
+  "cdnId": "21102",
+  "dbName": "CV-M011型-重炮艇",
+  "cdnName": "CV-M011型-重炮艇",
+  "exact": true,
+  "viaAlias": false
+ },
+ "CVM011-C": {
+  "cdnId": "21103",
+  "dbName": "CV-M011型-高速导弹艇",
+  "cdnName": "CV-M011型-高速导弹艇",
+  "exact": true,
+  "viaAlias": false
+ },
+ "RB7-13-A": {
+  "cdnId": "20701",
+  "dbName": "RB7-13型-导弹艇",
+  "cdnName": "RB7-13型-导弹艇",
+  "exact": true,
+  "viaAlias": false
+ },
+ "RB7-13-B": {
+  "cdnId": "20702",
+  "dbName": "RB7-13型-突防护航艇",
+  "cdnName": "RB7-13型-突防护航艇",
+  "exact": true,
+  "viaAlias": false
+ },
+ "wildfire-AA-B": {
+  "cdnId": "21702",
+  "dbName": "野火-格斗护航艇-B型（区域防空）",
+  "cdnName": "野火-格斗护航艇",
+  "exact": false,
+  "viaAlias": false
+ },
+ "wildfire-TE": {
+  "cdnId": "21701",
+  "dbName": "野火-TE-鱼雷艇",
+  "cdnName": "野火-战术鱼雷护航艇",
+  "exact": false,
+  "viaAlias": true
+ },
+ "temple1-B": {
+  "cdnId": "21602",
+  "dbName": "坦普尔1号-预警护航艇",
+  "cdnName": "坦普尔1号-预警护航艇",
+  "exact": true,
+  "viaAlias": false
+ },
+ "tianji": {
+  "cdnId": "22202",
+  "dbName": "天玑-攻击护航艇（攻击B型）",
+  "cdnName": "天玑-攻击护航艇",
+  "exact": false,
+  "viaAlias": false
+ },
+ "wildfire": {
+  "cdnId": "21701",
+  "dbName": "野火-TE-鱼雷艇（对舰A型）",
+  "cdnName": "野火-战术鱼雷护航艇",
+  "exact": false,
+  "viaAlias": true
+ },
+ "tianqiang-tactical": {
+  "cdnId": "22301",
+  "dbName": "天枪-战术护航艇",
+  "cdnName": "天枪-战术护航艇",
+  "exact": true,
+  "viaAlias": false
+ },
+ "tianqiang-heavy": {
+  "cdnId": "22302",
+  "dbName": "天枪-重型鱼雷艇",
+  "cdnName": "天枪-重型鱼雷艇",
+  "exact": true,
+  "viaAlias": false
+ },
+ "vitas-B010": {
+  "cdnId": "11601",
+  "dbName": "维塔斯-B010-轰炸机",
+  "cdnName": "维塔斯-B010-轰炸机",
+  "exact": true,
+  "viaAlias": false
+ },
+ "vitas-A021": {
+  "cdnId": "11501",
+  "dbName": "维塔斯A021-重型攻击机",
+  "cdnName": "维塔斯A021-重型攻击机",
+  "exact": true,
+  "viaAlias": false
+ },
+ "tianxuan-A": {
+  "cdnId": "15701",
+  "dbName": "天璇A-轻型攻击机",
+  "cdnName": "天璇-轻型攻击机",
+  "exact": false,
+  "viaAlias": true
+ },
+ "leihuoV022-A": {
+  "cdnId": "12801",
+  "dbName": "雷火V022-轻型战斗机",
+  "cdnName": "雷火V022-轻型战斗机",
+  "exact": true,
+  "viaAlias": false
+ },
+ "BR050-A": {
+  "cdnId": "12601",
+  "dbName": "BR050-标准轰炸机",
+  "cdnName": "BR050-标准轰炸机",
+  "exact": true,
+  "viaAlias": false
+ },
+ "mistral": {
+  "cdnId": "12401",
+  "dbName": "米斯特拉-战斗攻击机",
+  "cdnName": "米斯特拉-战斗攻击机",
+  "exact": true,
+  "viaAlias": false
+ },
+ "stingray": {
+  "cdnId": "11901",
+  "dbName": "刺鳐-鱼雷轰炸机",
+  "cdnName": "刺鳐-鱼雷轰炸机",
+  "exact": true,
+  "viaAlias": false
+ },
+ "spore-A404": {
+  "cdnId": "11801",
+  "dbName": "孢孑A404-轻型战斗机",
+  "cdnName": "孢子A404-轻型战斗机",
+  "exact": false,
+  "viaAlias": true
+ },
+ "B192-newland": {
+  "cdnId": "11701",
+  "dbName": "B192新大地-重型攻击机",
+  "cdnName": "B192新大地-重型攻击机",
+  "exact": true,
+  "viaAlias": false
+ },
+ "at021": {
+  "cdnId": "12501",
+  "dbName": "AT021-脉冲攻击机-A（脉冲型）",
+  "cdnName": "AT021-脉冲攻击机",
+  "exact": false,
+  "viaAlias": false
+ },
+ "at021-B": {
+  "cdnId": "12502",
+  "dbName": "AT021-战术攻击机-B（干扰型）",
+  "cdnName": "AT021-战术攻击机",
+  "exact": false,
+  "viaAlias": false
+ },
+ "ship-ato21c": {
+  "cdnId": "12503",
+  "dbName": "AT021-重型攻击机-C（多功能型）",
+  "cdnName": "AT021-重型攻击机",
+  "exact": false,
+  "viaAlias": false
+ },
+ "br050": {
+  "cdnId": "12602",
+  "dbName": "BR050-多用途轰炸机-B（防御型）",
+  "cdnName": "BR050-多用途轰炸机",
+  "exact": false,
+  "viaAlias": false
+ },
+ "br050-C": {
+  "cdnId": "12603",
+  "dbName": "BR050-鱼雷轰炸机-C（鱼雷型）",
+  "cdnName": "BR050-鱼雷轰炸机",
+  "exact": false,
+  "viaAlias": false
+ },
+ "tianxuan": {
+  "cdnId": "15702",
+  "dbName": "天璇-战斗攻击机-B",
+  "cdnName": "天璇-战斗攻击机",
+  "exact": true,
+  "viaAlias": false
+ },
+ "lizhi": {
+  "cdnId": "12701",
+  "dbName": "理智A101-战斗攻击机-B",
+  "cdnName": "理智A101-战斗攻击机",
+  "exact": true,
+  "viaAlias": false
+ },
+ "leihuoV022": {
+  "cdnId": "12802",
+  "dbName": "雷火V022-特种战斗机-B",
+  "cdnName": "雷火V022-特种战斗机",
+  "exact": true,
+  "viaAlias": false
+ },
+ "leihuoV022-C": {
+  "cdnId": "12803",
+  "dbName": "雷火V022-两栖战斗机-C（干扰型）",
+  "cdnName": "雷火V022-两栖战斗机",
+  "exact": false,
+  "viaAlias": false
+ },
+ "peidao": {
+  "cdnId": "12001",
+  "dbName": "佩刀Aer410-强击攻击机",
+  "cdnName": "佩刀Aer410-强击攻击机",
+  "exact": true,
+  "viaAlias": false
+ },
+ "niuwa": {
+  "cdnId": "10801",
+  "dbName": "牛蛙-两栖轰炸机",
+  "cdnName": "牛蛙型-两栖轰炸机",
+  "exact": true,
+  "viaAlias": false
+ },
+ "haishi": {
+  "cdnId": "11301",
+  "dbName": "海氏追随者型-脉冲攻击机",
+  "cdnName": "海氏追随者型-脉冲战斗机",
+  "exact": false,
+  "viaAlias": true
+ },
+ "linxiao": {
+  "cdnId": "10901",
+  "dbName": "林鸮A100型-联合攻击机",
+  "cdnName": "林鸮A100型-联合攻击机",
+  "exact": true,
+  "viaAlias": false
+ },
+ "shalong": {
+  "cdnId": "10701",
+  "dbName": "砂龙-大气层拦截机",
+  "cdnName": "砂龙-大气层拦截机",
+  "exact": true,
+  "viaAlias": false
+ },
+ "andersen": {
+  "cdnId": "11401",
+  "dbName": "平衡安德森SC020-侦察机",
+  "cdnName": "平衡安德森SC020-侦察机",
+  "exact": true,
+  "viaAlias": false
+ },
+ "sc002": {
+  "cdnId": "10201",
+  "dbName": "SC002型-量子侦察机",
+  "cdnName": "SC002型-量子侦察机",
+  "exact": true,
+  "viaAlias": false
+ },
+ "lizhi-te": {
+  "cdnId": "12701",
+  "dbName": "理智级A101-TE-战斗机",
+  "cdnName": "理智A101-战斗攻击机",
+  "exact": false,
+  "viaAlias": true
+ }
+}
