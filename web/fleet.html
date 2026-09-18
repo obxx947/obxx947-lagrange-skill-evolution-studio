@@ -328,16 +328,31 @@ function usedTotal(id){
     ['main','reinforce'].forEach(sec=>af[sec].forEach(x=>{ if(x.id===id) n+=x.qty; }));
     return n;
 }
-// 旗舰 key：'main|id' / 'reinforce|id'（兼容旧的裸 id）
+/* 旗舰 key：'main|序号' / 'reinforce|序号'
+   用序号而不是舰船 id —— 因为同一艘舰可以有多套模块组合（多条独立条目），id 会重复。
+   兼容旧数据：'main|<舰船id>' 与裸 <舰船id> 都会解析成对应条目的序号。 */
 function flagKey(){
     const af=activeFleet(); const v=af.flagship||'';
     if(!v) return '';
-    if(v.indexOf('|')>=0) return v;
-    for(const sec of ['main','reinforce']) if(af[sec].some(s=>s.id===v)) return sec+'|'+v;
+    if(v.indexOf('|')>=0){
+        const p=v.split('|'), sec=p[0], tail=p[1];
+        if(!af[sec]) return '';
+        if(/^\d+$/.test(tail)) return af[sec][parseInt(tail,10)] ? (sec+'|'+tail) : '';
+        const j=af[sec].findIndex(s=>s.id===tail);          // 旧格式：按舰船 id 找第一条
+        return j>=0 ? (sec+'|'+j) : '';
+    }
+    for(const sec of ['main','reinforce']){ const j=af[sec].findIndex(s=>s.id===v); if(j>=0) return sec+'|'+j; }
     return '';
 }
-function isFlagshipRow(sec,s){ return flagKey()===sec+'|'+s.id; }
-// 清理指向已不存在舰船的旗舰
+/* 导出给模拟器/配队库用的「旗舰舰船 id」 */
+function flagshipShipId(){
+    const k=flagKey(); if(!k) return '';
+    const p=k.split('|'), arr=activeFleet()[p[0]]||[];
+    const s=arr[parseInt(p[1],10)];
+    return s ? s.id : '';
+}
+function isFlagshipRow(sec,i){ return flagKey()===sec+'|'+i; }
+// 清理指向已不存在条目的旗舰
 function cleanFlagship(){
     const af=activeFleet();
     if(af.flagship && !flagKey()) af.flagship='';
@@ -372,6 +387,22 @@ function airUsedFleet(airId){
 function assignSlots(s, ship){ return FleetCheck.assignSlots(s, ship); }
 function stitching(){ return !!activeFleet().stitch; }
 function aircraftName(a){ return a.name||a.raw||'?'; }
+/* 再配一套（同一艘舰的另一种模块组合）：新增一条独立条目，数量 1。
+   服役上限仍按该型舰在「主舰队+增援」的合计来卡。 */
+function addConfig(sec,i){
+    const af=activeFleet(); const src=af[sec][i]; if(!src) return;
+    const ship=getShip(src.id)||{}; const lim=ship.serviceLimit||99;
+    const used=usedTotal(src.id);
+    if(!stitching() && used+1>lim){
+        toast('「'+(ship.name||src.name)+'」已达服役上限 '+lim+' 艘（整队已用 '+used+'），无法再加一套','err');
+        return;
+    }
+    const e={ id:src.id, name:src.name, pos:src.pos||defPos(ship), qty:1,
+              mods:Object.assign({},src.mods||{}), air:[] };
+    af[sec].splice(i+1, 0, e);          // 插在它后面，便于对比
+    renderAll();
+    toast('已新增一套配置（同型舰合计仍受服役上限约束），可改它的模块');
+}
 
 /* ================= 存储 ================= */
 function loadStore(){ try{ store=JSON.parse(localStorage.getItem(KEY))||{plans:[]}; }catch(e){ store={plans:[]}; } if(!Array.isArray(store.plans)) store.plans=[]; }
@@ -428,9 +459,10 @@ function renderFlagship(){
     const rows=[['reinforce','增援'],['main','主舰队']];
     let html='<option value="">请选择旗舰</option>';
     rows.forEach(([sec,tag])=>{
-        af[sec].forEach(s=>{
-            const val=sec+'|'+s.id;
-            html+=`<option value="${esc(val)}" ${fk===val?'selected':''}>${esc(s.name)}${s.qty>1?(' ×'+s.qty):''}（${tag}）</option>`;
+        af[sec].forEach((s,idx)=>{
+            const val=sec+'|'+idx;                 // 用序号，支持同型舰多套配置
+            const mods=Object.keys(s.mods||{}).filter(k=>s.mods[k]).map(k=>s.mods[k]).join('/');
+            html+=`<option value="${esc(val)}" ${fk===val?'selected':''}>${esc(s.name)}${mods?(' '+esc(mods)):''}${s.qty>1?(' ×'+s.qty):''}（${tag}）</option>`;
         });
     });
     sel.innerHTML=html;
@@ -453,10 +485,11 @@ function renderLists(){
             if(hasAir(ship,s.mods,s.qty)) assignSlots(s,ship);   // 老数据补齐 slot
             return `<div class="shiprow">
                 <div class="badge">${ship.commandValue||0}</div>
-                <div class="nm">${esc(s.name)}${isFlagshipRow(sec,s)?' ⭐':''}
+                <div class="nm">${esc(s.name)}${isFlagshipRow(sec,i)?' ⭐':''}
                     <small>${typeLabel(ship.type)} · <b style="${over?'color:var(--red)':''}">服役 ${usedAll}/${shipLim}</b>${modStr?' · '+esc(modStr):''}</small></div>
                 <button class="pos ${esc(pos)}" style="cursor:pointer;background:none" title="点击切换站位" onclick="cyclePos('${sec}',${i})">${esc(pos)}</button>
                 ${showMods?`<button class="btn gold" style="flex:0 0 auto;padding:4px 8px" onclick="openMods('${sec}',${i})">${modStr?esc(modStr):'模块'}</button>`:''}
+                ${showMods?`<button class="btn" style="flex:0 0 auto;padding:4px 8px" onclick="addConfig('${sec}',${i})" title="再配一套不同的模块组合（服役上限仍按该舰合计）">⧉</button>`:''}
                 <div class="qty ${over?'over':''}">
                     <button onclick="chQty('${sec}',${i},-1)">−</button>
                     <span>${s.qty}</span>
@@ -815,7 +848,7 @@ function exportFleet(){
     const dump=arr=>arr.map(s=>({id:s.id,name:s.name,pos:s.pos||'',qty:s.qty,mods:s.mods||{},
         air:(s.air||[]).map(a=>({id:a.id,name:a.name,kind:a.kind,slot:a.slot||'',qty:a.qty}))}));
     return { name:cur.name||'未命名方案', desc:cur.desc||'',
-        main:dump(af.main), reinforcement:dump(af.reinforce), flagship:af.flagship||'' };
+        main:dump(af.main), reinforcement:dump(af.reinforce), flagship:flagshipShipId() };
 }
 /* 复制到模拟器：先选目标舰队（我方/敌方 · 护航/被护航），再选追加或覆盖 */
 const SIM_TARGETS=[

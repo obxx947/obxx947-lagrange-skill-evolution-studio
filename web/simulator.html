@@ -160,6 +160,11 @@
         .fleet-panel-name { font-size: 16px; font-weight: 600; color: var(--text-primary); }
         .fleet-panel-stats { font-size: 11px; color: var(--text-secondary); display: flex; gap: 12px; }
         .fleet-panel-ships { display: flex; flex-wrap: wrap; gap: 6px; min-height: 60px; align-items: flex-start; }
+        .ship-chip .chip-air {
+            display: inline-block; margin-left: 4px; padding: 0 4px; border-radius: 4px;
+            font-size: 9px; background: rgba(168,85,247,0.18); border: 1px solid var(--accent-purple);
+            color: var(--accent-purple);
+        }
         .fleet-empty-hint { color: var(--text-muted); font-style: italic; font-size: 13px; width: 100%; text-align: center; padding: 30px 0; }
 
         /* Ship chips in fleet panels */
@@ -1254,12 +1259,18 @@
             const reinfCount = fleet.reinforcement.reduce((s,ship)=>s+ship.count,0);
             const maxAircraft = fleet.maxAircraft || 250;
             const aircraftCount = fleet.main.reduce((s,ship)=>s+(ship.size==='aircraft'||ship.type==='fighter'||ship.type==='corvette'?ship.count:0),0);
+            // 搭载的舰载机总数（挂在母舰上的 aircraft）
+            const airCarried = [...fleet.main,...fleet.reinforcement]
+                .reduce((n,s)=>n+(s.aircraft||[]).reduce((a,x)=>a+(x.count||0),0),0);
+            const chipAir = s => (s.aircraft&&s.aircraft.length)
+                ? `<span class="chip-air" title="${s.aircraft.map(a=>a.name+'×'+a.count).join('、')}">✈${s.aircraft.reduce((a,x)=>a+(x.count||0),0)}</span>` : '';
             return `
             <div class="fleet-panel ${c.cls}" onclick="toggleFleetPanel('${c.id}')" style="${c.isBomb?'border:2px dashed var(--accent-orange);':''}">
                 <div class="fleet-panel-header">
                     <span class="fleet-panel-name">${c.name}</span>
                     <span class="fleet-panel-stats">
                         ${c.isBomb?`<span>舰载机:${aircraftCount}/${maxAircraft}</span>`:`<span>指挥值:${cmdVal}/500</span><span>舰船:${shipCount}艘</span>`}
+                        ${airCarried?`<span style="color:var(--accent-purple);">搭载:${airCarried}架</span>`:''}
                         ${reinfCount>0?`<span style="color:var(--accent-green);">增援:${reinfCount}艘</span>`:''}
                     </span>
                 </div>
@@ -1268,11 +1279,11 @@
                       '<div class="fleet-empty-hint">点击此处编辑舰队</div>' :
                       [...fleet.main.map(s=>{
                           const hpVal = getShipHp(s);
-                          return `<span class="ship-chip${s.id===fleet.flagship?' flagship':''}" onclick="event.stopPropagation();showShipManager('${c.id}','${s.id}')" title="HP:${formatNumber(hpVal)}"><span class="count">${s.count}×</span>${s.name}</span>`;
+                          return `<span class="ship-chip${s.id===fleet.flagship?' flagship':''}" onclick="event.stopPropagation();showShipManager('${c.id}','${rowKey(s)}')" title="HP:${formatNumber(hpVal)}"><span class="count">${s.count}×</span>${s.name}${chipAir(s)}</span>`;
                       }),
                        ...fleet.reinforcement.map(s=>{
                           const hpVal = getShipHp(s);
-                          return `<span class="ship-chip reinforcement" onclick="event.stopPropagation();showShipManager('${c.id}','${s.id}')" title="HP:${formatNumber(hpVal)}"><span class="count">${s.count}×</span>${s.name} (增)</span>`;
+                          return `<span class="ship-chip reinforcement" onclick="event.stopPropagation();showShipManager('${c.id}','${rowKey(s)}')" title="HP:${formatNumber(hpVal)}"><span class="count">${s.count}×</span>${s.name}${chipAir(s)} (增)</span>`;
                       })
                       ].join('')}
                 </div>
@@ -1417,7 +1428,7 @@
                 recalcAircraftSlots(existing);      // 数量变了 → 载机位容量随之变化
             }
             else{
-                const e = JSON.parse(JSON.stringify(ship));
+                const e = ensureUid(JSON.parse(JSON.stringify(ship)));
                 e.count = 1; e.modules = JSON.parse(JSON.stringify(ship.modules||{}));
                 e.aircraft = [];
                 // 不预选模块：与「战舰配队」页规则一致——不选模块就没有该模块提供的载机位。
@@ -1430,11 +1441,21 @@
         });
         spkSel = [];
         closeShipPicker();
-        renderFleetPanels();
-        renderFleetEditorContent();
-        saveFleetsToStorage();
+        refreshFleetViews();
         if(added) showToast(`✅ 已加入 ${added} 种舰船 → ${FLEET_TYPE_NAMES[ft]||ft}·${spkTab==='main'?'主力':'增援'}`);
         if(blocked.length) showToast(`⚠️ 已跳过：${blocked.join('、')}`);
+    }
+
+    /* 统一刷新：上面舰队面板 + 下方内联编辑器 + 编辑弹窗 一起刷
+       （只重绘"当前正开着"的编辑器，不会把关着的面板打开） */
+    function refreshFleetViews(save){
+        try{ renderFleetPanels(); }catch(e){}
+        try{ renderFleetEditorContent(); }catch(e){}
+        try{
+            const ie=$('inlineFleetEditor');
+            if(ie && ie.style.display!=='none') renderInlineFleetEditor();
+        }catch(e){}
+        if(save!==false){ try{ saveFleetsToStorage(); }catch(e){} }
     }
 
     /* 单艘快速加入（自定义舰船卡片等旧入口仍可用）：
@@ -1458,7 +1479,7 @@
         const fleet = fleetData[fleetType];
         if(!fleet) return;
         const list = [...fleet.main, ...fleet.reinforcement];
-        const shipEntry = list.find(s=>s.id===shipId);
+        const shipEntry = findRow(list, shipId);
         if(!shipEntry) return;
         const origShip = SHIP_DATABASE[shipId];
         if(!origShip) return;
@@ -1537,7 +1558,7 @@
     function toggleShipPrioSC(shipId, fleetType, val) {
         const fleet = fleetData[fleetType];
         const list = [...fleet.main, ...fleet.reinforcement];
-        const shipEntry = list.find(s=>s.id===shipId);
+        const shipEntry = findRow(list, shipId);
         if(shipEntry) shipEntry.prioritizeSuperCapital = val;
     }
     
@@ -1546,7 +1567,7 @@
         if(!name) return;
         const fleet = fleetData[fleetType];
         const list = [...fleet.main, ...fleet.reinforcement];
-        const shipEntry = list.find(s=>s.id===shipId);
+        const shipEntry = findRow(list, shipId);
         if(!shipEntry) return;
         if(!shipEntry.modulePresets) shipEntry.modulePresets = {};
         shipEntry.modulePresets[name] = {
@@ -1565,7 +1586,7 @@
         if(!sel || !sel.value) { showToast('⚠️ 请选择方案'); return; }
         const fleet = fleetData[fleetType];
         const list = [...fleet.main, ...fleet.reinforcement];
-        const shipEntry = list.find(s=>s.id===shipId);
+        const shipEntry = findRow(list, shipId);
         if(!shipEntry || !shipEntry.modulePresets?.[sel.value]) return;
         const preset = shipEntry.modulePresets[sel.value];
         shipEntry.selectedModules = JSON.parse(JSON.stringify(preset.selectedModules));
@@ -1584,7 +1605,7 @@
         if(!sel || !sel.value) { showToast('⚠️ 请选择方案'); return; }
         const fleet = fleetData[fleetType];
         const list = [...fleet.main, ...fleet.reinforcement];
-        const shipEntry = list.find(s=>s.id===shipId);
+        const shipEntry = findRow(list, shipId);
         if(!shipEntry) return;
         delete shipEntry.modulePresets[sel.value];
         showToast('🗑️ 方案已删除');
@@ -1659,10 +1680,10 @@
     function simCyclePos(shipId){
         const fleet=fleetData[currentFleetType];
         const list=currentFleetTab==='main'?fleet.main:fleet.reinforcement;
-        const s=list.find(x=>x.id===shipId); if(!s) return;
+        const s=findRow(list, shipId); if(!s) return;
         const order=['前排','中排','后排'];
         s.position = order[(order.indexOf(simPosOf(s))+1)%3];
-        renderInlineFleetEditor(); renderFleetPanels();
+        refreshFleetViews();
     }
     function renderInlineShipList(list, fleet) {
         if(!list.length) return '<div style="color:var(--text-muted);text-align:center;padding:12px;">暂无舰船，点下方「➕ 添加舰船」</div>';
@@ -1681,18 +1702,40 @@
                 <div class="fbadge">${origShip.commandValue||0}</div>
                 <div class="fnm">${getShipIcon(s.type)} ${s.name}${(fleet&&fleet.flagship===s.id)?' ⭐':''}
                     <small>${getTypeName(s.type)} · <b style="${over?'color:var(--accent-red)':''}">服役 ${usedAll}/${lim}</b>${modStr?' · '+modStr:''}</small></div>
-                <button class="fpos" onclick="simCyclePos('${s.id}')" title="点击切换站位">${pos}</button>
-                ${showMods?`<button class="fbtn gold" onclick="openSimMods('${s.id}')">${modStr||'模块'}</button>`:''}
+                <button class="fpos" onclick="simCyclePos('${rowKey(s)}')" title="点击切换站位">${pos}</button>
+                ${showMods?`<button class="fbtn gold" onclick="openSimMods('${rowKey(s)}')">${modStr||'模块'}</button>`:''}
+                ${showMods?`<button class="fbtn" onclick="simAddConfig('${rowKey(s)}')" title="再配一套不同的模块组合（服役上限仍按该舰合计）">⧉</button>`:''}
                 <div class="fqty ${over?'over':''}">
-                    <button onclick="changeFleetShipCount('${s.id}',-1);renderInlineFleetEditor();renderFleetPanels();">−</button>
+                    <button onclick="changeFleetShipCount('${rowKey(s)}',-1);refreshFleetViews();">−</button>
                     <span>${s.count}</span>
-                    <button onclick="changeFleetShipCount('${s.id}',1);renderInlineFleetEditor();renderFleetPanels();">＋</button>
+                    <button onclick="changeFleetShipCount('${rowKey(s)}',1);refreshFleetViews();">＋</button>
                 </div>
-                <button class="fbtn" onclick="openStrengthen('${s.id}')" title="强化">⚡</button>
-                ${currentFleetTab==='main'&&fleet&&s.id!==fleet.flagship?`<button class="fbtn gold" onclick="setShipAsFlagship('${s.id}');renderInlineFleetEditor();renderFleetPanels();" title="设为旗舰">⭐</button>`:''}
-                <button class="fbtn red" onclick="removeShipFromFleet('${s.id}');renderInlineFleetEditor();renderFleetPanels();" title="移出舰队">✕</button>
+                <button class="fbtn" onclick="openStrengthen('${rowKey(s)}')" title="强化">⚡</button>
+                ${currentFleetTab==='main'&&fleet&&s.id!==fleet.flagship?`<button class="fbtn gold" onclick="setShipAsFlagship('${rowKey(s)}');refreshFleetViews();" title="设为旗舰">⭐</button>`:''}
+                <button class="fbtn red" onclick="removeShipFromFleet('${rowKey(s)}');refreshFleetViews();" title="移出舰队">✕</button>
             </div>${airRows}`;
         }).join('');
+    }
+    /* 再配一套（同一艘舰的另一种模块组合）：新增一条独立条目，数量 1，
+       服役上限仍按该舰在「主力+增援」的合计来卡 */
+    function simAddConfig(key){
+        const fleet=fleetData[currentFleetType];
+        const list=currentFleetTab==='main'?fleet.main:fleet.reinforcement;
+        const src=findRow(list,key); if(!src) return;
+        const orig=SHIP_DATABASE[src.id]||{};
+        const lim=orig.serviceLimit||99;
+        if(!stitchMode && simUsedTotal(currentFleetType, src.id)+1>lim){
+            showToast('⚠️ 「'+(orig.name||src.id)+'」已达服役上限 '+lim+' 艘（主力+增援合计 '+simUsedTotal(currentFleetType, src.id)+'），无法再加一套');
+            return;
+        }
+        const e=ensureUid(JSON.parse(JSON.stringify(src)));
+        e.count=1;
+        e.aircraft=[];
+        e.selectedModules=Object.assign({}, src.selectedModules||{});   // 以当前方案为起手，再自行改
+        delete e.modulePresets; delete e.uid; ensureUid(e);
+        list.push(e);
+        refreshFleetViews();
+        showToast('已新增一套配置（同型舰合计仍受服役上限约束），可改它的模块');
     }
     /* 母舰载机区：每个载机位一行 */
     function simAirHtml(ship){
@@ -1701,10 +1744,10 @@
         const rows = slots.map(sl=>{
             const used = simSlotUsed(ship, sl.key), left = Math.max(0, sl.cap-used);
             const items = (ship.aircraft||[]).filter(a=>a.slot===sl.key)
-                .map(a=>`<span class="airitem">${a.name} ×${a.count}<i class="x" onclick="simAirDel('${ship.id}','${a.id}','${sl.key}')">删</i></span>`).join('');
+                .map(a=>`<span class="airitem">${a.name} ×${a.count}<i class="x" onclick="simAirDel('${rowKey(ship)}','${a.id}','${sl.key}')">删</i></span>`).join('');
             const kindTxt = sl.kind==='fighter' ? ('✈战机'+(sl.allow==='ALL'?'（可大型）':'（仅中小型）')) : '🚤护航艇';
             const tag = sl.mod==='base'?'基础':sl.mod;
-            const oc = left>0 ? `onclick="openSimAirPicker('${ship.id}','${sl.key}')"` : 'disabled title="该载机位已满"';
+            const oc = left>0 ? `onclick="openSimAirPicker('${rowKey(ship)}','${sl.key}')"` : 'disabled title="该载机位已满"';
             return `<div class="airline"><span class="airkind"><b>${tag}</b> ${kindTxt} <b>${used}/${sl.cap}</b></span>
                 <span class="airlist">${items||'<span style="color:var(--text-muted)">（未配置）</span>'}</span>
                 <button class="fbtn pri" style="${left>0?'':'opacity:.45'}" ${oc}>＋剩 ${left}</button></div>`;
@@ -1712,7 +1755,7 @@
         const orphan = (ship.aircraft||[]).filter(a=>!a.slot || keys.indexOf(a.slot)<0);
         if(orphan.length){
             rows.push(`<div class="airline"><span class="airkind" style="color:var(--accent-red)">⚠ 无对应载机位</span>
-                <span class="airlist">${orphan.map(a=>`<span class="airitem">${a.name} ×${a.count}<i class="x" onclick="simAirDel('${ship.id}','${a.id}','')">删</i></span>`).join('')}</span></div>`);
+                <span class="airlist">${orphan.map(a=>`<span class="airitem">${a.name} ×${a.count}<i class="x" onclick="simAirDel('${rowKey(ship)}','${a.id}','')">删</i></span>`).join('')}</span></div>`);
         }
         if(!rows.length) return '';
         return `<div class="airbox">${rows.join('')}</div>`;
@@ -1720,25 +1763,24 @@
     function simAirDel(shipId, airId, slotKey){
         const fleet=fleetData[currentFleetType];
         const list=currentFleetTab==='main'?fleet.main:fleet.reinforcement;
-        const s=list.find(x=>x.id===shipId); if(!s) return;
+        const s=findRow(list, shipId); if(!s) return;
         const i=(s.aircraft||[]).findIndex(a=>a.id===airId && (a.slot||'')===(slotKey||''));
         if(i<0) return;
         const nm=s.aircraft[i].name; s.aircraft.splice(i,1);
-        renderInlineFleetEditor(); renderFleetPanels(); showToast('已移除 '+nm);
+        refreshFleetViews(); showToast('已移除 '+nm);
     }
     /* 载机选择弹窗（按载机位：限该位机型 + 该位余量 + 整队服役上限） */
     let simAirTarget=null;
     function openSimAirPicker(shipId, slotKey){
         const fleet=fleetData[currentFleetType];
         const list=currentFleetTab==='main'?fleet.main:fleet.reinforcement;
-        const s=list.find(x=>x.id===shipId); if(!s) return;
+        const s=findRow(list, shipId); if(!s) return;
         const sl=simSlotsOf(s).find(x=>x.key===slotKey);
         if(!sl){ showToast('该载机位不存在（模块可能已改动）'); return; }
         simAirTarget={shipId, slotKey, kind:sl.kind, allow:sl.allow, cap:sl.cap};
         let opts=Object.values(SHIP_DATABASE).filter(x=>x.size==='aircraft' && (x.aircraftType||x.type)===sl.kind);
         if(sl.kind==='fighter' && sl.allow!=='ALL') opts=opts.filter(x=>x.airSize!=='large');
         const used=simSlotUsed(s, sl.key);
-        const cur=(s.aircraft||[]).find(a=>a.id===shipId);
         $('simAirTitle').textContent = (sl.mod==='base'?'基础':sl.mod)+' · '+(sl.kind==='fighter'?'战机':'护航艇')+'载机位';
         $('simAirInfo').innerHTML = `「${s.name}」该位 已配 <b>${used}/${sl.cap}</b>，剩 <b>${Math.max(0,sl.cap-used)}</b>`
             + (sl.kind==='fighter' ? (sl.allow==='ALL'?' · 可带大型':' · 仅中小型') : '');
@@ -1752,9 +1794,9 @@
                 <div><b>${getShipIcon(a.type)} ${a.name}</b>
                     <small>${getTypeName(a.type)} · 服役 整队 ${fleetUsed}/${alim}${a.airSize==='large'?' · 大型':''}</small></div>
                 <div style="display:flex;align-items:center;gap:4px;">
-                    <button class="fbtn" onclick="simAirSet('${s.id}','${a.id}','${sl.key}',${Math.max(0,q-1)})">−</button>
+                    <button class="fbtn" onclick="simAirSet('${rowKey(s)}','${a.id}','${sl.key}',${Math.max(0,q-1)})">−</button>
                     <span style="min-width:20px;text-align:center;font-weight:700;">${q}</span>
-                    <button class="fbtn pri" ${(full||q>=sl.cap-used+q&&!q)?'disabled':''} onclick="simAirSet('${s.id}','${a.id}','${sl.key}',${q+1})">＋</button>
+                    <button class="fbtn pri" ${(full||used>=sl.cap)?'disabled title="已达上限"':''} onclick="simAirSet('${rowKey(s)}','${a.id}','${sl.key}',${q+1})">＋</button>
                 </div></div>`;
         }).join('') : '<div style="text-align:center;color:var(--text-muted);padding:16px;">该载机位无可用机型</div>';
         openModal('simAirModal');
@@ -1768,7 +1810,7 @@
     function simAirSet(shipId, airId, slotKey, qty){
         const fleet=fleetData[currentFleetType];
         const list=currentFleetTab==='main'?fleet.main:fleet.reinforcement;
-        const s=list.find(x=>x.id===shipId); if(!s) return;
+        const s=findRow(list, shipId); if(!s) return;
         const sl=simSlotsOf(s).find(x=>x.key===slotKey); if(!sl) return;
         const tmpl=SHIP_DATABASE[airId]; if(!tmpl) return;
         if(!s.aircraft) s.aircraft=[];
@@ -1785,14 +1827,14 @@
             else s.aircraft.push(Object.assign({}, JSON.parse(JSON.stringify(tmpl)), {count:q, slot:slotKey}));
         }
         openSimAirPicker(shipId, slotKey);      // 刷新弹窗
-        renderInlineFleetEditor(); renderFleetPanels();
+        refreshFleetViews();
     }
     /* 模块选择弹窗（与配队页一致：逐槽单选，并标出该模块带来的载机位） */
     let simModShipId=null, simModDraft={};
     function openSimMods(shipId){
         const fleet=fleetData[currentFleetType];
         const list=currentFleetTab==='main'?fleet.main:fleet.reinforcement;
-        const s=list.find(x=>x.id===shipId); if(!s) return;
+        const s=findRow(list, shipId); if(!s) return;
         const orig=SHIP_DATABASE[shipId]; const slots=FleetCheck.slotsOf(orig);
         if(!slots.length){ showToast('该舰没有可选模块（武器为固定配置）'); return; }
         simModShipId=shipId;
@@ -1839,7 +1881,7 @@
         s.selectedModules=Object.assign({}, simModDraft);
         recalcAircraftSlots(s);
         closeModal('simModModal');
-        renderInlineFleetEditor(); renderFleetPanels(); saveFleetsToStorage();
+        refreshFleetViews();
     }
 
     const FLEET_TYPE_NAMES = {
@@ -1936,8 +1978,8 @@
                             <span class="qty-val">${s.count}</span>
                             <button class="qty-btn" onclick="changeFleetShipCount('${s.id}',1)">+</button>
                         </div>
-                        ${simHasAirSlot(currentFleetType,s.id)?`<button class="btn btn-sm" style="font-size:10px;" onclick="openSimAirPickerFirst('${currentFleetType}','${s.id}')">✈️ 舰载机</button>`:''}
-                        <button class="btn btn-sm" style="font-size:10px;background:var(--accent-gold);" onclick="openStrengthen('${s.id}')">⚡强化</button>
+                        ${simHasAirSlot(currentFleetType,s.id)?`<button class="btn btn-sm" style="font-size:10px;" onclick="openSimAirPickerFirst('${currentFleetType}','${rowKey(s)}')">✈️ 舰载机</button>`:''}
+                        <button class="btn btn-sm" style="font-size:10px;background:var(--accent-gold);" onclick="openStrengthen('${rowKey(s)}')">⚡强化</button>
                         ${currentFleetTab==='main'&&s.id!==fleet.flagship?`<button class="btn btn-sm btn-gold" style="font-size:10px;" onclick="setShipAsFlagship('${s.id}')">⭐旗舰</button>`:''}
                         <button class="btn btn-sm btn-danger" style="font-size:10px;" onclick="removeShipFromFleet('${s.id}')">✕</button>
                     </div>
@@ -1945,6 +1987,16 @@
             }).join('');
         }
     }
+
+    /* ---- 舰队条目行定位 ----
+       同一艘舰可以有多套「模块组合方案」（多条独立条目），所以行级操作不能只用舰船 id。
+       每条条目带 uid；rowKey/rowMatch 兼容旧数据（没有 uid 时退回 id）。
+       ⚠️ 服役上限仍按【舰船 id】汇总（主力+增援一起算），见 fleetUsedCount / simUsedTotal。 */
+    function ensureUid(row){ if(row && !row.uid) row.uid='r'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); return row; }
+    function rowKey(row){ return row ? (row.uid||row.id) : ''; }
+    function rowMatch(row, key){ return !!row && (row.uid===key || row.id===key); }
+    function findRow(list, key){ return (list||[]).find(x=>rowMatch(x,key))||null; }
+    function findRowIdx(list, key){ return (list||[]).findIndex(x=>rowMatch(x,key)); }
 
     /* 载机位容量：统一用 FleetCheck.airSlots（与「战舰配队」页同一套逻辑）
        返回 [{key,mod,label,kind,allow,cap}]，key 形如 'M2|fighter' / 'base|corvette'
@@ -1980,7 +2032,7 @@
     /* 跨主/增援找一条舰队条目；fleetType 省略时用 currentFleetType */
     function simFindEntry(fleetType, shipId){
         const f=fleetData[fleetType||currentFleetType]; if(!f) return null;
-        return [...(f.main||[]),...((f.reinforcement)||[])].find(s=>s.id===shipId)||null;
+        return findRow([...(f.main||[]),...((f.reinforcement)||[])], shipId);
     }
     function simHasAirSlot(fleetType, shipId){ const s=simFindEntry(fleetType,shipId); return !!s && simSlotsOf(s).length>0; }
     /* 便捷入口：打开该舰第一个还有余量的载机位 */
@@ -1990,52 +2042,67 @@
         if(!slots.length){ showToast('该舰没有载机位（需先选到提供载机位的模块）'); return; }
         const room=slots.find(x=>simSlotUsed(s,x.key)<x.cap)||slots[0];
         currentFleetType=fleetType||currentFleetType;
-        currentFleetTab=(fleetData[currentFleetType].main||[]).some(x=>x.id===shipId)?'main':'reinforcement';
+        currentFleetTab=(fleetData[currentFleetType].main||[]).some(x=>rowMatch(x,shipId))?'main':'reinforcement';
         openSimAirPicker(shipId, room.key);
     }
 
     function changeShipModuleVariant(shipId, slotKey, variantKey) {
         const fleet = fleetData[currentFleetType];
         const list = currentFleetTab === 'main' ? fleet.main : fleet.reinforcement;
-        const ship = list.find(s=>s.id===shipId);
+        const ship = findRow(list, shipId);
         if(!ship) return;
         if(!ship.selectedModules) ship.selectedModules = {};
         ship.selectedModules[slotKey] = variantKey;
         recalcAircraftSlots(ship);
-        renderFleetEditorContent();
-        renderFleetPanels();
+        refreshFleetViews();
     }
 
     function changeFleetShipCount(shipId, delta) {
         const fleet = fleetData[currentFleetType];
         const list = currentFleetTab === 'main' ? fleet.main : fleet.reinforcement;
-        const idx = list.findIndex(s=>s.id===shipId);
+        const idx = findRowIdx(list, shipId);
         if(idx<0) return;
         const ship = list[idx];
+        const orig = SHIP_DATABASE[ship.id] || {};
+        const lim = orig.serviceLimit || 99;
         const newCount = ship.count + delta;
-        const serviceLimit = stitchMode ? 999 : (ship.serviceLimit || 10);
-        if(newCount < 1) { list.splice(idx,1); if(fleet.flagship===shipId) fleet.flagship=null; }
-        else if(!stitchMode && newCount > serviceLimit) { showToast(`⚠️ ${ship.name} 服役上限为 ${serviceLimit}`); return; }
-        else {
+        if(newCount < 1){
+            // 移出该条目：连带清掉指向它的旗舰设置
+            if((ship.aircraft||[]).length &&
+               !confirm('「'+ship.name+'」还挂着 '+ship.aircraft.reduce((a,x)=>a+(x.count||0),0)+' 架载机，确认一并移除？')) return;
+            list.splice(idx,1);
+            if(fleet.flagship===ship.id) fleet.flagship=null;
+        } else {
+            // 服役上限：整队（主力+增援）按【舰船】合计——同型舰多套模块组合也要一起算
+            if(!stitchMode){
+                const after = simUsedTotal(currentFleetType, ship.id) - ship.count + newCount;
+                if(after > lim){
+                    showToast('⚠️ 「'+(orig.name||ship.name)+'」服役上限 '+lim+' 艘（该型舰主舰队+增援已用 '+simUsedTotal(currentFleetType, ship.id)+'）');
+                    return;
+                }
+            }
             if(currentFleetTab==='main' && delta>0 && !stitchMode) {
-                const newCmd = fleet.main.reduce((s,sh)=>s+(sh.commandValue||0)*sh.count,0)+(ship.commandValue||0);
+                const newCmd = fleet.main.reduce((s,sh)=>s+(sh.commandValue||0)*sh.count,0)+(orig.commandValue||0);
                 if(newCmd > 500) { showToast('⚠️ 指挥值将超过500上限'); return; }
             }
             ship.count = newCount;
+            recalcAircraftSlots(ship);        // 数量变了，载机位容量随之变化
         }
-        renderFleetEditorContent();
-        renderFleetPanels();
-        saveFleetsToStorage();
+        refreshFleetViews();
     }
 
     function removeShipFromFleet(shipId) {
         const fleet = fleetData[currentFleetType];
         const list = currentFleetTab === 'main' ? fleet.main : fleet.reinforcement;
-        const idx = list.findIndex(s=>s.id===shipId);
-        if(idx>=0) { list.splice(idx,1); if(fleet.flagship===shipId) fleet.flagship=null; }
-        renderFleetEditorContent();
-        renderFleetPanels();
-        saveFleetsToStorage();
+        const idx = findRowIdx(list, shipId);
+        if(idx>=0){
+            const ship=list[idx];
+            if((ship.aircraft||[]).length &&
+               !confirm('「'+ship.name+'」还挂着 '+ship.aircraft.reduce((a,x)=>a+(x.count||0),0)+' 架载机，确认一并移除？')) return;
+            list.splice(idx,1);
+            if(fleet.flagship===ship.id) fleet.flagship=null;
+        }
+        refreshFleetViews();
     }
 
     function setShipAsFlagship(shipId) {
@@ -2061,7 +2128,7 @@
     function openStrengthen(shipId) {
         const fleet = fleetData[currentFleetType];
         const list = currentFleetTab === 'main' ? fleet.main : fleet.reinforcement;
-        const shipEntry = list.find(s=>s.id===shipId);
+        const shipEntry = findRow(list, shipId);
         if(!shipEntry) return;
         openModal('strengthenModal');
         const origShip = SHIP_DATABASE[shipId];
@@ -2139,7 +2206,7 @@
     function updateStrengthen(shipId, skey, weaponIndex, field, value) {
         const fleet = fleetData[currentFleetType];
         const list = currentFleetTab === 'main' ? fleet.main : fleet.reinforcement;
-        const shipEntry = list.find(s=>s.id===shipId);
+        const shipEntry = findRow(list, shipId);
         if(!shipEntry) return;
         if(!shipEntry.strengthen) shipEntry.strengthen = {};
         if(!shipEntry.strengthen[skey]) shipEntry.strengthen[skey] = {};
@@ -2150,7 +2217,7 @@
     function updateShipStat(shipId, field, value) {
         const fleet = fleetData[currentFleetType];
         const list = currentFleetTab === 'main' ? fleet.main : fleet.reinforcement;
-        const shipEntry = list.find(s=>s.id===shipId);
+        const shipEntry = findRow(list, shipId);
         if(!shipEntry) return;
         shipEntry[field] = value;
         openStrengthen(shipId);
@@ -2295,6 +2362,7 @@
                 Object.keys(fleetData).forEach(k=>{
                     const f=fleetData[k]; if(!f) return;
                     [...(f.main||[]),...(f.reinforcement||[])].forEach(s=>{
+                        ensureUid(s);
                         if(!s.selectedModules) s.selectedModules={};
                         if(!Array.isArray(s.aircraft)) s.aircraft=[];
                         if(!s.position) s.position=(SHIP_DATABASE[s.id]||{}).position||'中排';
@@ -2367,6 +2435,10 @@
             return false;
         }
 
+        // 先部署载机，再统计总结构（这样载机的结构值也计入上限，与战场显示口径一致）
+        deployAircraftInto(allyShips.filter(s=>s.position!=='aircraft'), allyShips, {escort:allyEscort, escorted:allyEscorted});
+        deployAircraftInto(enemyShips.filter(s=>s.position!=='aircraft'), enemyShips, {escort:enemyEscort, escorted:enemyEscorted});
+
         battleState = {
             allyShips, enemyShips, allyEscort, allyEscorted, enemyEscort, enemyEscorted,
             time:0, logs:[], ended:false,
@@ -2378,17 +2450,21 @@
             battleMode
         };
 
-        deployAircraft(allyShips, allyShips);
-        deployAircraft(enemyShips, enemyShips);
-
         battleLogs = [];
         battleRunning = false; battlePaused = false;
-        addBattleLog('info', '战斗准备完成 - 我方:'+allyShips.length+'艘 敌方:'+enemyShips.length+'艘');
+        const airN = allyShips.filter(s=>s.position==='aircraft').length;
+        addBattleLog('info', '战斗准备完成 - 我方:'+allyShips.length+'艘'+(airN?('(含载机'+airN+')'):'')
+            +' 敌方:'+enemyShips.length+'艘');
         return true;
     }
 
     function createShipInstance(shipEntry, side, isEscort, isEscorted) {
         const s = {...shipEntry};
+        // 结构值兜底：条目缺 hp（旧存档/自定义数据）会让整场战斗变成 NaN
+        if(!(s.hp>0)){
+            const t=SHIP_DATABASE[s.id]||{};
+            s.hp = (t.hp>0) ? t.hp : 1;
+        }
         s.maxHp = s.hp;
         s.side = side;
         s.isEscort = isEscort;
@@ -2504,18 +2580,33 @@
         }
     }
 
+    /* 部署载机，并把载机实例放进【与母舰相同的编队分组】——
+       否则战斗界面只渲染 护航/被护航 分组，载机会"参战但看不见" */
+    function deployAircraftInto(carrierShips, allList, groupArrs){
+        const start = allList.length;
+        deployAircraft(carrierShips, allList);
+        for(let i=start;i<allList.length;i++){
+            const ac = allList[i];
+            const arr = ac.isEscort ? groupArrs.escort : groupArrs.escorted;
+            if(arr && arr.indexOf(ac)<0) arr.push(ac);
+        }
+    }
+
     function deployAircraft(carrierShips, targetList) {
-        carrierShips.forEach(ship => {
-            if(ship.aircraft && ship.aircraft.length>0) {
-                ship.aircraft.forEach(ac => {
-                    for(let i=0; i<ac.count; i++) {
-                        const acInst = createShipInstance(ac, ship.side, false, false);
-                        acInst.carrierId = ship.id;
-                        acInst.position = 'aircraft';
-                        targetList.push(acInst);
-                    }
-                });
-            }
+        carrierShips.slice().forEach(ship => {
+            if(ship.position==='aircraft') return;              // 载机不再带载机
+            if(!(ship.aircraft && ship.aircraft.length>0)) return;
+            ship.aircraft.forEach(ac => {
+                for(let i=0; i<(ac.count||0); i++) {
+                    const acInst = createShipInstance(ac, ship.side, ship.isEscort, ship.isEscorted);
+                    acInst.carrierId = ship.id;
+                    acInst.carrierName = ship.name;
+                    acInst.position = 'aircraft';
+                    acInst.isEscort = !!ship.isEscort;
+                    acInst.isEscorted = !!ship.isEscorted;
+                    targetList.push(acInst);
+                }
+            });
         });
     }
 
@@ -3165,7 +3256,7 @@
             if(!SHIP_DB_READY){ alert('舰船数据未加载成功，无法导入配队。请用 http 服务打开本页。'); return; }
             var build=function(arr){ return (arr||[]).map(function(s){
                 var base=SHIP_DATABASE[s.id]; if(!base) return null;
-                var e=JSON.parse(JSON.stringify(base));
+                var e=ensureUid(JSON.parse(JSON.stringify(base)));
                 e.count=s.qty||1; e.selectedModules={};
                 if(s.mods) Object.keys(s.mods).forEach(function(k){ e.selectedModules[k]=s.mods[k]; });
                 if(s.pos) e.position=s.pos;                      // 站位（影响直射/分排）
