@@ -62,15 +62,19 @@ window.ShipBuild = (function () {
     const rec = apStore()[e.cdnId]; if (!rec) return null;
     const lv = rec.lv || {}, manual = rec.manual || {};
     const out = {}; A.forEach(k => out[k] = 0); MANUAL.forEach(k => out[k] = 0);
-    let counted = 0, skipped = 0, other = 0, used = 0;
+    let counted = 0, skipped = 0, other = 0, used = 0, pureRef = 0;
+    const skippedList = [], pureRefList = [];
     Object.keys(lv).forEach(nid => {
       const L = lv[nid]; if (!L || L <= 0) return;
       used++;
       const st = STATS.nodes[nid]; if (!st || st.empty) return;
+      // ⚠️ pureRef 先判：这类节点 stat 常是 unmapped，先判分组会被误归到"引擎未实现"
+      if (st.pureRef) { pureRef++; pureRefList.push(nid); return; }
       if (A.indexOf(st.stat) >= 0 || MANUAL.indexOf(st.stat) >= 0) {
-        if (st.multi > 1) { skipped++; return; }
-        const v = st.perLevel ? st.perLevel[L] : null;
-        if (typeof v !== 'number') { skipped++; return; }
+        let v = null;
+        if (st.statValues) v = st.statValues[L];        // 多参数节点：已解出本属性对应的值
+        else if (st.multi <= 1) v = st.perLevel ? st.perLevel[L] : null;
+        if (typeof v !== 'number') { skipped++; skippedList.push(nid); return; }
         out[st.stat] += v; counted++;
       } else other++;
     });
@@ -78,7 +82,7 @@ window.ShipBuild = (function () {
     let manualApplied = 0;
     A.forEach(k => { if (typeof manual[k] === 'number') { out[k] += manual[k]; manualApplied++; } });
     MANUAL.forEach(k => { if (typeof manual[k] === 'number') out[k] = manual[k]; });
-    return { cdnId: e.cdnId, cdnName: e.cdnName, lv, out, counted, skipped, other, used, manual, manualApplied };
+    return { cdnId: e.cdnId, cdnName: e.cdnName, lv, out, counted, skipped, other, used, manual, manualApplied, pureRef, skippedList, pureRefList };
   }
 
   /* 找出模拟器舰队里这艘船的强化配置（可能有多条） */
@@ -140,7 +144,10 @@ window.ShipBuild = (function () {
     if (anyPlus) L.push('  A 组手动追加：' + plusLine.join('；') + '　（已含在上面合计里）');
     const man = MANUAL.map(k => CN[k] + '+' + b.out[k] + '%');
     L.push('  B 组（引擎原本没有，全靠手填）：' + man.join('  '));
-    if (b.skipped) L.push('  ⚠ ' + b.skipped + ' 个多参数节点（说明里有 ≥2 个数值位）未计入');
+    if (b.skipped) L.push('  ⚠ ' + b.skipped + ' 个已点节点没能自动计入（说明里的数值位与取值对不上），'
+      + '用户可在加点页手动追加补齐');
+    if (b.pureRef) L.push('  ⚠ ' + b.pureRef + ' 个节点的说明来自游戏术语表（数据里只有代号如 {ED9142}，无译文），'
+      + '效果需用户自行判断后手填');
     if (b.other) L.push('  ⚠ ' + b.other + ' 个节点属于引擎暂未实现的机制（速度/系统血量/打击间隔等），未计入');
     return L.join('\n');
   }

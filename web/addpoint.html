@@ -112,6 +112,9 @@ body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#
 .srow.b input:focus{border-color:var(--gold)}
 .srow.b.on{border-color:var(--gold);background:rgba(255,215,0,.09)}
 .srow.b.on b{color:var(--gold)}
+.unsure{margin-top:8px;background:rgba(255,215,0,.07);border:1px solid rgba(255,215,0,.35);border-radius:9px;
+      padding:8px 10px;font-size:0.62rem;color:var(--t2);line-height:1.75}
+.unsure b{color:var(--gold)}
 .warn{background:rgba(255,71,87,.1);border:1px solid var(--red);color:#ffb3ba;border-radius:9px;padding:9px 11px;font-size:0.7rem;line-height:1.7}
 .ok{background:rgba(46,213,115,.1);border:1px solid var(--green);color:#b9f6ca;border-radius:9px;padding:7px 10px;font-size:0.66rem;margin-top:8px;display:none}
 .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:#1e2b3f;border:1px solid var(--border);
@@ -262,25 +265,28 @@ function resetAll() {
    A 组 10 项自动求和；B 组 4 项引擎还没有 → 手填。 */
 function computeStats() {
   const out = {}; GROUP_A.forEach(g => out[g[0]] = 0); GROUP_B.forEach(g => out[g[0]] = 0);
-  let counted = 0, skipped = 0, other = 0;
-  if (!ship || !STATS) return { out, counted, skipped, other };
+  let counted = 0, skipped = 0, other = 0, pureRef = 0;
+  const skippedList = [], pureRefList = [];
+  if (!ship || !STATS) return { out, counted, skipped, other, pureRef, skippedList, pureRefList };
   ship.systems.forEach(s => s.nodes.forEach(n => {
     const L = nodeLv(n.id); if (L <= 0) return;
     const st = STATS.nodes[n.id]; if (!st || st.empty) return;
+    // ⚠️ pureRef 必须先判：这类节点的 stat 往往是 unmapped，先判分组会把它误归到"引擎未实现"
+    if (st.pureRef) { pureRef++; pureRefList.push({ node: n, token: st.pureRef }); return; }
     const key = st.stat;
     const inA = GROUP_A.some(g => g[0] === key), inB = GROUP_B.some(g => g[0] === key);
-    if (inA || inB) {
-      if (st.multi > 1) { skipped++; return; }
-      const v = st.perLevel ? st.perLevel[L] : null;
-      if (typeof v !== 'number') { skipped++; return; }
-      out[key] += v; counted++;
-    } else other++;
+    if (!(inA || inB)) { other++; return; }
+    let v = null;
+    if (st.statValues) v = st.statValues[L];            // 多参数节点：已解出「本属性对应的那个值」
+    else if (st.multi <= 1) v = st.perLevel ? st.perLevel[L] : null;
+    if (typeof v !== 'number') { skipped++; skippedList.push({ node: n, stat: key }); return; }
+    out[key] += v; counted++;
   }));
-  return { out, counted, skipped, other };
+  return { out, counted, skipped, other, pureRef, skippedList, pureRefList };
 }
 function statPanelHtml() {
   if (!STATS) return '';
-  const { out, counted, skipped, other } = computeStats();
+  const { out, counted, skipped, other, pureRef, skippedList, pureRefList } = computeStats();
   const man = k => (manual[k] === undefined ? '' : manual[k]);
   const num = k => (typeof manual[k] === 'number' ? manual[k] : 0);
   /* A 组：自动汇总 + 手动追加，显示"自动 N ＋ [输入] ＝ 合计" */
@@ -303,16 +309,27 @@ function statPanelHtml() {
       + 'oninput="setManual(\'' + k + '\',this.value)">'
       + '<b>' + m + (u === '%' ? '%' : '') + '</b></div>';
   };
+  /* 没能计入的节点：如实列出来，并说明原因 */
+  const un = [];
+  if (skippedList.length) un.push('<div class="unsure"><b style="color:var(--gold)">' + skippedList.length + ' 个已点节点没能自动计入</b>'
+    + '（说明里的数值位与取值对不上，不敢硬算）——请把它们的加成<b>手动填进上面</b>：<br>'
+    + skippedList.slice(0, 12).map(x => '· ' + esc(x.node.name || x.node.labelName) + ' <span style="color:var(--t3)">(' + esc(x.stat) + ')</span>').join('<br>')
+    + (skippedList.length > 12 ? '<br>…共 ' + skippedList.length + ' 个' : '') + '</div>');
+  if (pureRefList.length) un.push('<div class="unsure"><b style="color:var(--red)">' + pureRefList.length + ' 个节点的说明来自游戏术语表</b>'
+    + '（数据里只有代号，本工具没有这份译文），原文如下，效果请自行判断后手填：<br>'
+    + pureRefList.map(x => '· ' + esc(x.node.name || x.node.labelName) + ' <span style="color:var(--t3)">' + esc(x.token) + '</span>').join('<br>') + '</div>');
   return '<div class="detail" style="margin-top:10px">'
     + '<div class="dh"><b>本船加点属性汇总</b>'
     + '<span class="tag" style="color:var(--cyan);border-color:var(--cyan)">自动汇总 ' + counted + ' 个节点</span>'
-    + (skipped ? '<span class="tag" style="color:var(--gold);border-color:var(--gold)">' + skipped + ' 个多参数节点未计入</span>' : '')
+    + (skipped ? '<span class="tag" style="color:var(--gold);border-color:var(--gold)">' + skipped + ' 个需手填</span>' : '')
+    + (pureRef ? '<span class="tag" style="color:var(--red);border-color:var(--red)">' + pureRef + ' 个无译文</span>' : '')
     + (other ? '<span class="tag">' + other + ' 个属于引擎暂未实现的机制</span>' : '')
     + '</div>'
     + '<div class="hint" style="margin-bottom:6px">前 10 项＝<b>自动汇总</b>（取所点节点当前等级的数值）<b>＋手动追加</b>；'
     +   '后 4 项引擎里没有对应字段，<b>全靠手填</b>。右边数字是最终合计。</div>'
     + '<div class="sgrid">' + GROUP_A.map(rowA).join('') + '</div>'
     + '<div class="sgrid" style="margin-top:6px">' + GROUP_B.map(rowB).join('') + '</div>'
+    + un.join('')
     + '</div>';
 }
 function setManual(k, v) {
@@ -443,7 +460,9 @@ function detailHtml() {
   const n = selNode && s.nodes.find(x => x.id === selNode.id) ? selNode : null;
   if (!n) return '<div class="detail"><div class="hint">点上面任意一个节点，这里会显示它的<b>说明与每级数值</b>。</div></div>';
   const L = nodeLv(n.id), mx = n.maxLevel || 1;
-  const d = fillDesc(n, L);
+  const st = STATS ? STATS.nodes[n.id] : null;
+  const pureRef = st && st.pureRef;
+  const d = pureRef ? { text: '', ok: false } : fillDesc(n, L);
   const tab = Array.from({ length: mx + 1 }, (_, k) => {
     const v = (n.levelValue || [])[k];
     const c = k > 0 ? (n.levelCost || [])[k - 1] : null;
@@ -457,9 +476,15 @@ function detailHtml() {
     +   '<span class="tag" style="color:var(--gold);border-color:var(--gold)">' + L + '/' + mx + '</span>'
     +   (L < mx && unlocked(n) ? '<span class="tag">下一级 -' + (nextCost(n) ?? 0) + '</span>' : '')
     + '</div>'
-    + '<div class="desc">' + (d.text || '<span class="hint">（这条没有说明文字）</span>') + '</div>'
-    + (d.ok ? '' : '<div class="hint" style="margin-top:4px">↑ 原文照录（占位符个数与数值个数对不上，没敢代入）</div>')
+    + (pureRef
+        ? '<div class="desc" style="color:var(--t2)">这条的说明在游戏数据里<b>只存了一个术语代号</b>：'
+          + '<b style="color:var(--gold)">' + esc(pureRef) + '</b><br>'
+          + '本工具没有这份术语表（官网也没公开这个文件），所以<b>翻译不出来</b>——'
+          + '效果请你在游戏里点开这条看，然后填到下面的「手动追加」里。</div>'
+        : '<div class="desc">' + (d.text || '<span class="hint">（这条没有说明文字）</span>') + '</div>')
+    + (!pureRef && !d.ok ? '<div class="hint" style="margin-top:4px">↑ 原文照录（说明里的数值位与取值对不上，没敢代入）</div>' : '')
     + '<div class="lvtab">' + tab + '</div>'
+    + (pureRef ? '<div class="hint" style="margin-top:6px">下面是数据里存的每级数值，但<b>不知道哪一列对应什么</b>，所以没敢自动计入汇总。</div>' : '')
     + '</div>';
 }
 

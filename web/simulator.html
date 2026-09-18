@@ -2293,8 +2293,9 @@
             const st = BP_STATS.nodes[nid]; if(!st || st.empty) return;
             const k = st.stat;
             if(AP_A.indexOf(k) >= 0 || ['siege','repairBonus','hitBonus','hangarBonus'].indexOf(k) >= 0) {
-                if(st.multi > 1) { skipped++; return; }
-                const v = st.perLevel ? st.perLevel[L] : null;
+                let v = null;
+                if(st.statValues) v = st.statValues[L];          // 多参数节点：已解出本属性对应的值
+                else if(st.multi <= 1) v = st.perLevel ? st.perLevel[L] : null;
                 if(typeof v !== 'number') { skipped++; return; }
                 out[k] += v; counted++;
             } else other++;
