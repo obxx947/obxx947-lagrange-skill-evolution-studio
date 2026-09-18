@@ -59,6 +59,18 @@ textarea{min-height:52px;resize:vertical}
 .airlist{flex:1;min-width:0;display:flex;flex-wrap:wrap;gap:6px}
 .airitem{background:rgba(0,0,0,.25);border:1px solid var(--border);border-radius:6px;padding:2px 6px;white-space:nowrap}
 .airitem .x{color:var(--red);font-style:normal;margin-left:5px;cursor:pointer;font-weight:700}
+/* 加点模式：舰船 / 载机 右上角的「升级」角标；整块可点，点了去加点页 */
+.shiprow.haspt{position:relative;cursor:pointer;border-color:rgba(0,212,255,.5)}
+.shiprow.haspt:hover{border-color:var(--cyan);background:rgba(0,212,255,.07)}
+.airitem.haspt{position:relative;cursor:pointer;border-color:rgba(0,212,255,.5);padding-right:9px}
+.airitem.haspt:hover{border-color:var(--cyan);background:rgba(0,212,255,.12)}
+.upbadge{position:absolute;top:-7px;right:-7px;width:19px;height:19px;border-radius:50%;z-index:6;
+    background:linear-gradient(135deg,#ffe66d,#ff9f1a);color:#2a1a00;font-size:0.68rem;font-weight:900;line-height:1;
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 0 0 2px rgba(10,14,26,.9),0 0 8px rgba(255,215,0,.65)}
+.airitem .upbadge{width:15px;height:15px;font-size:0.55rem;top:-6px;right:-6px}
+.upbadge::after{content:'';position:absolute;inset:-3px;border-radius:50%;border:1px solid rgba(255,215,0,.45);animation:uppulse 1.8s ease-out infinite}
+@keyframes uppulse{0%{transform:scale(.8);opacity:.9}100%{transform:scale(1.5);opacity:0}}
 .empty{color:var(--t3);font-size:0.7rem;text-align:center;padding:14px}
 .stats{position:fixed;left:0;right:0;bottom:0;background:#0d1420;border-top:1px solid var(--border);padding:8px 12px calc(8px + env(safe-area-inset-bottom));z-index:60}
 .stats .g{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;max-width:820px;margin:0 auto}
@@ -443,6 +455,34 @@ function delFleet(i){
 function setFlagship(v){ activeFleet().flagship=v; renderStats(); }
 function setFlag(k,v){ activeFleet()[k]=v; renderAll(); }
 
+/* ================= 加点跳转 =================
+   勾选「加点」后，每条舰船 / 每架载机右上角出现 ⬆ 角标；
+   点这条（或角标）跳到 addpoint.html，并把「这一条」的上下文带过去。 */
+function rowTap(e,sec,i){
+    if(e.target.closest('button,input,select,.x')) return;   // 点在已有控件（站位/模块/数量/删）上时不跳转
+    goAddPoint(sec,i);
+}
+function rowTapAir(e,sec,i,airId,slotKey){
+    if(e.target.closest('.x')) return;                       // 点「删」不跳转
+    goAddPoint(sec,i,{airId:airId,slotKey:slotKey});
+}
+function modsParam(mods){
+    return Object.keys(mods||{}).filter(k=>mods[k]).map(k=>k+':'+mods[k]).join(',');
+}
+function goAddPoint(sec,i,air){
+    const af=activeFleet(); const s=(af[sec]||[])[i]; if(!s) return;
+    const ship=getShip(s.id)||{};
+    const q=[['ship',s.id],['name',s.name||ship.name||''],['sec',sec],['idx',i],
+             ['fleet',af.name||''],['qty',s.qty||1]];
+    const mp=modsParam(s.mods); if(mp) q.push(['mods',mp]);
+    if(air && air.airId){
+        q.push(['air',air.airId],['airslot',air.slotKey||'']);
+        const a=(s.air||[]).find(x=>x.id===air.airId && (x.slot||'')===(air.slotKey||''));
+        if(a) q.push(['airname',aircraftName(a)]);
+    }
+    location.href='addpoint.html?'+q.map(([k,v])=>k+'='+encodeURIComponent(v)).join('&');
+}
+
 /* ================= 渲染 ================= */
 function renderAll(){ renderTabs(); renderLists(); renderFlagship(); renderStats(); }
 function renderTabs(){
@@ -470,6 +510,7 @@ function renderFlagship(){
 function renderLists(){
     ['reinforce','main'].forEach(sec=>{
         const af=activeFleet(); const arr=af[sec];
+        const ap=!!af.addPoint;                    // 加点模式：每艘船/每架载机右上角出「升级」角标
         const box=document.getElementById(sec==='reinforce'?'reinforceList':'mainList');
         document.getElementById(sec==='reinforce'?'rCnt':'mCnt').textContent='('+arr.length+'种)';
         if(!arr.length){ box.innerHTML='<div class="empty">暂无舰船，点下方按钮添加</div>'; return; }
@@ -483,7 +524,8 @@ function renderLists(){
             const modStr=showMods? Object.keys(s.mods||{}).filter(k=>s.mods[k]).map(k=>s.mods[k]).join('/') : '';
             const pos=s.pos||defPos(ship);
             if(hasAir(ship,s.mods,s.qty)) assignSlots(s,ship);   // 老数据补齐 slot
-            return `<div class="shiprow">
+            return `<div class="shiprow${ap?' haspt':''}"${ap?` onclick="rowTap(event,'${sec}',${i})"`:''}>
+                ${ap?'<span class="upbadge" title="点击加点">⬆</span>':''}
                 <div class="badge">${ship.commandValue||0}</div>
                 <div class="nm">${esc(s.name)}${isFlagshipRow(sec,i)?' ⭐':''}
                     <small>${typeLabel(ship.type)} · <b style="${over?'color:var(--red)':''}">服役 ${usedAll}/${shipLim}</b>${modStr?' · '+esc(modStr):''}</small></div>
@@ -501,12 +543,13 @@ function renderLists(){
 }
 /* 母舰载机区：每个「来源×机型」载机位各一行，各带独立按钮与计数 */
 function airHtml(sec,i,s,ship){
+    const ap=!!activeFleet().addPoint;                 // 加点模式：载机也要出角标
     const slots=airSlots(ship, s.mods, s.qty);
     const keys=slots.map(x=>x.key);
     const rows=slots.map(sl=>{
         const used=airUsedIn(s,sl.key), left=Math.max(0,sl.cap-used);
         const list=(s.air||[]).filter(x=>x.slot===sl.key);
-        const items=list.map(a=>`<span class="airitem">${esc(aircraftName(a))} ×${a.qty}<i class="x" onclick="delAir('${sec}',${i},'${a.id}','${sl.key}')">删</i></span>`).join('');
+        const items=list.map(a=>`<span class="airitem${ap?' haspt':''}"${ap?` onclick="rowTapAir(event,'${sec}',${i},'${a.id}','${sl.key}')"`:''}>${esc(aircraftName(a))} ×${a.qty}<i class="x" onclick="delAir('${sec}',${i},'${a.id}','${sl.key}')">删</i>${ap?'<span class="upbadge" title="点击加点">⬆</span>':''}</span>`).join('');
         const tag=sl.mod==='base'?'基础':sl.mod;
         const oc=left>0?`onclick="openAirPicker('${sec}',${i},'${sl.key}')"`:'disabled title="该载机位已满"';
         return `<div class="airline">
@@ -518,7 +561,7 @@ function airHtml(sec,i,s,ship){
     const orphan=(s.air||[]).filter(a=>!a.slot || keys.indexOf(a.slot)<0);
     if(orphan.length){
         rows.push(`<div class="airline"><span class="airkind" style="color:var(--red)">⚠ 无对应载机位</span>
-            <span class="airlist">${orphan.map(a=>`<span class="airitem">${esc(aircraftName(a))} ×${a.qty}<i class="x" onclick="delAir('${sec}',${i},'${a.id}','${a.slot||''}')">删</i></span>`).join('')}</span></div>`);
+            <span class="airlist">${orphan.map(a=>`<span class="airitem${ap?' haspt':''}"${ap?` onclick="rowTapAir(event,'${sec}',${i},'${a.id}','${a.slot||''}')"`:''}>${esc(aircraftName(a))} ×${a.qty}<i class="x" onclick="delAir('${sec}',${i},'${a.id}','${a.slot||''}')">删</i>${ap?'<span class="upbadge" title="点击加点">⬆</span>':''}</span>`).join('')}</span></div>`);
     }
     if(!rows.length) return '';
     return `<div class="airbox">${rows.join('')}</div>`;

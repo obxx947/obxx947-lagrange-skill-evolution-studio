@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>舰船加点 — 拉格朗日智能体</title>
+<link rel="icon" href="data:,">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#0a0e1a;color:#e8f4ff;min-height:100vh}
+:root{--bg2:#111827;--card:#1a2332;--border:#2d4a6f;--blue:#4a9eff;--cyan:#00d4ff;--gold:#ffd700;--green:#2ed573;--red:#ff4757;--t1:#e8f4ff;--t2:#8ba3c7;--t3:#5a7a9a}
+.topbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:50}
+.topbar .logo{font-size:0.86rem;font-weight:800;white-space:nowrap;background:linear-gradient(135deg,var(--blue),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.topbar .links{display:flex;gap:4px;margin-left:auto}
+.topbar .links a{color:var(--t2);text-decoration:none;font-size:0.66rem;padding:4px 7px;border-radius:6px;white-space:nowrap}
+.topbar .links a:hover{color:#fff;background:rgba(255,255,255,.05)}
+.container{max-width:820px;margin:0 auto;padding:14px 14px 60px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:10px}
+.card h3{font-size:0.8rem;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.card h3 .cnt{font-size:0.62rem;color:var(--t3);font-weight:400}
+.btn{background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--t2);border-radius:8px;padding:6px 12px;font-size:0.7rem;cursor:pointer;font-family:inherit;transition:all .15s}
+.btn:hover{color:var(--t1);border-color:var(--blue)}
+.btn.pri{background:rgba(0,212,255,.16);border-color:var(--cyan);color:#fff}
+.shiphd{display:flex;align-items:flex-start;gap:10px}
+.shiphd .ic{flex:0 0 auto;width:34px;height:34px;border-radius:50%;background:rgba(0,212,255,.14);border:1px solid var(--cyan);color:var(--cyan);display:flex;align-items:center;justify-content:center;font-size:0.95rem}
+.shiphd .nm{flex:1;min-width:0;font-size:0.9rem;font-weight:700;line-height:1.35}
+.shiphd .nm small{display:block;color:var(--t3);font-size:0.64rem;font-weight:400;margin-top:2px}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;margin-top:10px}
+.kv div{background:rgba(0,0,0,.25);border:1px solid var(--border);border-radius:8px;padding:6px 8px}
+.kv b{display:block;font-size:0.8rem;color:var(--cyan)}
+.kv i{font-style:normal;font-size:0.6rem;color:var(--t3)}
+.tag{display:inline-block;background:rgba(255,215,0,.12);border:1px solid var(--gold);color:var(--gold);border-radius:6px;padding:1px 7px;font-size:0.62rem;margin:2px 4px 2px 0}
+.todo{border:1px dashed var(--border);border-radius:10px;padding:14px;text-align:center;color:var(--t3);font-size:0.7rem;line-height:1.7}
+.warn{background:rgba(255,71,87,.1);border:1px solid var(--red);color:#ffb3ba;border-radius:8px;padding:8px 10px;font-size:0.68rem;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="topbar">
+    <div class="logo">⬆ 舰船加点</div>
+    <div class="links">
+        <a href="#" id="backLink">← 返回配队</a>
+        <a href="ships.html">🚀 舰船库</a>
+        <a href="chat.html">🤖 AI对话</a>
+    </div>
+</div>
+
+<div class="container">
+    <div class="card" id="headCard">
+        <div class="shiphd">
+            <div class="ic">⬆</div>
+            <div class="nm" id="shipName">加载中…<small id="shipSub"></small></div>
+        </div>
+        <div class="kv" id="shipKv"></div>
+        <div id="modBox" style="margin-top:10px"></div>
+        <div class="warn" id="missBox" style="display:none"></div>
+    </div>
+
+    <div class="card">
+        <h3>🎯 加点面板 <span class="cnt">（本轮只做了入口，功能待下一轮）</span></h3>
+        <div class="todo" id="todoBox">
+            这里将按该舰的<b>系统 / 模块 / 载机</b>逐个列出可加点项，并给出加点后的数值预览。<br>
+            本轮先打通「配队页勾选『加点』→ 右上角 ⬆ 角标 → 点舰船跳到这里」这条链路。
+        </div>
+    </div>
+
+    <div class="card" id="ctxCard">
+        <h3>📋 传入的上下文 <span class="cnt">（配队页带过来的参数，便于下一轮接着做）</span></h3>
+        <div id="ctxBox" style="font-size:0.66rem;color:var(--t2);line-height:1.9;word-break:break-all"></div>
+    </div>
+</div>
+
+<script>
+/* ========== 加点页（骨架）==========
+   从配队页跳进来时带：ship / name / sec / idx / fleet / qty / mods / air / airslot / airname
+   本轮只负责：把「这一条」显示清楚 + 留好加点面板的位置；具体加点功能下一轮做。 */
+
+const P=new URLSearchParams(location.search);
+const q=s=>P.get(s)||'';
+let SHIP=null, ALLMAP=null;
+
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+const TYPE_LABEL={frigate:'护卫舰',destroyer:'驱逐舰',cruiser:'巡洋舰',corvette:'护航艇',fighter:'战机',battlecruiser:'战列巡洋舰',battleship:'战列舰',aircraftcarrier:'航空母舰',support:'支援舰'};
+function typeLabel(t){ return TYPE_LABEL[t]||t||''; }
+function wan(x){ return (x>=10000)? (x/10000).toFixed(1)+'万' : String(x==null?'—':Math.round(x)); }
+
+/* 返回配队页：回到「我的配队」还是配队页由来源决定；统一回 fleet.html 即可（配队存在 localStorage 里，不会丢） */
+document.getElementById('backLink').href='fleet.html';
+
+function renderCtx(){
+    const keys=['ship','name','sec','idx','fleet','qty','mods','air','airslot','airname'];
+    document.getElementById('ctxBox').innerHTML=keys.map(k=>{
+        const v=P.get(k);
+        return '<div><b style="color:var(--t3)">'+k+'</b> = '+(v==null?'<span style="color:var(--t3)">（未传）</span>':esc(v))+'</div>';
+    }).join('')
+    + '<div style="margin-top:6px;color:var(--t3)">完整 URL：<br>'+esc(location.href)+'</div>';
+}
+
+function renderShip(){
+    const name=q('name')||(SHIP&&SHIP.name)||'未知舰船';
+    document.getElementById('shipName').innerHTML=esc(name)
+        +'<small>'
+        +(SHIP? (typeLabel(SHIP.type)+(SHIP.size?' · 体型 '+esc(SHIP.size):'')) : '（舰船库里没找到这艘，可能是已删除的自定义条目）')
+        +(q('fleet')?(' · 来自舰队「'+esc(q('fleet'))+'」'):'')
+        +'</small>';
+
+    const mods=q('mods');
+    const modTags=mods? mods.split(',').filter(Boolean).map(x=>'<span class="tag">模块 '+esc(x.replace(':',' → '))+'</span>').join('') : '';
+    const airTag=q('airname')? '<span class="tag">载机 '+esc(q('airname'))+'</span>'+(q('airslot')?'<span class="tag">载机位 '+esc(q('airslot'))+'</span>':'') : '';
+    document.getElementById('modBox').innerHTML=(modTags||airTag)
+        ? ('<div style="font-size:0.62rem;color:var(--t3);margin-bottom:4px">当前所带</div>'+modTags+airTag)
+        : '<div style="font-size:0.62rem;color:var(--t3)">（没有传模块/载机信息）</div>';
+
+    if(!SHIP){
+        const mb=document.getElementById('missBox');
+        mb.style.display='block';
+        mb.textContent='⚠ 舰船库里找不到 id='+q('ship')+'：加点需要读该舰的系统/模块数据，请从配队页正常点进来，或确认这艘船是否已被删除。';
+        document.getElementById('shipKv').innerHTML='';
+        return;
+    }
+    const slots=Object.keys(SHIP.modules||{}).filter(k=>k[0]!=='_');
+    // 载机位：把 base + 各模块变体的容量按机型汇总（直接写 '有/无' 对航母是错的）
+    const airSlots=SHIP.airSlots||SHIP.aircraftSlots||null;
+    let airTxt='无';
+    if(airSlots){
+        const acc={};
+        const add=arr=>(arr||[]).forEach(sl=>{ const k=sl.kind||'?'; acc[k]=(acc[k]||0)+(sl.cap||0); });
+        add(airSlots.base);
+        Object.keys(airSlots.byModule||{}).forEach(m=>add(airSlots.byModule[m]));
+        const parts=Object.keys(acc).filter(k=>acc[k]>0).map(k=>(TYPE_LABEL[k]||k)+' '+acc[k]+'位');
+        airTxt=parts.length? parts.join(' / ') : '无';
+    }
+    document.getElementById('shipKv').innerHTML=[
+        ['结构值', wan(SHIP.hp)],
+        ['物理护甲', SHIP.physicalArmor==null?'—':SHIP.physicalArmor],
+        ['能量护甲', (SHIP.energyArmor==null?'—':SHIP.energyArmor+'%')],
+        ['人口', SHIP.commandValue==null?'—':SHIP.commandValue],
+        ['服役上限', SHIP.serviceLimit==null?'—':SHIP.serviceLimit],
+        ['站位', SHIP.position||'—'],
+        ['本队数量', q('qty')||'—'],
+        ['模块槽', slots.length? slots.join(' / ') : '—'],
+        ['载机位', airTxt]
+    ].map(([k,v])=>'<div><b>'+esc(v)+'</b><i>'+esc(k)+'</i></div>').join('');
+}
+
+(async function init(){
+    renderCtx();
+    try{
+        const r=await fetch('data/ship_database.json',{cache:'no-cache'});
+        const arr=await r.json();
+        ALLMAP={}; arr.forEach(s=>ALLMAP[s.id]=s);
+        SHIP=ALLMAP[q('ship')]||null;
+    }catch(e){
+        // 舰船库读不到也不阻塞页面（入口链路仍可验证）
+        SHIP=null;
+    }
+    renderShip();
+    document.title='加点 · '+(q('name')||(SHIP&&SHIP.name)||'舰船')+' — 拉格朗日智能体';
+})();
+</script>
+</body>
+</html>
