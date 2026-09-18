@@ -2162,6 +2162,7 @@
             + `style="width:55px;padding:1px 3px;" min="0" ${extra||''}>%</div>`;
 
         let html = `<div style="margin-bottom:12px;"><b>${origShip.name}</b></div>
+            ${buildPickerHtml(shipId, shipEntry.id)}
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
                 <button class="btn btn-primary" style="font-size:10px;padding:4px 9px"
                     onclick="importAddPoint('${shipId}')">⬆ 从加点导入</button>
@@ -2394,6 +2395,55 @@
         return '加点配置已存在（' + b._used + ' 个节点，' + b._systems + ' 个系统按模块生效）'
             + (b._skipped ? '，' + b._skipped + ' 个多参数节点未计入' : '');
     }
+    /* ========== 加点方案（加点 + 模块组合）载入 ==========
+       加点页「💾 保存方案」存的是 { name, ship(CDN编号), mods:[{key,variant}], lv, manual }
+       这里把它整套应用到舰队条目：模块选择 + 加点配置，然后走一次导入。 */
+    const BUILD_KEY = 'lagrange_addpoint_builds';
+    function savedBuilds(slug) {
+        let all = [];
+        try { all = JSON.parse(localStorage.getItem(BUILD_KEY) || '[]') || []; } catch(e) { all = []; }
+        if(!BP_MAP || !BP_MAP[slug]) return [];
+        const cdn = String(BP_MAP[slug].cdnId);
+        return all.filter(b => String(b.ship) === cdn);
+    }
+    function applySavedBuild(shipId, idx) {
+        (async () => {
+            if(!await loadBlueprintData()) { alert('读不到加点数据'); return; }
+            const fleet = fleetData[currentFleetType];
+            const list = currentFleetTab === 'main' ? fleet.main : fleet.reinforcement;
+            const e = findRow(list, shipId); if(!e) { alert('找不到条目'); return; }
+            const bs = savedBuilds(e.id); const b = bs[idx]; if(!b) { alert('方案不存在'); return; }
+            // ① 模块组合
+            if(b.mods && b.mods.length) {
+                const nm = {};
+                b.mods.forEach(m => { if(m && m.key) nm[m.key] = m.variant || ''; });
+                e.selectedModules = Object.assign({}, e.selectedModules, nm);
+            }
+            // ② 加点配置：写进加点存档，再走正常导入
+            const cdn = String(BP_MAP[e.id].cdnId);
+            let store = {};
+            try { store = JSON.parse(localStorage.getItem(AP_KEY) || '{}') || {}; } catch(err) { store = {}; }
+            store[cdn] = { lv: Object.assign({}, b.lv || {}), manual: Object.assign({}, b.manual || {}) };
+            try { localStorage.setItem(AP_KEY, JSON.stringify(store)); } catch(err) {}
+            e._apApplied = false;
+            importAddPoint(shipId);
+            alert('已载入方案「' + b.name + '」\n模块组合：' + (b.mods || []).map(m => m.key + m.variant).join('+')
+                + '\n加点节点：' + Object.keys(b.lv || {}).length + ' 个\n（模块与加点都已应用到本条目）');
+        })();
+    }
+    /* 生成「载入加点方案」的下拉（没有方案就返回空） */
+    function buildPickerHtml(shipId, slug) {
+        const bs = savedBuilds(slug);
+        if(!bs.length) return '';
+        return '<div style="margin-bottom:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">'
+            + '<span style="font-size:9px;color:var(--text-secondary)">📁 加点方案：</span>'
+            + '<select id="bpSel_' + shipId + '" style="font-size:9px;padding:2px 4px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border-color);border-radius:3px;max-width:190px;">'
+            + bs.map((b, i) => '<option value="' + i + '">' + String(b.name).replace(/</g,'&lt;') + '（' + (b.mods||[]).map(m=>m.key+m.variant).join('+') + '）</option>').join('')
+            + '</select>'
+            + '<button class="btn btn-xs" style="font-size:9px" onclick="applySavedBuild(\'' + shipId + '\', parseInt(document.getElementById(\'bpSel_' + shipId + '\').value)||0)">载入</button>'
+            + '</div>';
+    }
+
     /* ⬆ 从加点导入：把汇总结果写进舰队条目
        ★ 按系统作用域：系统对到哪个模块，就只写进那个模块变体的逐武器强化；
          舰船级系统（装甲/动力/指挥）与手填值写进条目级字段。 */
@@ -3822,6 +3872,8 @@
     }
 
     document.addEventListener('DOMContentLoaded', init);
+    // 预先加载加点数据（含 slug→编号 映射），否则强化弹窗里列不出"已保存的加点方案"
+    setTimeout(() => { try { loadBlueprintData(); } catch(e) {} }, 500);
 
     // ===== 从「战舰配队」页导入舰队 =====
     // 支持指定目标舰队：f.target ∈ ally-escort / ally-escorted / enemy-escort / enemy-escorted

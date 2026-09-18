@@ -139,9 +139,12 @@ body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#
         <select id="shipSel"></select>
         <div class="cost"><span class="hex"></span><i>总计使用技术值</i><b id="totalCost">0</b></div>
         <button class="btn red" onclick="resetAll()">重置</button>
+        <button class="btn green" onclick="saveBuild()">💾 保存方案</button>
+        <button class="btn" onclick="openBuilds()">📁 我的方案</button>
         <button class="btn gold" onclick="copyCode()">导出配置码</button>
         <button class="btn" onclick="importCode()">导入配置码</button>
     </div>
+    <div id="modLine" class="hint" style="margin:-2px 0 6px 2px"></div>
 
     <div id="ctxLine" class="hint" style="margin:-2px 0 8px 2px"></div>
 
@@ -185,7 +188,36 @@ const GROUP_H = [['hangarCritRate', '机库暴击率', '%'], ['hangarCritDmg', '
 const GROUP_M = ['atkReduction', 'antiIntercept', 'sysDmgReduce', 'positionFix'];
 
 let STATS = null;        // data/blueprint_stats.json
+let SYSMAP = null;       // data/blueprint_sysmap.json（系统 ↔ 模块）
 let manual = {};         // B 组手填值
+/* 从配队页带过来的【已选模块】，形如 "M:M1,A:A1,B:B1"
+   ★ 超主力舰只选了 M1+C2，加点就只该有 M1+C2 的那些系统 */
+let selMods = [];
+(function () {
+  const raw = P.get('mods') || '';
+  selMods = raw.split(',').filter(Boolean).map(x => {
+    const i = x.indexOf(':');
+    return { key: x.slice(0, i), variant: x.slice(i + 1) };
+  });
+})();
+/* 该系统是否应当出现在加点页 */
+function sysVisible(sysId) {
+  if (!selMods.length) return true;                       // 没带模块信息 → 全部显示
+  const m = SYSMAP && SYSMAP[ship.id] && SYSMAP[ship.id].systems[sysId];
+  if (!m) return true;                                     // 没映射到 → 保守显示
+  if (m.scope === 'ship') return true;                     // 装甲/动力/指挥：舰船级，永远显示
+  if (m.scope === 'module') return selMods.some(s => s.key === m.key && s.variant === m.variant);
+  return true;
+}
+function hiddenSysCount() {
+  if (!ship || !selMods.length) return 0;
+  return ship.systems.filter(s => !sysVisible(s.sysId)).length;
+}
+/* 可加点系统的下标列表（按所选模块过滤） */
+function visibleSysIdx() {
+  if (!ship) return [];
+  return ship.systems.map((s, i) => i).filter(i => sysVisible(ship.systems[i].sysId));
+}
 
 let SHIPS = [];          // 全部有加点数据的舰船
 let SHIPMAP = null;      // slug → cdnId
@@ -273,7 +305,7 @@ function computeStats() {
   const skippedList = [], pureRefList = [];
   if (!ship || !STATS) return { out, counted, skipped, other, pureRef, decoded, modOnly, mech, skippedList, pureRefList };
   const IN = k => GROUP_A.some(g => g[0] === k) || GROUP_B.some(g => g[0] === k) || GROUP_H.some(g => g[0] === k);
-  ship.systems.forEach(s => s.nodes.forEach(n => {
+  ship.systems.forEach(s => { if (!sysVisible(s.sysId)) return; s.nodes.forEach(n => {
     const L = nodeLv(n.id); if (L <= 0) return;
     const st = STATS.nodes[n.id]; if (!st || st.empty) return;
     // ⚠️ pureRef 必须先判：这类节点的 stat 往往是 unmapped，先判分组会把它误归到"引擎未实现"
@@ -296,7 +328,7 @@ function computeStats() {
     else if (st.multi <= 1) v = st.perLevel ? st.perLevel[L] : null;
     if (typeof v !== 'number') { skipped++; skippedList.push({ node: n, stat: st.stat }); return; }
     out[st.stat] += v; counted++;
-  }));
+  }); });
   return { out, counted, skipped, other, pureRef, decoded, modOnly, mech, skippedList, pureRefList };
 }
 function statPanelHtml() {
@@ -389,11 +421,17 @@ function render() {
   if (!ship) return;
   const sys = curSys();
   $('totalCost').textContent = totalCost();
+  const vis = visibleSysIdx();
+  if (vis.length && vis.indexOf(sysIdx) < 0) sysIdx = vis[0];
+  const hid = hiddenSysCount();
   $('body').innerHTML =
       '<div class="main">'
-    +   '<div class="syslist">' + ship.systems.map((s, i) => sysCardHtml(s, i)).join('') + '</div>'
+    +   '<div class="syslist">' + vis.map(i => sysCardHtml(ship.systems[i], i)).join('')
+    +     (hid ? '<div class="hint" style="text-align:center;padding:4px 0;font-size:0.56rem">另 ' + hid + ' 个系统<br>未选对应模块</div>' : '')
+    +   '</div>'
     +   '<div class="board">' + boardHtml(sys) + detailHtml() + statPanelHtml() + '</div>'
     + '</div>';
+  showModLine();
 }
 
 function sysCardHtml(s, i) {
@@ -522,6 +560,68 @@ function curRec() {
   const clean = {}; Object.keys(lv).forEach(k => { if (lv[k] > 0) clean[k] = lv[k]; });
   return { lv: clean, manual: Object.assign({}, manual) };
 }
+/* ---------- 方案（加点 + 模块组合）保存 / 读取 ----------
+   一条方案 = { name, ship(CDN编号), shipName, mods:[{key,variant}], lv:{}, manual:{}, updatedAt } */
+const BKEY = 'lagrange_addpoint_builds';
+function loadBuilds() { try { return JSON.parse(localStorage.getItem(BKEY) || '[]') || []; } catch (e) { return []; } }
+function storeBuilds(a) { try { localStorage.setItem(BKEY, JSON.stringify(a)); } catch (e) { } }
+function modStr() { return selMods.map(s => s.key + s.variant).join('+'); }
+
+function saveBuild() {
+  if (!ship) return;
+  const all = loadBuilds();
+  const def = (ship.shipName || '') + (modStr() ? '  ' + modStr() : '') + '  ' + Object.keys(lv).filter(k => lv[k] > 0).length + '点';
+  const name = prompt('方案名称（会连同【模块组合】一起保存）：', def);
+  if (!name) return;
+  const rec = { name: name, ship: ship.id, shipName: ship.shipName, mods: selMods.slice(),
+                lv: Object.assign({}, lv), manual: Object.assign({}, manual), updatedAt: Date.now() };
+  const i = all.findIndex(x => x.name === name);
+  if (i >= 0) { if (!confirm('已有同名方案，覆盖它？')) return; all[i] = rec; } else all.push(rec);
+  storeBuilds(all);
+  toast('已保存方案「' + name + '」（含模块组合 ' + (modStr() || '未指定') + '）');
+}
+function openBuilds() {
+  const all = loadBuilds();
+  if (!all.length) { toast('还没有保存过方案', 'err'); return; }
+  const list = all.map((b, i) =>
+    '<div class="detail" style="margin-bottom:6px"><div class="dh">'
+    + '<b>' + esc(b.name) + '</b>'
+    + '<span class="tag">' + esc(b.shipName || b.ship) + '</span>'
+    + (b.mods && b.mods.length ? '<span class="tag" style="color:var(--cyan);border-color:var(--cyan)">' + esc(b.mods.map(m => m.key + m.variant).join('+')) + '</span>' : '')
+    + '<span class="tag">' + Object.keys(b.lv || {}).filter(k => (b.lv[k] || 0) > 0).length + ' 点</span>'
+    + '<span style="flex:1"></span>'
+    + '<button class="btn pri" style="padding:3px 9px;font-size:0.6rem" onclick="applyBuild(' + i + ')">载入</button>'
+    + '<button class="btn red" style="padding:3px 9px;font-size:0.6rem" onclick="delBuild(' + i + ')">删</button>'
+    + '</div></div>').join('');
+  $('body').innerHTML = '<div class="detail"><div class="dh"><b>我的方案</b>'
+    + '<span class="hint">（加点 + 模块组合一起存）</span><span style="flex:1"></span>'
+    + '<button class="btn" onclick="render()">返回加点</button></div>'
+    + '<div class="hint" style="margin-bottom:8px">载入后会自动切到对应舰船，并把模块组合设为保存时的选择 —— 这样加点就只显示那套模块的系统。</div>'
+    + list + '</div>';
+}
+function delBuild(i) {
+  const all = loadBuilds(); if (!all[i]) return;
+  if (!confirm('删除方案「' + all[i].name + '」？')) return;
+  all.splice(i, 1); storeBuilds(all); openBuilds();
+}
+function applyBuild(i) {
+  const b = loadBuilds()[i]; if (!b) return;
+  selMods = (b.mods || []).slice();
+  if (String(b.ship) !== String(ship.id)) { openShip(b.ship); }
+  else { lv = Object.assign({}, b.lv || {}); manual = Object.assign({}, b.manual || {}); persist(); render(); }
+  showModLine();
+  toast('已载入「' + b.name + '」');
+}
+/* 顶部一行：当前按哪些模块过滤 */
+function showModLine() {
+  const el = $('modLine'); if (!el) return;
+  if (!selMods.length) { el.innerHTML = '<span style="color:var(--t3)">未指定模块组合 → 显示全部系统。（从配队页点进来会带上你所选的模块）</span>'; return; }
+  const hid = hiddenSysCount();
+  el.innerHTML = '当前模块组合：<b style="color:var(--cyan)">' + esc(modStr()) + '</b>'
+    + (hid ? '，据此<b>隐藏了 ' + hid + ' 个未选模块的系统</b>' : '')
+    + '　<span style="color:var(--t3)">（换模块组合请回配队页；或用「保存方案」把组合一起存下来）</span>';
+}
+
 function persist() {
   if (!ship) return;
   SAVE[ship.id] = curRec(); saveStore();
@@ -569,12 +669,13 @@ function ctxLine() {
 async function boot() {
   ctxLine();
   try {
-    const [ships, map, stats] = await Promise.all([
+    const [ships, map, stats, sm] = await Promise.all([
       fetch('data/blueprint_ships.json', { cache: 'no-cache' }).then(r => r.json()),
       fetch('data/blueprint_map.json', { cache: 'no-cache' }).then(r => r.json()).catch(() => ({})),
-      fetch('data/blueprint_stats.json', { cache: 'no-cache' }).then(r => r.json()).catch(() => null)
+      fetch('data/blueprint_stats.json', { cache: 'no-cache' }).then(r => r.json()).catch(() => null),
+      fetch('data/blueprint_sysmap.json', { cache: 'no-cache' }).then(r => r.json()).catch(() => null)
     ]);
-    SHIPS = ships; SHIPMAP = map; STATS = stats;
+    SHIPS = ships; SHIPMAP = map; STATS = stats; SYSMAP = sm;
   } catch (e) { $('body').innerHTML = '<div class="warn">读不到加点数据（data/blueprint_ships.json）。请从配队页正常进入，或确认文件存在。</div>'; return; }
 
   const sel = $('shipSel');
