@@ -29,16 +29,16 @@ function check(n,ok,d){ if(ok){pass++;console.log('PASS '+n+(d?('  → '+d):''))
     // 超主力（大矛）强化
     openStrengthen(rowKey(sp));
     const spHtml=document.getElementById('strengthenModal').innerHTML;
-    const spEmpty=!/单发伤害/.test(spHtml);
+    const spEmpty=!/单发伤害/.test(spHtml); const spHasWeapon=/单发伤害/.test(spHtml);
     const spNoWeapon=/没有武器系统/.test(spHtml);
     // 面板点船 → 管理器弹窗不该是空的
     showShipManager('ally-escort', rowKey(sp));
     const mgrHtml=document.getElementById('shipManager').innerHTML;
-    return {tjHasWeapon, tjNoWeapon, spEmpty, spNoWeapon,
+    return {tjHasWeapon, tjNoWeapon, spEmpty, spNoWeapon, spHasWeapon,
             mgrHasName:/乌拉诺斯之矛/.test(mgrHtml), mgrLen:mgrHtml.length};
   });
   check('① 普通舰(天玑)强化列出武器滑杆', A.tjHasWeapon===true, JSON.stringify({有滑杆:A.tjHasWeapon,提示无武器:A.tjNoWeapon}));
-  check('① 超主力(大矛)强化弹窗打开且不再空白', A.mgrLen>0 && A.spNoWeapon===true, JSON.stringify({提示无武器:A.spNoWeapon}));
+  check('① 超主力(大矛)强化现在列出武器滑杆（补齐模块武器后）', A.mgrLen>0 && A.spHasWeapon===true, JSON.stringify({提示无武器:A.spNoWeapon}));
   check('① 面板点船的管理弹窗有内容（原来空白）', A.mgrHasName===true, 'html长度='+A.mgrLen);
 
   /* ===== ② 模块切换对战斗的影响 ===== */
@@ -64,7 +64,7 @@ function check(n,ok,d){ if(ok){pass++;console.log('PASS '+n+(d?('  → '+d):''))
   check('② 模块切换改变了载机位（B1无 → B2有护航艇位）',
         JSON.stringify(B.b1.air)!==JSON.stringify(B.b2.air) && (B.b2.air||[]).join('').indexOf('B2|corvette')>=0,
         JSON.stringify(B));
-  check('② 模块切换【未】改变武器（数据缺口：变体无 weapons）', B.b1.weapons===0 && B.b2.weapons===0,
+  check('② 模块切换【已能】改变武器（B1=5门 / B2=4门）', B.b1.weapons>0 && B.b2.weapons>0 && B.b1.weapons!==B.b2.weapons,
         'B1武器数='+B.b1.weapons+' B2武器数='+B.b2.weapons);
 
   /* ===== ③ 强化是否进入战斗计算 ===== */
