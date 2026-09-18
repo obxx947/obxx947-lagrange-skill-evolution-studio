@@ -15,11 +15,13 @@ window.ShipBuild = (function () {
   const A = ['hp', 'physResist', 'energyResist', 'dmgBonus', 'crit', 'lockReduction',
              'cooldownReduction', 'singleDmg', 'evasion', 'interceptRate'];
   const MANUAL = ['siege', 'repairBonus', 'hitBonus', 'hangarBonus'];
+  const HANGAR = ['hangarCritRate', 'hangarCritDmg'];
   const CN = {
     hp: '结构值', physResist: '物理抵抗', energyResist: '能量抗性', dmgBonus: '伤害加成',
     crit: '暴击', lockReduction: '锁定减免', cooldownReduction: '冷却减免', singleDmg: '单发伤害',
     evasion: '闪避', interceptRate: '拦截率',
-    siege: '攻城伤害', repairBonus: '维修量加成', hitBonus: '命中加成', hangarBonus: '机库加成'
+    siege: '攻城伤害', repairBonus: '维修量加成', hitBonus: '命中加成', hangarBonus: '机库加成',
+    hangarCritRate: '机库暴击率', hangarCritDmg: '机库暴击伤害'
   };
 
   let MAP = null, STATS = null, SHIPS = null, DB = null, loading = null;
@@ -61,7 +63,7 @@ window.ShipBuild = (function () {
     const e = MAP[slug]; if (!e || !e.cdnId) return null;
     const rec = apStore()[e.cdnId]; if (!rec) return null;
     const lv = rec.lv || {}, manual = rec.manual || {};
-    const out = {}; A.forEach(k => out[k] = 0); MANUAL.forEach(k => out[k] = 0);
+    const out = {}; A.forEach(k => out[k] = 0); MANUAL.forEach(k => out[k] = 0); HANGAR.forEach(k => out[k] = 0);
     let counted = 0, skipped = 0, other = 0, used = 0, pureRef = 0;
     const skippedList = [], pureRefList = [];
     Object.keys(lv).forEach(nid => {
@@ -70,9 +72,18 @@ window.ShipBuild = (function () {
       const st = STATS.nodes[nid]; if (!st || st.empty) return;
       // ⚠️ pureRef 先判：这类节点 stat 常是 unmapped，先判分组会被误归到"引擎未实现"
       if (st.pureRef) { pureRef++; pureRefList.push(nid); return; }
-      if (A.indexOf(st.stat) >= 0 || MANUAL.indexOf(st.stat) >= 0) {
+      if (st.statMap) {                                  // 已译术语节点：一条写多个属性
+        let any = false;
+        Object.keys(st.statMap).forEach(k => {
+          const v = st.statMap[k][L];
+          if (typeof v === 'number') { out[k] = (out[k] || 0) + v; any = true; }
+        });
+        if (any) counted++; else skipped++;
+        return;
+      }
+      if (A.indexOf(st.stat) >= 0 || MANUAL.indexOf(st.stat) >= 0 || HANGAR.indexOf(st.stat) >= 0) {
         let v = null;
-        if (st.statValues) v = st.statValues[L];        // 多参数节点：已解出本属性对应的值
+        if (st.statValues) v = st.statValues[L];
         else if (st.multi <= 1) v = st.perLevel ? st.perLevel[L] : null;
         if (typeof v !== 'number') { skipped++; skippedList.push(nid); return; }
         out[st.stat] += v; counted++;
@@ -81,6 +92,7 @@ window.ShipBuild = (function () {
     // 手填：A 组 10 项是「手动追加」（叠加在自动汇总上）；B 组 4 项引擎没有来源，直接用填的值
     let manualApplied = 0;
     A.forEach(k => { if (typeof manual[k] === 'number') { out[k] += manual[k]; manualApplied++; } });
+    HANGAR.forEach(k => { if (typeof manual[k] === 'number') out[k] += manual[k]; });
     MANUAL.forEach(k => { if (typeof manual[k] === 'number') out[k] = manual[k]; });
     return { cdnId: e.cdnId, cdnName: e.cdnName, lv, out, counted, skipped, other, used, manual, manualApplied, pureRef, skippedList, pureRefList };
   }
@@ -144,6 +156,9 @@ window.ShipBuild = (function () {
     if (anyPlus) L.push('  A 组手动追加：' + plusLine.join('；') + '　（已含在上面合计里）');
     const man = MANUAL.map(k => CN[k] + '+' + b.out[k] + '%');
     L.push('  B 组（引擎原本没有，全靠手填）：' + man.join('  '));
+    if (b.out.hangarCritRate || b.out.hangarCritDmg) {
+      L.push('  机库专用（只作用于本舰载机）：机库暴击率+' + b.out.hangarCritRate + '%  机库暴击伤害+' + b.out.hangarCritDmg + '%');
+    }
     if (b.skipped) L.push('  ⚠ ' + b.skipped + ' 个已点节点没能自动计入（说明里的数值位与取值对不上），'
       + '用户可在加点页手动追加补齐');
     if (b.pureRef) L.push('  ⚠ ' + b.pureRef + ' 个节点的说明来自游戏术语表（数据里只有代号如 {ED9142}，无译文），'

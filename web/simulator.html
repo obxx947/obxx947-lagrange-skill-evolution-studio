@@ -2188,6 +2188,11 @@
                 ${num('机库加成','hangarBonus',hangarBonus)}
                 ${num('攻城伤害','siegeBonus',siegeBonus,'title="本模拟器没有建筑目标，仅记录"')}
             </div>
+            <div style="font-size:9px;color:var(--text-secondary);margin-bottom:4px;">机库专用（只作用于本舰载机）</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px;font-size:10px;">
+                ${num('机库暴击率','hangarCritRate',shipEntry.hangarCritRate||0)}
+                ${num('机库暴击伤害','hangarCritDmg',shipEntry.hangarCritDmg||0,'title="暴击倍率，200 = 2 倍（引擎基础为 150）"')}
+            </div>
             <div style="font-size:9px;color:var(--text-secondary);margin-bottom:4px;">逐武器强化</div>`;
         
         // Collect all weapons from the ship, resolving moduleGroup variants
@@ -2270,6 +2275,8 @@
     const AP_KEY = 'lagrange_addpoint';
     const AP_A = ['hp','physResist','energyResist','dmgBonus','crit','lockReduction',
                   'cooldownReduction','singleDmg','evasion','interceptRate'];
+    const AP_B = ['siege','repairBonus','hitBonus','hangarBonus'];
+    const AP_H = ['hangarCritRate','hangarCritDmg'];   // 机库专用：只作用于本舰载机
     let BP_MAP = null, BP_STATS = null;
 
     function apStore() { try { return JSON.parse(localStorage.getItem(AP_KEY) || '{}') || {}; } catch(e) { return {}; } }
@@ -2286,13 +2293,23 @@
         const ap = apOf(slug);
         if(!ap || !BP_STATS) return null;
         const out = {}; AP_A.forEach(k => out[k] = 0);
-        ['siege','repairBonus','hitBonus','hangarBonus'].forEach(k => out[k] = 0);
+        AP_B.forEach(k => out[k] = 0); AP_H.forEach(k => out[k] = 0);
         let counted = 0, skipped = 0, other = 0;
         Object.keys(ap.lv).forEach(nid => {
             const L = ap.lv[nid]; if(!L || L <= 0) return;
             const st = BP_STATS.nodes[nid]; if(!st || st.empty) return;
+            // 已译术语节点：一条写多个属性
+            if(st.statMap) {
+                let any = false;
+                Object.keys(st.statMap).forEach(k => {
+                    const v = st.statMap[k][L];
+                    if(typeof v === 'number'){ out[k] = (out[k]||0) + v; any = true; }
+                });
+                if(any) counted++; else skipped++;
+                return;
+            }
             const k = st.stat;
-            if(AP_A.indexOf(k) >= 0 || ['siege','repairBonus','hitBonus','hangarBonus'].indexOf(k) >= 0) {
+            if(AP_A.indexOf(k) >= 0 || AP_B.indexOf(k) >= 0 || AP_H.indexOf(k) >= 0) {
                 let v = null;
                 if(st.statValues) v = st.statValues[L];          // 多参数节点：已解出本属性对应的值
                 else if(st.multi <= 1) v = st.perLevel ? st.perLevel[L] : null;
@@ -2302,9 +2319,8 @@
         });
         // 手填：A 组 10 项是"手动追加"（叠加到自动汇总上）；B 组 4 项引擎没有来源，直接用填的值
         AP_A.forEach(k => { if(typeof ap.manual[k] === 'number') out[k] += ap.manual[k]; });
-        ['siege','repairBonus','hitBonus','hangarBonus'].forEach(k => {
-            if(typeof ap.manual[k] === 'number') out[k] = ap.manual[k];
-        });
+        AP_H.forEach(k => { if(typeof ap.manual[k] === 'number') out[k] += ap.manual[k]; });
+        AP_B.forEach(k => { if(typeof ap.manual[k] === 'number') out[k] = ap.manual[k]; });
         out._counted = counted; out._skipped = skipped; out._other = other;
         out._used = Object.keys(ap.lv).filter(k => ap.lv[k] > 0).length;
         return out;
@@ -2354,6 +2370,9 @@
             e.hitBonus = Math.round(b.hitBonus*10)/10;
             e.repairBonus = Math.round(b.repairBonus*10)/10;
             e.hangarBonus = Math.round(b.hangarBonus*10)/10;
+            // 机库专用（目前来自已译术语节点，如苍穹「协同打击」）
+            e.hangarCritRate = Math.round((b.hangarCritRate||0)*10)/10;
+            e.hangarCritDmg  = Math.round((b.hangarCritDmg||0)*10)/10;
             e.siegeBonus = Math.round(b.siege*10)/10;
             // 逐武器：单发伤害 / 暴击 / 锁定减免 / 冷却减免
             if(!e.strengthen) e.strengthen = {};
@@ -2913,6 +2932,17 @@
                             acInst.dmgBonus = (acInst.dmgBonus||0) + hb;
                             acInst.hitBonus = (acInst.hitBonus||0) + hb;
                             acInst.hangarBonus = hb;
+                        }
+                        // 母舰「机库暴击」→ 本舰载机的每一门武器（如苍穹 M1「协同打击」50%概率200%暴击）
+                        const hcr = ship.hangarCritRate || 0, hcd = ship.hangarCritDmg || 0;
+                        if(hcr || hcd){
+                            acInst.hangarCritRate = hcr; acInst.hangarCritDmg = hcd;
+                            (acInst.weaponStates||[]).forEach(ws => {
+                                ws.strengthen = ws.strengthen || {};
+                                ws.strengthen.critRate = (ws.strengthen.critRate||0) + hcr;
+                                // 引擎的暴击倍率 = 1.5 + critDmg/100；这里把目标倍率换算成增量
+                                if(hcd > 0) ws.strengthen.critDmg = (ws.strengthen.critDmg||0) + (hcd - 150);
+                            });
                         }
                         targetList.push(acInst);
                     }
