@@ -1481,7 +1481,8 @@
         const list = [...fleet.main, ...fleet.reinforcement];
         const shipEntry = findRow(list, shipId);
         if(!shipEntry) return;
-        const origShip = SHIP_DATABASE[shipId];
+        // ⚠️ 参数是【行 key】(uid)，查舰船数据必须用条目的舰船 id
+        const origShip = SHIP_DATABASE[shipEntry.id];
         if(!origShip) return;
         
         const mgrEl = document.getElementById('shipManager');
@@ -2131,7 +2132,8 @@
         const shipEntry = findRow(list, shipId);
         if(!shipEntry) return;
         openModal('strengthenModal');
-        const origShip = SHIP_DATABASE[shipId];
+        // ⚠️ 参数是【行 key】(uid)，查舰船数据必须用条目的舰船 id（否则弹窗一片空白）
+        const origShip = SHIP_DATABASE[shipEntry.id];
         if(!origShip) return;
         
         // Initialize strengthen data
