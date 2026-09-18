@@ -2555,6 +2555,21 @@
                     e.strikes.push({ skey: skey, mode: st.mechanic.mode, dur: st.mechanic.dur, cd: st.mechanic.cd });
                 } else if(st.mechanic.kind === 'targetPriority') {
                     e.targetPriority = st.mechanic.pick;          // 主武器优先打哪类目标
+                } else if(st.mechanic.kind === 'coverBase') {
+                    // 提供掩护：本舰掩护所有前排 N 秒
+                    e.cover = e.cover || { dur: 0, targets: 0, all: false };
+                    e.cover.dur = Math.max(e.cover.dur, st.mechanic.dur || 0);
+                    e.cover.all = e.cover.all || !!st.mechanic.all;
+                } else if(st.mechanic.kind === 'coverDurAdd') {
+                    e.cover = e.cover || { dur: 0, targets: 0, all: false };
+                    e.cover.dur += (st.mechanic.add || 0);
+                } else if(st.mechanic.kind === 'coverTargetsAdd') {
+                    e.cover = e.cover || { dur: 0, targets: 0, all: false };
+                    e.cover.targets += (st.mechanic.add || 0);
+                } else if(st.mechanic.kind === 'burst') {
+                    e.bursts = e.bursts || [];
+                    e.bursts.push({ skey: skey, every: st.mechanic.every || 10, cut: st.mechanic.cut || 0,
+                                    dur: st.mechanic.dur || 0, cd: st.mechanic.cd || 0 });
                 }
             });
             // 模块级的三项：受系统伤害降低 / 站位调整 / 分散打击
@@ -2942,6 +2957,10 @@
         s.targetPriority = shipEntry.targetPriority || null;   // 主武器优先打击（加点mechanic）
         s.sysDmgReduce = shipEntry.sysDmgReduce || 0;          // 受到的子系统伤害降低 %
         s.hangarByModule = shipEntry.hangarByModule || null;   // 模块级机库（仅该模块的载机）
+        // 机制：掩护 / 周期性爆发
+        s.cover = shipEntry.cover ? Object.assign({}, shipEntry.cover, { until: 0, done: false }) : null;
+        s.coveredBy = null;
+        s.bursts = (shipEntry.bursts || []).map(k => Object.assign({}, k, { active: false, until: 0, readyAt: 0 }));
         // Apply HP bonus
         s.hp = Math.round(s.hp * (1 + (s.hpBonus||0)/100));
         s.maxHp = s.hp;
@@ -3258,6 +3277,43 @@
         });
     }
     function processExtraMechanics(ship, friendlies, enemies, dt, bs) {
+        // ---- ⓪ 掩护：开局为前列友军吸引火力 ----
+        if(ship.cover && !ship.cover.done) {
+            ship.cover.done = true;
+            ship.cover.until = bs.time + (ship.cover.dur || 0);
+            const rows = ['前排','中排','后排'];
+            const maxN = ship.cover.all ? 99 : (ship.cover.targets || 0);
+            const startRow = ship.cover.all ? 0 : rows.indexOf(ship.position);
+            let picked = 0;
+            for(let ri = (startRow < 0 ? 0 : startRow); ri < rows.length; ri++) {
+                for(const f of friendlies) {
+                    if(picked >= maxN) break;
+                    if(f === ship || !f.alive || f.position !== rows[ri] || f.position === 'aircraft' || f.coveredBy) continue;
+                    f.coveredBy = ship.instId; picked++;
+                }
+                if(picked >= maxN) break;
+            }
+            if(picked) addBattleLog('info', '🛡 ' + (ship.name||ship.id) + ' 开始掩护 ' + picked + ' 艘友军（' + Math.round(ship.cover.dur||0) + '秒）');
+        }
+        if(ship.cover && ship.cover.until && bs.time >= ship.cover.until) {
+            friendlies.forEach(f => { if(f.coveredBy === ship.instId) f.coveredBy = null; });
+            ship.cover.until = 0;
+        }
+        // ---- ⓪b 周期性爆发：每 X 秒，本系统武器打击/冷却缩短 cut%，持续 dur 秒，冷却 cd 秒 ----
+        if(ship.bursts && ship.bursts.length) {
+            ship.bursts.forEach(k => {
+                if(!k.active) {
+                    if(k.nextAt === undefined) k.nextAt = (k.every || 10);      // 首次在 every 秒后
+                    if(bs.time >= k.nextAt) { k.active = true; k.until = bs.time + (k.dur || 0); }
+                } else if(bs.time >= k.until) {
+                    k.active = false; k.nextAt = bs.time + (k.cd || 0) + (k.every || 10);
+                }
+                (ship.weaponStates || []).forEach(ws => {
+                    if(k.skey && ws.strengthenKey !== k.skey) return;
+                    ws.burstCut = k.active ? (k.cut || 0) : 0;
+                });
+            });
+        }
         // ---- ① 协同指挥 ----
         if(ship.cmdAssist && ship.cmdAssist.length) {
             ship.cmdAssist.forEach(cmd => {
@@ -3367,7 +3423,7 @@
                 ws.atkRemaining -= dt;
                 ws.batchTimer += dt;
                 // 「打击间隔缩短」：直接缩短攻击持续（批次间隔 = 持续/批数）
-                const atkDur = (w.atkDuration || 1) * (1 - ((ws.strengthen||{}).atkReduction||0)/100);
+                const atkDur = (w.atkDuration || 1) * (1 - Math.min(95, ((ws.strengthen||{}).atkReduction||0) + (ws.burstCut||0))/100);
                 const batchInterval = Math.max(0.01, atkDur / ws.totalBatches);
                 const mtN = ((ws.strengthen||{}).multiTarget || 0) > 0 ? Math.floor((ws.strengthen||{}).multiTarget) : 0;
                 while(ws.batchTimer >= batchInterval && ws.batchesRemaining > 0) {
@@ -3401,9 +3457,10 @@
             //    下轮冷却走完即可直接续射；只有目标死亡才会重新锁敌。
             if(ws.batchesRemaining <= 0 || ws.shotsRemaining <= 0) {
                 const st = ws.strengthen || {};
-                // 「密集射击」在冷却上附带延长
+                // 「密集射击」在冷却上附带延长；「爆发」期间额外缩短冷却
                 const cdPen = (ws.denseFire || 0) > 0 ? (1 + (ws.denseFire||0)/100) : 1;
-                ws.cooldownRemaining = (w.cooldown || 1) * (1 - (st.cooldownReduction||0)/100) * cdPen;
+                const burst = ws.burstCut || 0;
+                ws.cooldownRemaining = (w.cooldown || 1) * (1 - Math.min(95, (st.cooldownReduction||0) + burst)/100) * cdPen;
                 ws.shotsRemaining = 0;
                 ws.batchesRemaining = 0;
                 ws.completedCycles = (ws.completedCycles || 0) + 1;   // 供「协同指挥」按轮计时
@@ -3496,6 +3553,12 @@
     }
 
     function executeShot(attacker, target, weapon, ws, bs) {
+        // 掩护：目标被友军掩护时，攻击改打那个掩护舰（掩护者还活着才生效）
+        if(bs && target && target.coveredBy) {
+            const side = target.side === 'ally' ? bs.allyShips : bs.enemyShips;
+            const cover = side.find(x => x.instId === target.coveredBy && x.alive && x.hp > 0);
+            if(cover && cover !== target) target = cover;
+        }
         // === HIT CHECK (命中判定) ===
         // 命中 = 基础命中区间 × (1 + 命中加成 - 闪避)
         const targets = weapon.targets || [];
