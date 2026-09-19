@@ -804,16 +804,79 @@ const AgentEngine = (function(){
         const toolCallCounts={};
         let totalToolCalls=0;
         let last429Retry=0;   // 连续限流重试计数：429 时保留进度重试本轮，成功后归零
-        // 完全取消"停滞/整轮超时"自动中止（不再弹"用时过长已安全中止"）；安全性由 单请求超时(40/170s)+工具上限(30/300)+主循环80轮 兜底
+        // 完全取消"停滞/整轮超时"自动中止（不再弹"用时过长已安全中止"）；安全性由 单请求超时 + 工具额度 + 主循环轮数 兜底
         const STALL_MS = 1e12;   // 有效"无限"，永不触发
         const TURN_MAX = 1e12;   // 有效"无限"，永不触发
         const turnStart=Date.now();
         let lastActivity=Date.now();
         const origEmit=emit;
         emit=function(e,d,m){ lastActivity=Date.now(); return origEmit(e,d,m); };
-        // 工具调用上限：全开(无上限)；但"截断续写"必须有次数上限(防无限循环)
+        /* ======== 工具额度（三级：常规 → 关键追加 → 引导收尾）========
+           原则：【绝不硬截停】。到边界时不是拒绝，而是
+             ① 提前提醒模型开始收敛；
+             ② 常规额度用尽后，仍给「关键工具」一小笔追加额度（用于把结论做实）；
+             ③ 额度彻底用尽 → 停用工具、注入收尾指令，让模型用已有资料产出最终回答。
+           保证：任何情况下都会给出输出，不会出现"调用到一半被掐断"。 */
+        const LOOP_MAX    = 80;    // 主循环轮数（每轮 = 1 次 LLM 调用；80 轮足以用完 200 次工具额度）
+        const TOOL_TOTAL  = 200;   // 常规：总工具调用上限
+        const TOOL_PER    = 35;    // 常规：单个工具上限
+        const GRACE_TOTAL = 40;    // 常规用尽后，关键工具的追加总次数
+        const GRACE_PER   = 12;    // 常规用尽后，单个关键工具的追加次数
+        const SOFT_RATIO  = 0.8;   // 用到 80% 时提前提醒收敛
+        // 关键工具：直接决定结论质量，额度用尽后仍允许少量调用
+        const KEY_TOOLS=['search_knowledge_base','get_ship_data','battle_simulate','search_fleets','make_fleet','get_ship_builds'];
+        let softWarned=false, graceWarned=false, softWarned2=false;
+        let toolsDisabled=false;   // true = 之后的 LLM 调用不带工具（强制产出正文）
+        let finalizeRounds=0;      // 收尾阶段额外跑的轮数（防模型不收尾）
+        let rejectedCalls=0;       // 被额度拒绝的次数（太多也说明该收尾了）
+        const budget=()=>{
+            const graceMode = totalToolCalls >= TOOL_TOTAL;                 // 常规额度用尽
+            const hardStop  = totalToolCalls >= TOOL_TOTAL + GRACE_TOTAL;   // 追加额度也用尽
+            return {graceMode, hardStop,
+                perCap: graceMode ? (TOOL_PER + GRACE_PER) : TOOL_PER,
+                left: Math.max(0, TOOL_TOTAL + GRACE_TOTAL - totalToolCalls)};
+        };
+        // 工具调用上限见上方 TOOL_TOTAL/TOOL_PER；"截断续写"必须有次数上限(防无限循环)
         let truncRetry=0, fullAnswer='';
         for(let i=0;i<1e12;i++){
+            /* ---- 额度检查（不硬截停，只引导；见上方注释）---- */
+            {
+                const b=budget();
+                // ① 提前提醒（常规额度用掉 80%）
+                if(!toolsDisabled && !softWarned && !b.graceMode && totalToolCalls >= TOOL_TOTAL*SOFT_RATIO){
+                    softWarned=true;
+                    emit('status', `⏳ 工具额度已用 ${totalToolCalls}/${TOOL_TOTAL}，开始收敛`);
+                    messages.push({role:'user', content:
+                        `【系统提醒】你已使用 ${totalToolCalls}/${TOOL_TOTAL} 次工具调用（剩余约 ${TOOL_TOTAL-totalToolCalls} 次）。请尽快收敛：`+
+                        `优先补齐还缺的关键数据（舰船数值/配队思路/模拟结果），然后组织最终回答。不要再做无意义的重复检索。`});
+                }
+                // ② 常规额度用尽 → 进入"关键工具"追加额度模式
+                if(!toolsDisabled && !graceWarned && b.graceMode && !b.hardStop){
+                    graceWarned=true;
+                    emit('status', `⏳ 常规额度已用尽，仅保留关键工具（还可用 ${b.left} 次）`);
+                    messages.push({role:'user', content:
+                        `【系统提醒】常规工具额度（${TOOL_TOTAL} 次）已用尽。现在只允许调用【关键工具】：${KEY_TOOLS.join('、')}，`+
+                        `总共还可调用 ${b.left} 次。请把它们全部用在"把结论做实"上（核验关键舰船数值、必要时跑一次模拟），`+
+                        `其余问题请直接用已有资料推理回答。`});
+                }
+                // ③ 额度彻底用尽 / 轮数到顶 / 被拒太多次 → 停用工具并注入收尾指令（强制产出正文）
+                const needFinalize = b.hardStop || i>=LOOP_MAX || (rejectedCalls>=6 && !toolsDisabled);
+                if(!toolsDisabled && needFinalize){
+                    toolsDisabled=true;
+                    const why = b.hardStop ? `工具额度已全部用尽（常规 ${TOOL_TOTAL} + 追加 ${GRACE_TOTAL} 次）`
+                              : i>=LOOP_MAX ? `已达最大处理轮数（${LOOP_MAX} 轮）`
+                              : `工具被连续拒绝 ${rejectedCalls} 次`;
+                    emit('status', `📝 ${why}，正在用已获得的资料整理最终回答…`);
+                    messages.push({role:'user', content:
+                        `【系统指令·必须执行】${why}，从这一轮起【禁止再调用任何工具】。\n`+
+                        `请立刻基于你已经获得的全部资料，输出面向用户的【最终完整回答】。要求：\n`+
+                        `1) 用户问到的每一项都要回答，不能因为资料不全就整段省略；\n`+
+                        `2) 已有数据照常给出（舰船名称/人口/服役/模块/载机/站位等）；\n`+
+                        `3) 确实没查到、或受额度限制没能取到的部分，明确写"该部分未取得（原因）"，不要编造、不要留空；\n`+
+                        `4) 配队类问题按既定格式给出完整配置与理由，打分/评测若已做到哪一轮就如实写哪一轮；\n`+
+                        `5) 不要再问用户问题，直接给结论。`});
+                }
+            }
             if(Date.now()-turnStart>TURN_MAX){
                 // 超时：给出简短原因而非静默，避免"思考到一半莫名断开"
                 emit('error','⏱️ 本轮处理超出时间上限，已安全中止');
@@ -832,11 +895,25 @@ const AgentEngine = (function(){
                 return;
             }
             try{
-                const msg=await callLLMRetry(llm, messages, 0.3, 16384, getTools());
+                // toolsDisabled=true 时不传工具 → 模型只能输出正文（收尾阶段）
+                const msg=await callLLMRetry(llm, messages, 0.3, 16384, toolsDisabled?null:getTools());
                 last429Retry=0;   // 本轮 LLM 调用成功：重置限流重试计数
                 if(agentInterrupted){ emit('paused','⏸️ 已暂停本次思考'); return; }   // 请求返回后再查一次暂停
                 if(msg.reasoning_content){
                     emit('thinking', String(msg.reasoning_content).substring(0,2000));
+                }
+                // 收尾阶段模型仍试图调工具（部分模型会硬调）→ 不执行，推回提示让它改用正文（最多 3 次，之后直接用已有正文兜底）
+                if(toolsDisabled && msg.tool_calls && msg.tool_calls.length && !String(msg.content||'').trim()){
+                    finalizeRounds++;
+                    if(finalizeRounds<=3){
+                        messages.push({role:'assistant', content:null});
+                        messages.push({role:'user', content:'【系统指令】当前不允许调用工具（额度已用尽）。请直接用文字输出最终回答，不要再请求调用工具。'});
+                        continue;
+                    }
+                    emit('status','⚠️ 模型未能按收尾指令产出正文，改用兜底文案');
+                    emit('answer','⚠️ 工具调用额度已用尽，且模型未能整理出最终回答。请重试一次；若反复出现，可在设置里换用其它模型。', {sources:[], iterations:i+1, qc_feedback:'BUDGET_FINALIZE_FAILED'});
+                    emit('done','完成');
+                    return;
                 }
                 // 回答被截断（reasoner 模型 reasoning 占用 max_tokens 导致正文中断）：续写完整后再进入质检（仅限无工具调用的最终回答轮）
                 if(msg._truncated && !(msg.tool_calls&&msg.tool_calls.length)){
@@ -859,16 +936,17 @@ const AgentEngine = (function(){
                         try{ args=JSON.parse(fn.arguments||'{}'); }catch(e){}
                         // ======== ask_user 特殊处理：暂停对话，向用户提问 ========
                         if(fnName==='ask_user'){
-                            // 工具调用上限：同一工具最多8次，总调用最多20次
                             toolCallCounts[fnName]=(toolCallCounts[fnName]||0)+1;
                             totalToolCalls++;
-                            if(toolCallCounts[fnName]>1e12 || totalToolCalls>1e12){   // 无上限
-                                emit('tool_start', `⛔ 提问次数已达上限，请基于现有信息直接回答`, {tool:fnName});
+                            // 提问也占额度；但不硬拒：超限就让它别问、直接答（避免"卡在提问"）
+                            if(budget().hardStop || toolsDisabled || toolCallCounts[fnName]>budget().perCap){
+                                rejectedCalls++;
+                                emit('tool_start', '⛔ 提问额度已用尽，请基于现有信息直接回答', {tool:fnName});
                                 const cleanTc={id:tc.id, type:'function', function:{name:fnName, arguments:fn.arguments||'{}'}};
                                 const am={role:'assistant', content:msg.content??null, tool_calls:[cleanTc]};
                                 if(msg.reasoning_content) am.reasoning_content=msg.reasoning_content;
                                 messages.push(am);
-                                messages.push({role:'tool', tool_call_id:tc.id, content:'提问次数已达上限，请基于现有信息直接回答，不要再提问。'});
+                                messages.push({role:'tool', tool_call_id:tc.id, content:'提问次数已用完（额度限制）。请不要再提问，直接基于现有资料给出最终回答；确实无法确定的地方如实说明。'});
                                 continue;
                             }
                             const cleanTc={id:tc.id, type:'function', function:{name:fnName, arguments:fn.arguments||'{}'}};
@@ -888,13 +966,30 @@ const AgentEngine = (function(){
                         toolCallCounts[fnName]=(toolCallCounts[fnName]||0)+1;
                         totalToolCalls++;
                         const cleanTc={id:tc.id, type:'function', function:{name:fnName, arguments:fn.arguments||'{}'}};
-                        if(toolCallCounts[fnName]>1e12 || totalToolCalls>1e12){   // 无上限
-                            emit('tool_start', `⛔ 工具调用上限: ${fnName}（已达${toolCallCounts[fnName]}次）`, {tool:fnName, args});
-                            const am={role:'assistant', content:msg.content??null, tool_calls:[cleanTc]};
-                            if(msg.reasoning_content) am.reasoning_content=msg.reasoning_content;
-                            messages.push(am);
-                            messages.push({role:'tool', tool_call_id:tc.id, content:'该工具调用次数已达上限，请基于现有信息直接回答，不要再调用工具。'});
-                            continue;
+                        /* 额度检查：不硬截停 —— 拒绝时把"还剩多少、下一步该干什么"告诉模型，让它自己收敛；
+                           收尾阶段（toolsDisabled）一律不执行工具。 */
+                        {
+                            const b=budget();
+                            const isKey=KEY_TOOLS.indexOf(fnName)>=0;
+                            const overPer = toolCallCounts[fnName] > b.perCap;
+                            const graceBlocked = b.graceMode && !isKey;   // 常规额度用尽后，非关键工具停用
+                            if(toolsDisabled || b.hardStop || overPer || graceBlocked){
+                                rejectedCalls++;
+                                const why = toolsDisabled ? '已进入收尾阶段，工具已停用'
+                                          : b.hardStop   ? '工具总额度已用尽'
+                                          : overPer      ? `${fnName} 的调用次数已达上限（${b.perCap} 次）`
+                                          : `常规额度已用尽，${fnName} 不是关键工具`;
+                                emit('tool_start', `⛔ ${why}，改为基于已有资料作答`, {tool:fnName, args});
+                                const am={role:'assistant', content:msg.content??null, tool_calls:[cleanTc]};
+                                if(msg.reasoning_content) am.reasoning_content=msg.reasoning_content;
+                                messages.push(am);
+                                messages.push({role:'tool', tool_call_id:tc.id, content:
+                                    `【额度限制】${why}。剩余总工具额度：${b.left} 次`+
+                                    (isKey && !b.hardStop && !toolsDisabled ? '（关键工具仍可用）' : '')+
+                                    `。请改用其它方式：能用已有资料推理的就直接推理；确实必须再取的，改用${KEY_TOOLS.join('/')}中的关键工具；`+
+                                    `若已足够，请直接给出最终回答，并如实标注哪些部分因额度限制未取得。`});
+                                continue;
+                            }
                         }
                         emit('tool_start', `🔧 调用工具: ${fnName}`, {tool:fnName, args});
                         let result;
@@ -973,9 +1068,9 @@ const AgentEngine = (function(){
                 return;
             }
         }
-        emit('error','达到最大迭代次数(50)，请简化问题重试');
-        // 兜底：迭代超限也给回复，不断掉对话
-        emit('answer', '抱歉，本次处理轮次过多未能收敛（达到最大迭代次数），请简化问题后重试。', {sources:[], iterations:50, qc_feedback:'MAX_ITER_50'});
+        // 理论不可达：额度/轮数到顶时都会走"收尾出答案"分支；这里只是最后保险，仍给回复不断对话
+        emit('error', `本轮处理超过最大轮数(${LOOP_MAX})，请简化问题重试`);
+        emit('answer', `抱歉，本次处理轮次过多未能收敛（超过 ${LOOP_MAX} 轮），请简化问题后重试。`, {sources:[], iterations:LOOP_MAX, qc_feedback:'MAX_ITER_LOOP'});
         emit('done','完成');
     }
 
