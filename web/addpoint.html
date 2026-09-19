@@ -239,7 +239,10 @@ function curSys() { return ship ? ship.systems[sysIdx] : null; }
 /* ---------- 加点规则 ---------- */
 function nodeLv(id) { return lv[id] || 0; }
 function isEmptyNode(n) { return !n.name; }                                   // 空槽
-function parentsOk(n) { const p = n.parentId || []; return p.every(x => nodeLv(x) > 0); }
+/* 前置判定：★ 只要【任一】前置点开就算解锁。
+   依据：全库 1051 个节点有 2 个前置，且这两个前置都在左侧同一列 —— 是树形的"两条分支任一即通"。
+   （原来写成"所有前置都要点开"，导致明明能加的点显示未解锁 —— 用户实测报过。） */
+function parentsOk(n) { const p = n.parentId || []; if (!p.length) return true; return p.some(x => nodeLv(x) > 0); }
 function unlocked(n) { return nodeLv(n.id) > 0 || parentsOk(n); }
 function isMax(n) { return nodeLv(n.id) >= (n.maxLevel || 1); }
 function nextCost(n) { const c = n.levelCost || []; return (nodeLv(n.id) < c.length) ? c[nodeLv(n.id)] : null; }

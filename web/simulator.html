@@ -565,6 +565,7 @@
         <button class="nav-tab" data-page="page-fleet" onclick="document.getElementById('topNav').classList.remove('nav-open')">⚓ 舰队配队</button>
         <button class="nav-tab" data-page="page-battle" onclick="document.getElementById('topNav').classList.remove('nav-open')">⚔️ 战斗模拟</button>
         <button class="nav-tab" data-page="page-encyclopedia" onclick="document.getElementById('topNav').classList.remove('nav-open')">📚 舰船图鉴</button>
+        <a class="nav-tab" href="addpoint.html" style="text-decoration:none;background:rgba(255,215,0,0.12);">⚙️ 舰船加点</a>
         <a class="nav-tab" href="chat.html" style="text-decoration:none;background:rgba(0,212,255,0.08);">🤖 AI对话</a>
         <a class="nav-tab" href="settings.html" style="text-decoration:none;">⚙️ 设置</a>
         <button class="nav-tab" onclick="openModal('aboutModal');document.getElementById('topNav').classList.remove('nav-open')" style="background:rgba(255,215,0,0.1);">ℹ️ 关于</button>
@@ -2162,12 +2163,12 @@
             + `style="width:55px;padding:1px 3px;" min="0" ${extra||''}>%</div>`;
 
         let html = `<div style="margin-bottom:12px;"><b>${origShip.name}</b></div>
-            ${buildPickerHtml(shipId, shipEntry.id)}
-            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
-                <button class="btn btn-primary" style="font-size:10px;padding:4px 9px"
-                    onclick="importAddPoint('${shipId}')">⬆ 从加点导入</button>
-                ${bpInfo ? `<span style="font-size:9px;color:var(--text-secondary)">${bpInfo}</span>` : ''}
+            <div style="font-size:9px;color:var(--text-secondary);margin-bottom:8px;line-height:1.6;">
+                加点（蓝点强化）已<b>自动生效</b>：这艘船在加点页配过的加成，开战时会自动算进来，这里不用再导入。
+                ${bpInfo ? '<br>' + bpInfo : '<br>（这艘船还没有加点配置）'}
+                <br><a href="addpoint.html?ship=${encodeURIComponent(shipEntry.id)}&name=${encodeURIComponent(origShip.name)}" target="_blank" style="color:var(--accent-cyan);">⚙️ 去配置这艘船的加点 →</a>
             </div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
             <div style="font-size:9px;color:var(--text-secondary);margin-bottom:4px;">引擎已支持的加成</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;font-size:10px;">
                 <div>物理抵抗: <input type="number" value="${physResist}" onchange="updateShipStat('${shipId}','physResistBonus',parseFloat(this.value)||0)" style="width:55px;padding:1px 3px;" min="0"> (固定)</div>
@@ -2396,53 +2397,119 @@
         return '加点配置已存在（' + b._used + ' 个节点，' + b._systems + ' 个系统按模块生效）'
             + (b._skipped ? '，' + b._skipped + ' 个多参数节点未计入' : '');
     }
-    /* ========== 加点方案（加点 + 模块组合）载入 ==========
-       加点页「💾 保存方案」存的是 { name, ship(CDN编号), mods:[{key,variant}], lv, manual }
-       这里把它整套应用到舰队条目：模块选择 + 加点配置，然后走一次导入。 */
-    const BUILD_KEY = 'lagrange_addpoint_builds';
-    function savedBuilds(slug) {
-        let all = [];
-        try { all = JSON.parse(localStorage.getItem(BUILD_KEY) || '[]') || []; } catch(e) { all = []; }
-        if(!BP_MAP || !BP_MAP[slug]) return [];
-        const cdn = String(BP_MAP[slug].cdnId);
-        return all.filter(b => String(b.ship) === cdn);
-    }
-    function applySavedBuild(shipId, idx) {
-        (async () => {
-            if(!await loadBlueprintData()) { alert('读不到加点数据'); return; }
-            const fleet = fleetData[currentFleetType];
-            const list = currentFleetTab === 'main' ? fleet.main : fleet.reinforcement;
-            const e = findRow(list, shipId); if(!e) { alert('找不到条目'); return; }
-            const bs = savedBuilds(e.id); const b = bs[idx]; if(!b) { alert('方案不存在'); return; }
-            // ① 模块组合
-            if(b.mods && b.mods.length) {
-                const nm = {};
-                b.mods.forEach(m => { if(m && m.key) nm[m.key] = m.variant || ''; });
-                e.selectedModules = Object.assign({}, e.selectedModules, nm);
+    /* ========== 加点：开战自动生效（不需要手工导入） ==========
+       舰船在加点页配的蓝点强化，只要这艘船进了战斗就自动按配置算。
+       分两步：船级字段要在算 maxHp 之前应用；逐武器强化要等 weaponStates 建好之后再应用。 */
+    function applyAddPointShip(s) {
+        if(!BP_STATS || !BP_SYSMAP) return;                 // 加点数据没加载就跳过（不影响战斗）
+        /* 兼容：早先用过「⬆ 从加点导入」的条目，字段已写死在条目上（带 _apApplied 标记），
+           这里就不再自动叠加，避免同一份加点被算两遍。 */
+        if(s._apApplied) { s._apB = null; return; }
+        const b = buildAddPointBonus(s.id);
+        s._apB = b || null;
+        if(!b) return;
+        const sh = b.ship;
+        s.hpBonus = (s.hpBonus||0) + sh.hp;
+        s.physResistBonus = (s.physResistBonus||0) + sh.physResist;
+        s.energyResistBonus = (s.energyResistBonus||0) + sh.energyResist;
+        s.dmgBonus = (s.dmgBonus||0) + sh.dmgBonus;
+        s.evasion = (s.evasion||0) + sh.evasion;
+        s.hitBonus = (s.hitBonus||0) + sh.hitBonus;
+        s.repairBonus = (s.repairBonus||0) + sh.repairBonus;
+        s.hangarBonus = (s.hangarBonus||0) + sh.hangarBonus;
+        s.hangarCritRate = (s.hangarCritRate||0) + (sh.hangarCritRate||0);
+        s.hangarCritDmg  = (s.hangarCritDmg||0)  + (sh.hangarCritDmg||0);
+        s.siegeBonus = (s.siegeBonus||0) + sh.siege;
+        // 拦截率（加点里"系统内导弹获得拦截率"也算进来）
+        let sysInt = 0;
+        Object.keys(b.byModule).forEach(k => { sysInt += (b.byModule[k].sysIntercept || 0); });
+        const intRate = (s.interceptRate||0) + (sh.interceptRate||0) + sysInt;
+        if(intRate > 0) { s.interceptRate = intRate; s.interceptType = s.interceptType || 'sameRow'; }
+        // 受系统伤害降低 / 模块机库
+        Object.keys(b.byModule).forEach(k => {
+            const g = b.byModule[k];
+            if(g.sysDmgReduce) s.sysDmgReduce = Math.max(s.sysDmgReduce||0, g.sysDmgReduce);
+        });
+        if(Object.keys(b.byModule).length) {
+            s.hangarByModule = s.hangarByModule || {};
+            Object.keys(b.byModule).forEach(k => {
+                if(b.byModule[k].hangarModule) s.hangarByModule[k] = (s.hangarByModule[k]||0) + b.byModule[k].hangarModule;
+            });
+        }
+        // 机制类：优先打击 / 协同指挥 / 三种打击 / 掩护 / 周期爆发
+        const mech = resolveAddPointMechanics(s.id);
+        if(mech) {
+            if(mech.targetPriority) s.targetPriority = mech.targetPriority;
+            if(mech.company) s.company = mech.company;
+            if(mech.cmdAssist.length) s.cmdAssist = (s.cmdAssist||[]).concat(mech.cmdAssist.map(x => Object.assign({}, x, {cycles:0, fired:0})));
+            if(mech.strikes.length) s.strikes = (s.strikes||[]).concat(mech.strikes.map(x => Object.assign({}, x, {activeUntil:x.dur, readyAt:0, active:true})));
+            if(mech.cover) {
+                s.cover = s.cover || { dur:0, targets:0, all:false, until:0, done:false };
+                s.cover.dur += mech.cover.dur || 0; s.cover.targets += mech.cover.targets || 0; s.cover.all = s.cover.all || !!mech.cover.all;
             }
-            // ② 加点配置：写进加点存档，再走正常导入
-            const cdn = String(BP_MAP[e.id].cdnId);
-            let store = {};
-            try { store = JSON.parse(localStorage.getItem(AP_KEY) || '{}') || {}; } catch(err) { store = {}; }
-            store[cdn] = { lv: Object.assign({}, b.lv || {}), manual: Object.assign({}, b.manual || {}) };
-            try { localStorage.setItem(AP_KEY, JSON.stringify(store)); } catch(err) {}
-            e._apApplied = false;
-            importAddPoint(shipId);
-            alert('已载入方案「' + b.name + '」\n模块组合：' + (b.mods || []).map(m => m.key + m.variant).join('+')
-                + '\n加点节点：' + Object.keys(b.lv || {}).length + ' 个\n（模块与加点都已应用到本条目）');
-        })();
+            if(mech.bursts.length) s.bursts = (s.bursts||[]).concat(mech.bursts.map(x => Object.assign({}, x, {active:false, until:0, readyAt:0})));
+        }
     }
-    /* 生成「载入加点方案」的下拉（没有方案就返回空） */
-    function buildPickerHtml(shipId, slug) {
-        const bs = savedBuilds(slug);
-        if(!bs.length) return '';
-        return '<div style="margin-bottom:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">'
-            + '<span style="font-size:9px;color:var(--text-secondary)">📁 加点方案：</span>'
-            + '<select id="bpSel_' + shipId + '" style="font-size:9px;padding:2px 4px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border-color);border-radius:3px;max-width:190px;">'
-            + bs.map((b, i) => '<option value="' + i + '">' + String(b.name).replace(/</g,'&lt;') + '（' + (b.mods||[]).map(m=>m.key+m.variant).join('+') + '）</option>').join('')
-            + '</select>'
-            + '<button class="btn btn-xs" style="font-size:9px" onclick="applySavedBuild(\'' + shipId + '\', parseInt(document.getElementById(\'bpSel_' + shipId + '\').value)||0)">载入</button>'
-            + '</div>';
+    function applyAddPointWeapons(s) {
+        const b = s._apB; if(!b || !s.weaponStates) return;
+        s.weaponStates.forEach(ws => {
+            const g = b.byModule[ws.strengthenKey];
+            if(!g) return;
+            ws.strengthen = ws.strengthen || {};
+            const st = ws.strengthen;
+            st.dmgBonus = (st.dmgBonus||0) + g.singleDmg;
+            st.critRate = (st.critRate||0) + g.crit;
+            st.critDmg  = (st.critDmg||0)  + (g.critDmg||0);
+            st.lockReduction = (st.lockReduction||0) + g.lockReduction;
+            st.cooldownReduction = (st.cooldownReduction||0) + g.cooldownReduction;
+            st.atkReduction = (st.atkReduction||0) + (g.atkReduction||0);
+            st.antiIntercept = (st.antiIntercept||0) + (g.antiIntercept||0);
+            st.hitBonus = (st.hitBonus||0) + (g.hitBonus||0);
+            st.repairBonus = (st.repairBonus||0) + (g.repairBonus||0);
+            st.lockEfficiency = (st.lockEfficiency||0) + (g.lockEfficiency||0);
+            st.sysIntercept = (st.sysIntercept||0) + (g.sysIntercept||0);
+            if(g.denseFire) ws.denseFire = (ws.denseFire||0) + g.denseFire;
+            if(g.multiTarget) st.multiTarget = (st.multiTarget||0) + g.multiTarget;
+        });
+    }
+
+    /* 把"机制类加点"从配置里解析出来（协同指挥/三种打击/掩护/周期爆发/优先打击/公司） */
+    function resolveAddPointMechanics(slug) {
+        const ap = apOf(slug);
+        if(!ap || !BP_STATS) return null;
+        const sysMap = (BP_SYSMAP && BP_SYSMAP[ap.cdnId]) ? BP_SYSMAP[ap.cdnId].systems : {};
+        const nodeSys = {};
+        (BP_TREE[ap.cdnId] || []).forEach(sys => (sys.nodes || []).forEach(n => { nodeSys[n.id] = sys.sysId; }));
+        const out = { cmdAssist: [], strikes: [], cover: null, bursts: [], targetPriority: null, company: 0 };
+        Object.keys(ap.lv).forEach(nid => {
+            const L = ap.lv[nid]; if(!L || L <= 0) return;
+            const st = BP_STATS.nodes[nid]; if(!st || !st.mechanic) return;
+            const m = sysMap[nodeSys[nid]];
+            const skey = (m && m.scope === 'module') ? (m.variant ? (m.key + '_' + m.variant) : m.key) : null;
+            const K = st.mechanic;
+            if(K.kind === 'cmdAssist') {
+                const t = K.matchText || '';
+                out.cmdAssist.push({ skey: skey, count: K.count, every: K.every,
+                    match: /载机|无人机/.test(t) ? 'aircraft' : (/同排/.test(t) ? 'sameRowCruiser' : 'company') });
+            } else if(K.kind === 'strike') {
+                out.strikes.push({ skey: skey, mode: K.mode, dur: K.dur, cd: K.cd });
+            } else if(K.kind === 'targetPriority') {
+                out.targetPriority = K.pick;
+            } else if(K.kind === 'coverBase') {
+                out.cover = out.cover || { dur: 0, targets: 0, all: false };
+                out.cover.dur += (K.dur || 0); out.cover.all = out.cover.all || !!K.all;
+            } else if(K.kind === 'coverDurAdd') {
+                out.cover = out.cover || { dur: 0, targets: 0, all: false };
+                out.cover.dur += (K.add || 0);
+            } else if(K.kind === 'coverTargetsAdd') {
+                out.cover = out.cover || { dur: 0, targets: 0, all: false };
+                out.cover.targets += (K.add || 0);
+            } else if(K.kind === 'burst') {
+                out.bursts.push({ skey: skey, every: K.every || 10, cut: K.cut || 0, dur: K.dur || 0, cd: K.cd || 0 });
+            }
+        });
+        if(BP_COMPANY && BP_COMPANY[ap.cdnId]) out.company = BP_COMPANY[ap.cdnId].company;
+        return out;
     }
 
     /* ⬆ 从加点导入：把汇总结果写进舰队条目
@@ -2961,6 +3028,8 @@
         s.cover = shipEntry.cover ? Object.assign({}, shipEntry.cover, { until: 0, done: false }) : null;
         s.coveredBy = null;
         s.bursts = (shipEntry.bursts || []).map(k => Object.assign({}, k, { active: false, until: 0, readyAt: 0 }));
+        // ★ 加点自动生效（船级部分，必须在算 maxHp 之前）
+        applyAddPointShip(s);
         // Apply HP bonus
         s.hp = Math.round(s.hp * (1 + (s.hpBonus||0)/100));
         s.maxHp = s.hp;
@@ -3009,6 +3078,7 @@
             }
         }
         // 拦截率合成（读 selectedModules，必须放在上面模块解析之后）
+        applyAddPointWeapons(s);   // ★ 加点：逐武器（按系统）
         applyIntercept(s);
         // Subsystems
         s.subSystems = [];
@@ -3970,7 +4040,14 @@
 
     document.addEventListener('DOMContentLoaded', init);
     // 预先加载加点数据（含 slug→编号 映射），否则强化弹窗里列不出"已保存的加点方案"
-    setTimeout(() => { try { loadBlueprintData(); } catch(e) {} }, 500);
+    setTimeout(async () => {
+        try {
+            await loadBlueprintData();
+            // 预载"加点配置涉及的那些船"的加点树（机制解析需要；船级数值不依赖它）
+            const store = apStore();
+            for(const cdn of Object.keys(store)) { try { await loadBpTree(cdn); } catch(e) {} }
+        } catch(e) {}
+    }, 500);
 
     // ===== 从「战舰配队」页导入舰队 =====
     // 支持指定目标舰队：f.target ∈ ally-escort / ally-escorted / enemy-escort / enemy-escorted
