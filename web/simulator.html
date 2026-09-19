@@ -3085,10 +3085,32 @@
         if(s.modules) {
             for(const [key,mod] of Object.entries(s.modules)) {
                 if(key.startsWith('_')) continue;
-                const sysType = mod.type || 'system';
-                const maxRepairs = sysType==='command' ? 3 : (mod.selfRepair ? 2 : 0);
+                /* ★ 必须用【所选变体】而不是槽位本身：
+                   · 名字要与 ws.module.name 一致，否则 executeShot 里
+                     `subSystems.find(x=>x.name===ws.module.name)` 匹配失败 →
+                     系统被毁后武器照样开火（超主力全是 moduleGroup，都会中招）
+                   · 类型也要取变体的（决定维修次数与"被毁效果"） */
+                let rmod = mod;
+                if(mod.type === 'moduleGroup' && mod.variants) {
+                    const selKey = s.selectedModules?.[key] || Object.keys(mod.variants)[0];
+                    rmod = mod.variants[selKey] || mod;
+                }
+                const sysType = rmod.type || mod.type || 'system';
+                const sysName = rmod.name || mod.name || '';
+                /* 维修次数按《战斗机制》文档第二节的【系统类型】：
+                     主武器系统 2 次｜舰载机库 2 次｜指挥系统 3 次｜动力系统【战斗内不修】0 次
+                   文档没写的其它系统沿用 selfRepair 标记口径。 */
+                const nm = sysName + ' ' + (mod.name || '');
+                const isHangar = sysType === 'hangar' || /机库|机坞|搭载|舰载机|护航艇/.test(nm);
+                const isEngine = sysType === 'engine' || /动力|引擎/.test(nm);
+                const isWeaponSys = !isHangar && ((rmod.weapons && rmod.weapons.length) || /武器|炮|导弹|鱼雷|无人机作战中枢/.test(nm));
+                let maxRepairs;
+                if (sysType === 'command' || /指挥/.test(nm)) maxRepairs = 3;
+                else if (isEngine) maxRepairs = 0;
+                else if (isWeaponSys || isHangar) maxRepairs = 2;
+                else maxRepairs = rmod.selfRepair ? 2 : 0;
                 s.subSystems.push({
-                    name:mod.name || (mod.variants ? Object.values(mod.variants)[0]?.name||'' : ''), type:sysType, key:key,
+                    name: sysName, type: sysType, key: key,
                     destroyed:false, repairTimer:0, repairCount:0, maxRepairs:maxRepairs,
                     permanentDestroyed:false
                 });
