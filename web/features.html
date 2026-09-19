@@ -68,7 +68,7 @@ body.mobile-ui .container{padding-bottom:calc(20px + env(safe-area-inset-bottom)
 </div>
 <div class="container">
 <h1>功能架构总览</h1>
-<p class="sub">一个会自我进化、可人工干预进化的《无尽的拉格朗日》AI 战术顾问 · 本地离线语音 · 知识库驱动</p>
+<p class="sub">一个会自我进化、可人工干预进化的《无尽的拉格朗日》AI 战术顾问 · 战舰配队 · 舰船加点（蓝点强化） · 战斗模拟器 · 本地离线语音 · 知识库驱动</p>
 
 <div class="tip" style="margin-bottom:16px;text-align:center;">
 📱 <b>安卓 App</b>：<a href="download/lglr.apk" download style="color:#ffd700;font-weight:700;">点击下载安装（APK，含离线知识库）</a> ·
@@ -119,10 +119,22 @@ body.mobile-ui .container{padding-bottom:calc(20px + env(safe-area-inset-bottom)
     <div class="card"><div class="ico">@</div><div class="name">@引用 / / 命令</div><div class="desc">@某个历史对话注入上下文；/命令、/skill 等斜杠命令。</div><span class="tag">输入</span></div>
 </div>
 
+<!-- ========== 舰船工具（配队 · 加点 · 模拟器） ========== -->
+<div class="sec">🛠️ 舰船工具（配队 · 加点 · 战斗模拟器）</div>
+<div class="grid">
+    <div class="card"><div class="ico">⚓</div><div class="name">战舰配队 <code>fleet.html</code></div><div class="desc">舰队/增援/载机/模块/站位/旗舰，实时统计；同时充当<b>数据校验器</b>（服役上限按整队口径、载机不得塞进无载机位的船）。可一键复制到模拟器、存配队库、发给 AI 分析。</div><span class="tag">配队</span></div>
+    <div class="card"><div class="ico">⬆</div><div class="name">舰船加点 <code>addpoint.html</code></div><div class="desc"><b>蓝点强化</b>配置页。左侧系统列表（带 <code>已用/上限</code>），右侧加点网格：按官方 <code>position[行,列]</code> 排布、按 <code>parentId</code> 连线。<b>点节点加点、<code>−</code> 退级</b>；前置规则是「<b>任一前置点开即解锁</b>」。<b>只显示所选模块对应的系统</b>（只选 M1+C2 就只显示那套）。<b>加点 + 模块组合可整套存为方案</b>，载入即恢复。</div><span class="tag gold">加点</span></div>
+    <div class="card"><div class="ico">📊</div><div class="name">加点属性汇总</div><div class="desc">A 组 10 项（结构值/物理抵抗/能量抗性/伤害加成/暴击/锁定减免/冷却减免/单发伤害/闪避/拦截率）<b>自动汇总 + 手动追加</b>；B 组 4 项（攻城伤害/维修量加成/命中加成/机库加成）引擎原本没有字段、<b>全靠手填</b>；另有<b>机库专用</b>（机库暴击率/暴击伤害）与一批<b>只作用于本系统武器</b>的项（打击间隔/被拦截率/受系统伤害/锁定效率/密集射击/武器分散打击…）。</div><span class="tag gold">加点</span></div>
+    <div class="card"><div class="ico">🔄</div><div class="name">加点开战自动生效</div><div class="desc">不需要任何导入动作：<b>只要这艘船进了战斗，就按加点页配的加成算</b>。船级加成在算结构值之前应用，逐武器加成<b>按系统</b>投到对应模块的武器上；机库加成也分「本舰船（全载机）」与「本系统（仅该模块载机）」两级。</div><span class="tag green">自动</span></div>
+    <div class="card"><div class="ico">⚔️</div><div class="name">战斗模拟器 <code>simulator.html</code></div><div class="desc">四舰队 + 增援 + 旗舰 + 缝合模式；载机搭载、模块切换、逐武器强化。战斗引擎实现：锁定与冷却并行、同目标不重复锁定、目标死亡带剩余发数重锁、直射先清前排、物理护甲减法 / 能量护甲乘法、不破防吃 10%、暴击、<b>拦截</b>（按模块合成，只有投射会被拦）、<b>系统破坏</b>（定向破坏 + 10% 随机，被毁模块停火）、维修、大盾旗舰减伤 30%、护航免疫。</div><span class="tag">战斗</span></div>
+    <div class="card"><div class="ico">🧪</div><div class="name">配队对照工具 <code>test/fleet_vs_reality.js</code></div><div class="desc">把配队文本丢进去跑 N 次，输出<b>时长/损失结构的均值与波动区间</b>、全灭次数、逐次时长，并给出这套配队的<b>武器数据可信度</b>。用于和真实游戏战斗做偏差对比。</div><span class="tag">验证</span></div>
+    <div class="card"><div class="ico">📚</div><div class="name">官方加点数据已全量入库</div><div class="desc"><b>177 艘 / 947 系统 / 7106 个加点节点</b>，取自官网公开 CDN 静态资源（<code>res/blueprint/ship_info/&lt;编号&gt;.js</code>），含坐标、前置、逐级消耗与数值、中文说明。<b>不需要登录也不需要截图</b>。</div><span class="tag">数据</span></div>
+</div>
+
 <!-- ========== 6. 知识库 ========== -->
 <div class="sec">6️⃣ 知识库</div>
 <div class="grid">
-    <div class="card"><div class="ico">📚</div><div class="name">双知识库检索引擎</div><div class="desc">第一知识库（47个md：舰船数据/战斗机制/实例/黑话）+ 第二知识库（备份精炼），TF-IDF 语义检索 + LRU缓存。</div><span class="tag">知识库</span></div>
+    <div class="card"><div class="ico">📚</div><div class="name">双知识库检索引擎</div><div class="desc">第一知识库（<b>1130 个 md</b>：舰船数据/舰船资料/战斗机制/站位/加点、实例/黑话/A资料）+ 第二知识库（备份精炼），TF-IDF 语义检索 + LRU缓存。</div><span class="tag">知识库</span></div>
     <div class="card"><div class="ico">🗂️</div><div class="name">开发中心</div><div class="desc">批量清洗→语义分块→实体抽取→冲突仲裁，产出清洗文档/父子块/知识图谱/勘误报告。</div><span class="tag">知识库</span></div>
 </div>
 
@@ -130,7 +142,7 @@ body.mobile-ui .container{padding-bottom:calc(20px + env(safe-area-inset-bottom)
 <div class="sec">🔎 检索方式（混合检索管线）</div>
 <div class="grid">
     <div class="card"><div class="ico">📊</div><div class="name">TF-IDF 稀疏检索</div><div class="desc">中文 bigram 分词 + 余弦相似度，关键词/词频召回。</div><span class="tag">稀疏</span></div>
-    <div class="card"><div class="ico">🧬</div><div class="name">RAG 语义检索（bge）</div><div class="desc">前端 transformers.js 加载本地 bge-small-zh-v1.5 静态向量库（rag_index.json，512维×1125分块），离线免费；默认模型亦启用。</div><span class="tag green">稠密</span></div>
+    <div class="card"><div class="ico">🧬</div><div class="name">RAG 语义检索（bge）</div><div class="desc">前端 transformers.js 加载本地 bge-small-zh-v1.5 静态向量库（rag_index.json，512维×<b>1130 分块</b>），离线免费；默认模型亦启用。</div><span class="tag green">稠密</span></div>
     <div class="card"><div class="ico">🗂️</div><div class="name">分类检索</div><div class="desc">按资料类别（舰船数据/战斗机制/实例/黑话/人口…）定向检索。</div><span class="tag">分类</span></div>
     <div class="card"><div class="ico">🚢</div><div class="name">舰船名精确检索</div><div class="desc">SHIP_DB 精确匹配舰船，命中即给，未命中提示查黑话。</div><span class="tag">精确</span></div>
     <div class="card"><div class="ico">🔀</div><div class="name">RRF 倒数排名融合</div><div class="desc">融合稀疏 + 稠密两路结果，综合排序取Top。</div><span class="tag">融合</span></div>
@@ -150,6 +162,7 @@ body.mobile-ui .container{padding-bottom:calc(20px + env(safe-area-inset-bottom)
     <div class="card"><div class="ico">📚</div><div class="name"><code>search_knowledge_base</code></div><div class="desc">检索知识库（舰船/机制/实例/黑话等），按 query + category 定向召回。</div><span class="tag">知识库</span></div>
     <div class="card"><div class="ico">🚢</div><div class="name"><code>get_ship_data</code></div><div class="desc">精确查某舰船的 HP/护甲/模块/服役数上限/人口/载机等。</div><span class="tag">舰船</span></div>
     <div class="card"><div class="ico">⚔️</div><div class="name"><code>battle_simulate</code></div><div class="desc">四舰队/增援/旗舰/缝合/自定义船的战斗模拟推演（前端）。</div><span class="tag">战斗</span></div>
+    <div class="card"><div class="ico">⬆</div><div class="name"><code>get_ship_builds</code></div><div class="desc">查用户给舰船配的<b>加点与强化</b>：逐项加成（自动汇总 + 手动追加分开写）、未计入的节点数、模拟器里的强化配置。<b>始终可用</b>，配队/评估前先读真实加成，别假设舰船是白板或满配。</div><span class="tag">舰船</span></div>
     <div class="card"><div class="ico">🌐</div><div class="name"><code>web_search</code></div><div class="desc">联网搜索（搜索代理→Tavily→免key Bing 多级降级）。</div><span class="tag">外部</span></div>
     <div class="card"><div class="ico">❓</div><div class="name"><code>ask_user</code></div><div class="desc">向用户提问澄清（如加入/选用舰船需你确认、条件不足时），并暂停等待。</div><span class="tag">交互</span></div>
     <div class="card"><div class="ico">🛠️</div><div class="name"><code>create_tool</code></div><div class="desc">LLM 自主创建安全工具（语法自检 + LLM 安全审查 + 强制检索知识库）。</div><span class="tag">自建</span></div>
