@@ -191,18 +191,44 @@ const P = new URLSearchParams(location.search);
 const TYPE_NAME = { 2: '指挥策略', 3: '战术技能', 4: '特殊' };
 const SAVE = {};
 
-/* 引擎已支持的 10 项（自动汇总）｜引擎没有的 4 项（手填）｜各自中文名 */
-const GROUP_A = [['hp', '结构值', '%'], ['physResist', '物理抵抗', ''], ['energyResist', '能量抗性', '%'],
-                 ['dmgBonus', '伤害加成', '%'], ['crit', '暴击', '%'], ['lockReduction', '锁定减免', '%'],
-                 ['cooldownReduction', '冷却减免', '%'], ['singleDmg', '单发伤害', '%'],
-                 ['evasion', '闪避', '%'], ['interceptRate', '拦截率', '%']];
-const GROUP_B = [['siege', '攻城伤害', '%'], ['repairBonus', '维修量加成', '%'],
-                 ['hitBonus', '命中加成', '%'], ['hangarBonus', '机库加成', '%']];
-/* H 组：机库专用（只作用于本系统机库里的载机）。目前由已译术语节点提供，也支持手动追加 */
-const GROUP_H = [['hangarCritRate', '机库暴击率', '%'], ['hangarCritDmg', '机库暴击伤害', '%']];
-/* M 组：只作用于【本系统的武器/载机】，不做舰船级汇总（按系统生效） */
-const GROUP_M = ['atkReduction', 'antiIntercept', 'sysDmgReduce', 'positionFix', 'multiTarget',
-                 'hangarModule', 'lockEfficiency', 'denseFire', 'sysIntercept'];
+/* 属性汇总分组。
+   ⚠️ 唯一定义在 _build_bpstats.js，写进 data/blueprint_stats.json 的 groups 字段，这里读它。
+      以前是三个文件各写一份（bpstats / simulator / addpoint），漏改一处就静默失效。 */
+const NO_PCT = ['physResist', 'repairArmor', 'sysHp', 'weaponDuration', 'positionFix'];   // 不是百分比的几项
+const CN_FALLBACK = {
+  hp: '结构值', physResist: '物理抵抗', energyResist: '能量抗性', dmgBonus: '伤害加成', crit: '暴击',
+  critDmg: '暴击伤害', lockReduction: '锁定减免', cooldownReduction: '冷却减免', singleDmg: '单发伤害',
+  evasion: '闪避', interceptRate: '拦截率', atkReduction: '打击间隔缩短', hitBonus: '命中加成',
+  lockEfficiency: '锁定效率', antiIntercept: '反拦截', enemyHitDown: '被命中率下降',
+  aaLockDown: '受防空锁定效率下降', sysDmgReduce: '受系统伤害降低',
+  siege: '攻城伤害', repairEff: '维修效率', repairArmor: '一次性维修装甲',
+  multiTarget: '武器分散打击', denseFire: '密集射击', sysIntercept: '系统内导弹拦截率', positionFix: '站位调整',
+  hangarDmg: '载机伤害', hangarHit: '载机命中', hangarEvasion: '载机闪避', hangarLock: '载机锁定时间',
+  hangarCd: '载机武器冷却', hangarFlight: '载机飞行时间', hangarAaResist: '载机抗防空锁定',
+  hangarCritRate: '机库暴击率', hangarCritDmg: '机库暴击伤害',
+  hangarModuleDmg: '本系统载机伤害', hangarModuleHit: '本系统载机命中', hangarModuleEvasion: '本系统载机闪避',
+  hangarModuleLock: '本系统载机锁定时间', hangarModuleCd: '本系统载机武器冷却', hangarModuleFlight: '本系统载机飞行时间',
+  repairBonus: '维修量加成(手填)', hangarBonus: '机库加成(手填)',
+};
+let GROUP_A = [], GROUP_B = [], GROUP_H = [], GROUP_M = [];
+function buildGroups() {
+  const G = (STATS && STATS.groups) || null;
+  const L = Object.assign({}, CN_FALLBACK, (STATS && STATS.labels) || {});
+  const R = k => [k, L[k] || k, (NO_PCT.indexOf(k) >= 0 ? '' : '%')];
+  if (!G) {                                   // 老 stats 文件兜底
+    GROUP_A = ['hp', 'physResist', 'energyResist', 'dmgBonus', 'crit', 'lockReduction', 'cooldownReduction',
+               'singleDmg', 'evasion', 'interceptRate'].map(R);
+    GROUP_B = ['siege', 'repairBonus', 'hitBonus', 'hangarBonus'].map(R);
+    GROUP_H = ['hangarCritRate', 'hangarCritDmg'].map(R);
+    GROUP_M = ['atkReduction', 'antiIntercept', 'sysDmgReduce', 'positionFix', 'multiTarget',
+               'hangarModule', 'lockEfficiency', 'denseFire', 'sysIntercept'];
+    return;
+  }
+  GROUP_A = [].concat(G.attack || [], G.defense || []).map(R);
+  GROUP_B = [].concat(G.misc || [], G.hangarModule || []).map(R);
+  GROUP_H = (G.hangar || []).map(R);
+  GROUP_M = [].concat(G.moduleOnly || [], (G.hangar || []).filter(k => /^hangarModule/.test(k)));
+}
 
 let STATS = null;        // data/blueprint_stats.json
 let SYSMAP = null;       // data/blueprint_sysmap.json（系统 ↔ 模块）
@@ -368,8 +394,12 @@ function statPanelHtml() {
       + 'oninput="setManual(\'' + k + '\',this.value)" title="手动追加（例如强化/模组/其它来源）">'
       + '<b>' + total + (u === '%' ? '%' : '') + '</b></div>';
   };
-  /* B 组：引擎没有字段，全靠手填 */
-  const rowB = ([k, cn, u]) => {
+  /* 所有行都是「自动汇总 ＋ 手动追加 ＝ 合计」；
+     少数引擎里没有对应字段的（老的手填位）自动值恒为 0，等于纯手填。 */
+  const rowB = rowA;
+  const HINT_NOAUTO = ['repairBonus', 'hangarBonus'];
+  const rowA2 = ([k, cn, u]) => {
+    if (HINT_NOAUTO.indexOf(k) < 0) return rowA([k, cn, u]);
     const m = num(k);
     return '<div class="srow b' + (m ? ' on' : '') + '">'
       + '<i>' + cn + '</i><span class="auto">手填</span>'
@@ -396,10 +426,11 @@ function statPanelHtml() {
     + (pureRef ? '<span class="tag" style="color:var(--red);border-color:var(--red)">' + pureRef + ' 个无译文</span>' : '')
     + (other ? '<span class="tag">' + other + ' 个属于引擎暂未实现的机制</span>' : '')
     + '</div>'
-    + '<div class="hint" style="margin-bottom:6px">前 10 项＝<b>自动汇总</b>（取所点节点当前等级的数值）<b>＋手动追加</b>；'
-    +   '中间 4 项引擎里没有对应字段，<b>全靠手填</b>；最后 2 项<b>只作用于本舰载机</b>。右边数字是最终合计。</div>'
+    + '<div class="hint" style="margin-bottom:6px">每一行都是 <b>自动汇总</b>（取所点节点当前等级的数值）<b>＋手动追加</b>，右边是最终合计。'
+    +   '第二块含<b>只作用于本系统</b>的项（按模块生效，不进整船合计）；第三块是<b>本舰船机库</b>（作用全舰载机）；'
+    +   '最后两项引擎里没有对应字段，只有手填值有效。</div>'
     + '<div class="sgrid">' + GROUP_A.map(rowA).join('') + '</div>'
-    + '<div class="sgrid" style="margin-top:6px">' + GROUP_B.map(rowB).join('') + '</div>'
+    + '<div class="sgrid" style="margin-top:6px">' + GROUP_B.map(rowA2).join('') + '</div>'
     + '<div class="sgrid" style="margin-top:6px">' + GROUP_H.map(rowA).join('') + '</div>'
     + un.join('')
     + '</div>';
@@ -804,6 +835,7 @@ async function boot() {
       fetch('data/blueprint_sysmap.json', { cache: 'no-cache' }).then(r => r.json()).catch(() => null)
     ]);
     SHIPS = ships; SHIPMAP = map; STATS = stats; SYSMAP = sm;
+    buildGroups();                                   // ★ 分组从 stats.groups 读（唯一来源）
   } catch (e) { $('body').innerHTML = '<div class="warn">读不到加点数据（data/blueprint_ships.json）。请从配队页正常进入，或确认文件存在。</div>'; return; }
 
   /* ---- 舰船搜索：索引在数据载入后建，行为函数在顶层（openShip 也要用） ---- */

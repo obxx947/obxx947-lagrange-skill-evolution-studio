@@ -2275,12 +2275,24 @@
        把所点节点汇总成属性加成，再写进舰队条目。数值取 perLevel[当前等级]（不累加）。
        多参数节点（说明里有 ≥2 个数值位）不硬算，如实报数。 */
     const AP_KEY = 'lagrange_addpoint';
-    const AP_A = ['hp','physResist','energyResist','dmgBonus','crit','lockReduction',
-                  'cooldownReduction','singleDmg','evasion','interceptRate'];
-    const AP_B = ['siege','repairBonus','hitBonus','hangarBonus'];
-    const AP_H = ['hangarCritRate','hangarCritDmg'];   // 机库专用：只作用于本舰载机
-    const AP_M = ['atkReduction','antiIntercept','sysDmgReduce','positionFix','multiTarget',
-                  'hangarModule','lockEfficiency','denseFire','sysIntercept'];   // 只作用于【本系统的武器/载机】
+    /* ⚠️ 分组定义【只在 _build_bpstats.js 里维护一份】，写进 blueprint_stats.json 的 groups 字段，
+       这里和 addpoint.html 都读它 —— 免得"新增属性要同时改三处、漏一处静默失效"。 */
+    let AP_A = ['hp','physResist','energyResist','dmgBonus','crit','lockReduction',
+                'cooldownReduction','singleDmg','evasion','interceptRate'];
+    let AP_B = ['siege','repairBonus','hitBonus','hangarBonus'];      // 舰船级（含老的手填位）
+    let AP_H = ['hangarCritRate','hangarCritDmg'];                    // 机库：本舰船所有载机
+    let AP_M = ['atkReduction','antiIntercept','sysDmgReduce','positionFix','multiTarget',
+                'hangarModule','lockEfficiency','denseFire','sysIntercept'];   // 只作用于【本系统的武器/载机】
+    /* 旧版属性名 → 新拆分后的属性名（老存档/老 stats 文件也能跑） */
+    const AP_ALIAS = { hangarModule: 'hangarModuleDmg', hangarBonus: 'hangarDmg', repairBonus: 'repairEff' };
+    function buildApGroups() {
+        const G = BP_STATS && BP_STATS.groups;
+        if (!G) return;                                   // 没有 groups 字段 → 用上面的兜底常量
+        AP_A = [].concat(G.attack || [], G.defense || []);
+        AP_B = [].concat(G.misc || [], G.manual || ['siege','repairBonus','hitBonus','hangarBonus']);
+        AP_H = G.hangar || [];
+        AP_M = [].concat(G.moduleOnly || [], G.hangarModule || []);
+    }
     let BP_MAP = null, BP_STATS = null, BP_SYSMAP = null, BP_COMPANY = null, BP_TREE = {};
 
     /* 一次性把加点相关数据都读进来（含"哪个系统对哪个模块"、公司、每艘船的加点树） */
@@ -2294,6 +2306,7 @@
                 fetch('data/blueprint_company.json', {cache:'no-cache'}).then(r=>r.json()).catch(()=>({}))
             ]);
             BP_MAP = m; BP_STATS = s; BP_SYSMAP = sm; BP_COMPANY = cp;
+            buildApGroups();                          // ★ 分组从 stats.groups 读（唯一来源）
             return true;
         } catch(e) { return false; }
     }
@@ -2341,6 +2354,11 @@
             }
             return shipB;                            // 舰船级 / 未匹配 → 落到舰船级（保守）
         };
+        const alias = k => (AP_ALIAS[k] || k);       // 旧属性名 → 新名
+        /* 「本舰船机库内…」= 整艘船所有载机，不受系统↔模块映射影响，必须走舰船级 */
+        const HANGAR_SHIP = new Set([].concat(
+            (BP_STATS.groups && BP_STATS.groups.hangar) || [],
+            ['hangarCritRate', 'hangarCritDmg', 'hangarBonus']));
         Object.keys(ap.lv).forEach(nid => {
             const L = ap.lv[nid]; if(!L || L <= 0) return;
             const st = BP_STATS.nodes[nid]; if(!st || st.empty) return;
@@ -2348,20 +2366,30 @@
                 const m = sysMap ? sysMap[nodeSys[nid]] : null;
                 return !!(m && m.scope === 'module');
             })();
+            const isShipScope = (() => {
+                const m = sysMap ? sysMap[nodeSys[nid]] : null;
+                return !!(m && m.scope === 'ship');
+            })();
             const tgt = bucketFor(nodeSys[nid]);
-            if(st.statMap) {                          // 已译术语节点：一条写多个属性
+            /* 「本舰船机库内…」说的是【整艘船所有载机】，不管这个系统在映射表里对到哪个模块，
+               都必须走舰船级 —— 否则会被那个模块的桶吃掉，只有该模块的载机吃到（v4 踩过的坑）。 */
+            const shipTgt = (k) => HANGAR_SHIP.has(k) ? shipB : tgt;
+            if(st.statMap) {                          // 一条说明同时写多个属性
                 let any = false;
-                Object.keys(st.statMap).forEach(k => {
-                    const v = st.statMap[k][L];
-                    if(typeof v === 'number'){ tgt[k] = (tgt[k]||0) + v; any = true; }
+                Object.keys(st.statMap).forEach(k0 => {
+                    const k = alias(k0);
+                    const v = st.statMap[k0][L];
+                    if(typeof v === 'number'){ shipTgt(k)[k] = (shipTgt(k)[k]||0) + v; any = true; }
                 });
                 if(any) counted++; else skipped++;
                 return;
             }
-            const k = st.stat;
+            const k = alias(st.stat);
             if(AP_M.indexOf(k) >= 0) {
-                // 「系统内」专属：只有对到模块才算数（落到舰船级说明映射没对上 → 如实记为未实现）
-                if(!isModScope) { other++; return; }
+                /* 「系统内」专属：对到模块 → 写进那个模块的桶；
+                   系统本身就判定为【舰船级】→ 写进舰船级（它不是模块武器系统，本来就整船生效）；
+                   完全没归属(null) → 只能记为未实现（不能乱猜是哪个模块的武器）。 */
+                if(!isModScope && !isShipScope) { other++; return; }
                 const v = st.statValues ? st.statValues[L] : (st.multi <= 1 && st.perLevel ? st.perLevel[L] : null);
                 if(typeof v !== 'number') { skipped++; return; }
                 tgt[k] = (tgt[k]||0) + v; counted++;
@@ -2372,13 +2400,17 @@
                 if(st.statValues) v = st.statValues[L];
                 else if(st.multi <= 1) v = st.perLevel ? st.perLevel[L] : null;
                 if(typeof v !== 'number') { skipped++; return; }
-                tgt[k] += v; counted++;
+                const tt = shipTgt(k);
+                tt[k] = (tt[k]||0) + v; counted++;      // ★ 必须累加：一个系统里可能有好几个同类节点
             } else other++;
         });
-        // 手填：A/H 组是"手动追加"（叠加）；B 组引擎没有来源，直接用填的值。手填一律算舰船级。
-        AP_A.forEach(k => { if(typeof ap.manual[k] === 'number') shipB[k] += ap.manual[k]; });
-        AP_H.forEach(k => { if(typeof ap.manual[k] === 'number') shipB[k] += ap.manual[k]; });
-        AP_B.forEach(k => { if(typeof ap.manual[k] === 'number') shipB[k] = ap.manual[k]; });
+        /* 手填（加点页的「+追加」与旧的 4 个手填位）：一律算舰船级，叠加到自动汇总之上 */
+        Object.keys(ap.manual || {}).forEach(k0 => {
+            const v = ap.manual[k0]; if(typeof v !== 'number') return;
+            const k = alias(k0);
+            if(!(k in shipB)) return;                 // 引擎不认识的键忽略
+            shipB[k] += v;
+        });
         const sumM = BLANK();
         Object.keys(byModule).forEach(sk => Object.keys(byModule[sk]).forEach(k => sumM[k] += byModule[sk][k]));
         return {
@@ -2415,25 +2447,53 @@
         s.dmgBonus = (s.dmgBonus||0) + sh.dmgBonus;
         s.evasion = (s.evasion||0) + sh.evasion;
         s.hitBonus = (s.hitBonus||0) + sh.hitBonus;
-        s.repairBonus = (s.repairBonus||0) + sh.repairBonus;
-        s.hangarBonus = (s.hangarBonus||0) + sh.hangarBonus;
+        s.siegeBonus = (s.siegeBonus||0) + sh.siege;
+        /* ★ 被命中率下降：不是"我方命中提升"，是让敌人打我更难（原来 77 个被算反了） */
+        s.enemyHitDown = (s.enemyHitDown||0) + sh.enemyHitDown;
+        s.aaLockDown = (s.aaLockDown||0) + sh.aaLockDown;      // 受敌方防空锁定效率影响下降
+        s.lockEfficiency = (s.lockEfficiency||0) + sh.lockEfficiency;   // 加点给的舰船级锁定效率
+        s.atkReduction = (s.atkReduction||0) + sh.atkReduction;
+        s.antiIntercept = (s.antiIntercept||0) + sh.antiIntercept;
+        s.multiTarget = (s.multiTarget||0) + sh.multiTarget;
+        /* 维修：效率(%) 与 一次性维修装甲(点数) 是两回事，不能混 */
+        s.repairBonus = (s.repairBonus||0) + (sh.repairEff || 0) + (sh.repairBonus || 0);
+        s.repairArmor = (s.repairArmor||0) + (sh.repairArmor||0);
+        /* 本舰船机库（作用全舰载机）：细分效果各走各的，不再全塞进 dmgBonus */
+        s.hangarDmg     = (s.hangarDmg||0)     + (sh.hangarDmg || 0)     + (sh.hangarBonus || 0);
+        s.hangarHit     = (s.hangarHit||0)     + (sh.hangarHit || 0)     + (sh.hangarBonus || 0);
+        s.hangarEvasion = (s.hangarEvasion||0) + (sh.hangarEvasion || 0);
+        s.hangarLockRed = (s.hangarLockRed||0) + (sh.hangarLock || 0);   // 载机锁定目标时间缩短
+        s.hangarCdRed   = (s.hangarCdRed||0)   + (sh.hangarCd || 0);     // 载机武器冷却缩短
+        s.hangarFlight  = (s.hangarFlight||0)  + (sh.hangarFlight || 0);
+        s.hangarAaResist= (s.hangarAaResist||0)+ (sh.hangarAaResist || 0);
         s.hangarCritRate = (s.hangarCritRate||0) + (sh.hangarCritRate||0);
         s.hangarCritDmg  = (s.hangarCritDmg||0)  + (sh.hangarCritDmg||0);
-        s.siegeBonus = (s.siegeBonus||0) + sh.siege;
         // 拦截率（加点里"系统内导弹获得拦截率"也算进来）
         let sysInt = 0;
         Object.keys(b.byModule).forEach(k => { sysInt += (b.byModule[k].sysIntercept || 0); });
         const intRate = (s.interceptRate||0) + (sh.interceptRate||0) + sysInt;
         if(intRate > 0) { s.interceptRate = intRate; s.interceptType = s.interceptType || 'sameRow'; }
-        // 受系统伤害降低 / 模块机库
+        // 受系统伤害降低
         Object.keys(b.byModule).forEach(k => {
             const g = b.byModule[k];
             if(g.sysDmgReduce) s.sysDmgReduce = Math.max(s.sysDmgReduce||0, g.sysDmgReduce);
         });
+        /* ★ 本系统机库（作用该模块机位上的载机）：按效果分桶存，部署载机时逐架取 */
         if(Object.keys(b.byModule).length) {
             s.hangarByModule = s.hangarByModule || {};
             Object.keys(b.byModule).forEach(k => {
-                if(b.byModule[k].hangarModule) s.hangarByModule[k] = (s.hangarByModule[k]||0) + b.byModule[k].hangarModule;
+                const g = b.byModule[k];
+                const o = s.hangarByModule[k] = s.hangarByModule[k] || {};
+                // 兼容旧字段名 hangarModule（旧 stats 文件里一个桶装全部）
+                o.dmg     = (o.dmg||0)     + (g.hangarModuleDmg || g.hangarModule || 0);
+                o.hit     = (o.hit||0)     + (g.hangarModuleHit || 0);
+                o.evasion = (o.evasion||0) + (g.hangarModuleEvasion || 0);
+                o.lockRed = (o.lockRed||0) + (g.hangarModuleLock || 0);
+                o.cdRed   = (o.cdRed||0)   + (g.hangarModuleCd || 0);
+                o.flight  = (o.flight||0)  + (g.hangarModuleFlight || 0);
+                o.critRate= (o.critRate||0)+ (g.hangarModuleCritRate || 0);
+                o.critDmg = (o.critDmg||0) + (g.hangarModuleCritDmg || 0);
+                if(!o.dmg && !o.hit && !o.evasion && !o.lockRed && !o.cdRed && !o.flight && !o.critRate && !o.critDmg) delete s.hangarByModule[k];
             });
         }
         // 机制类：优先打击 / 协同指挥 / 三种打击 / 掩护 / 周期爆发
@@ -3212,23 +3272,44 @@
                         acInst.position = 'aircraft';
                         acInst.isEscort = !!ship.isEscort;
                         acInst.isEscorted = !!ship.isEscorted;
-                        // 母舰「机库加成」→ 本舰载机（加点里"本舰船机库内载机/无人机伤害/命中提升"）
-                        let hb = ship.hangarBonus || 0;
-                        // 模块级机库（「本系统机库内载机…」）：只看这架载机所在位属于哪个模块
+                        /* 母舰的机库加成 → 本架载机。
+                           本舰船机库 = 全舰载机都吃；本系统机库 = 只有该模块机位上的载机吃。
+                           ⚠️ 必须按【效果】分开：伤害/命中/闪避/锁定/冷却/飞行时间是 6 件不同的事，
+                              原来全塞进一个 hangarBonus 再当 dmg+hit 用是错的。 */
+                        const acc = {
+                            dmg: ship.hangarDmg || 0, hit: ship.hangarHit || 0,
+                            evasion: ship.hangarEvasion || 0, lockRed: ship.hangarLockRed || 0,
+                            cdRed: ship.hangarCdRed || 0, flight: ship.hangarFlight || 0,
+                            critRate: ship.hangarCritRate || 0, critDmg: ship.hangarCritDmg || 0
+                        };
                         if(ship.hangarByModule && ac.slot){
                             const mvar = String(ac.slot).split('|')[0];      // 如 'M1'
                             Object.keys(ship.hangarByModule).forEach(sk => {
                                 const parts = sk.split('_');                 // 如 'M_M1'
-                                if((parts[1] || parts[0]) === mvar) hb += ship.hangarByModule[sk];
+                                if((parts[1] || parts[0]) === mvar){
+                                    const g = ship.hangarByModule[sk] || {};
+                                    acc.dmg += g.dmg || 0; acc.hit += g.hit || 0;
+                                    acc.evasion += g.evasion || 0; acc.lockRed += g.lockRed || 0;
+                                    acc.cdRed += g.cdRed || 0; acc.flight += g.flight || 0;
+                                    acc.critRate += g.critRate || 0; acc.critDmg += g.critDmg || 0;
+                                }
                             });
                         }
-                        if(hb){
-                            acInst.dmgBonus = (acInst.dmgBonus||0) + hb;
-                            acInst.hitBonus = (acInst.hitBonus||0) + hb;
-                            acInst.hangarBonus = hb;
+                        if(acc.dmg) acInst.dmgBonus = (acInst.dmgBonus||0) + acc.dmg;
+                        if(acc.hit) acInst.hitBonus = (acInst.hitBonus||0) + acc.hit;
+                        if(acc.evasion) acInst.evasion = (acInst.evasion||0) + acc.evasion;
+                        acInst.hangarBonus = acc.dmg + acc.hit;              // 兼容旧字段
+                        if(acc.lockRed || acc.cdRed || acc.flight){
+                            (acInst.weaponStates||[]).forEach(ws => {
+                                ws.strengthen = ws.strengthen || {};
+                                if(acc.lockRed) ws.strengthen.lockTimeReduction = (ws.strengthen.lockTimeReduction||0) + acc.lockRed;
+                                if(acc.cdRed)   ws.strengthen.cooldownReduction  = (ws.strengthen.cooldownReduction||0) + acc.cdRed;
+                                if(acc.flight)  ws.strengthen.flightTimeReduction= (ws.strengthen.flightTimeReduction||0) + acc.flight;
+                            });
                         }
                         // 母舰「机库暴击」→ 本舰载机的每一门武器（如苍穹 M1「协同打击」50%概率200%暴击）
-                        const hcr = ship.hangarCritRate || 0, hcd = ship.hangarCritDmg || 0;
+                        // ★ 本舰船机库 + 本系统机库 两处都要累加，且【按该载机所在模块】取
+                        const hcr = acc.critRate, hcd = acc.critDmg;
                         if(hcr || hcd){
                             acInst.hangarCritRate = hcr; acInst.hangarCritDmg = hcd;
                             (acInst.weaponStates||[]).forEach(ws => {
@@ -3515,9 +3596,10 @@
                 ws.atkRemaining -= dt;
                 ws.batchTimer += dt;
                 // 「打击间隔缩短」：直接缩短攻击持续（批次间隔 = 持续/批数）
-                const atkDur = (w.atkDuration || 1) * (1 - Math.min(95, ((ws.strengthen||{}).atkReduction||0) + (ws.burstCut||0))/100);
+                const atkDur = (w.atkDuration || 1) * (1 - Math.min(95, ((ws.strengthen||{}).atkReduction||0) + (ship.atkReduction||0) + (ws.burstCut||0))/100);
                 const batchInterval = Math.max(0.01, atkDur / ws.totalBatches);
-                const mtN = ((ws.strengthen||{}).multiTarget || 0) > 0 ? Math.floor((ws.strengthen||{}).multiTarget) : 0;
+                const _mt = ((ws.strengthen||{}).multiTarget || 0) + (ship.multiTarget || 0);
+                const mtN = _mt > 0 ? Math.floor(_mt) : 0;
                 while(ws.batchTimer >= batchInterval && ws.batchesRemaining > 0) {
                     ws.batchTimer -= batchInterval;
                     const shotsPerBatch = Math.ceil(ws.shotsRemaining / ws.batchesRemaining);
@@ -3661,11 +3743,13 @@
             }
         }
         let hitRate = (hitMin + Math.random() * (hitMax - hitMin)) / 100;
-        // 命中 = 基础命中 × (1 + 命中加成 + 武器锁定效率 − 敌方闪避)（战斗机制.txt）
+        // 命中 = 基础命中 × (1 + 命中加成 + 武器锁定效率 − 敌方闪避 − 敌方"被命中率下降")
         const evasion = target.evasion || 0;
-        const lockEff = (weapon.lockEfficiency || 0) + (((ws || {}).strengthen || {}).lockEfficiency || 0);  // 武器自带 + 加点「锁定效率」
+        const lockEff = (weapon.lockEfficiency || 0) + (((ws || {}).strengthen || {}).lockEfficiency || 0) + (attacker.lockEfficiency || 0);  // 武器自带 + 加点(系统级/舰船级)「锁定效率」
         const hitBonus = (attacker.hitBonus || 0) + (((ws || {}).strengthen || {}).hitBonus || 0);  // 舰船级 + 本武器所属系统
-        hitRate *= (1 + (hitBonus + lockEff - evasion) / 100);
+        // ★「被XX命中率下降」是【被打的一方】让对手更难命中自己，必须减在受方（原来被当成攻方命中加成，方向反了）
+        const ehd = target.enemyHitDown || 0;
+        hitRate *= (1 + (hitBonus + lockEff - evasion - ehd) / 100);
         hitRate = clamp(hitRate, 0.01, 0.99);
 
         // Bomb distance effect
@@ -3694,7 +3778,7 @@
             });
 
             // 反拦截：本武器所属模块的「被拦截率下降」直接削总拦截概率（机制文档：最终拦截 ×(1-反拦截)）
-            const ai = (ws.strengthen || {}).antiIntercept || 0;
+            const ai = ((ws.strengthen || {}).antiIntercept || 0) + (attacker.antiIntercept || 0);
             const interceptProb = (1 - noIntercept) * (1 - Math.min(100, ai) / 100);
             if(Math.random() < interceptProb) {
                 if(Math.random() < 0.1) addBattleLog('info', `${attacker.name||attacker.id} 攻击被拦截`);
