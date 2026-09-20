@@ -20,6 +20,19 @@ body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#
 .topctl{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:9px 11px;margin-bottom:8px}
 .topctl select{flex:1;min-width:150px;background:rgba(0,0,0,.35);border:1px solid var(--border);border-radius:8px;color:var(--t1);padding:7px 9px;font-size:0.74rem;font-family:inherit;outline:none}
 .topctl select:focus{border-color:var(--cyan)}
+/* ---- 舰船搜索框 ---- */
+.shipPick{position:relative;flex:1;min-width:210px}
+.shipPick input{width:100%;background:rgba(0,0,0,.35);border:1px solid var(--border);border-radius:8px;color:var(--t1);padding:7px 9px;font-size:0.74rem;font-family:inherit;outline:none}
+.shipPick input:focus{border-color:var(--cyan)}
+.shipPick input::placeholder{color:var(--t3)}
+.shipDrop{display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;max-height:360px;overflow-y:auto;background:var(--card);border:1px solid var(--cyan);border-radius:10px;z-index:200;box-shadow:0 14px 34px rgba(0,0,0,.65)}
+.shipDrop.show{display:block}
+.shipDrop .grp{font-size:0.58rem;color:var(--t3);letter-spacing:1px;padding:7px 10px 3px;position:sticky;top:0;background:var(--card);border-bottom:1px solid rgba(45,74,111,.4)}
+.shipDrop .it{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;font-size:0.72rem;color:var(--t2);cursor:pointer}
+.shipDrop .it:hover,.shipDrop .it.on{background:rgba(0,212,255,.14);color:#fff}
+.shipDrop .it b{font-weight:400;color:var(--t3);font-size:0.6rem;flex:0 0 auto}
+.shipDrop .it.cur b{color:var(--cyan)}
+.shipDrop .none{padding:12px;font-size:0.7rem;color:var(--t3);text-align:center}
 .cost{display:flex;align-items:center;gap:5px;background:rgba(0,212,255,.1);border:1px solid var(--cyan);border-radius:9px;padding:6px 10px;white-space:nowrap}
 .cost i{font-style:normal;font-size:0.6rem;color:var(--t2)}
 .cost b{font-size:0.9rem;color:var(--cyan)}
@@ -136,7 +149,10 @@ body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#
 
 <div class="wrap">
     <div class="topctl">
-        <select id="shipSel"></select>
+        <div class="shipPick">
+            <input id="shipSearch" type="text" placeholder="🔍 搜索舰船：名字 / 拼音 / 编号" autocomplete="off" spellcheck="false">
+            <div id="shipDrop" class="shipDrop"></div>
+        </div>
         <div class="cost"><span class="hex"></span><i>总计使用技术值</i><b id="totalCost">0</b></div>
         <button class="btn red" onclick="resetAll()">重置</button>
         <button class="btn green" onclick="saveBuild()">💾 保存方案</button>
@@ -223,6 +239,7 @@ function visibleSysIdx() {
 let SHIPS = [];          // 全部有加点数据的舰船
 let SHIPMAP = null;      // slug → cdnId
 let ship = null;         // 当前船（加点树）
+let curId = '';          // 当前船的官方编号（搜索框高亮用）
 let sysIdx = 0;
 let lv = {};             // nodeId → 等级
 let selNode = null;      // 当前选中（显示说明）的节点
@@ -659,6 +676,113 @@ function importCode() {
   } catch (e) { toast('配置码无法解析', 'err'); }
 }
 
+/* ---------- 舰船搜索 ----------
+   支持三种查法：中文名子串 / 拼音连打（sha long → shalong）/ 拼音首字母（sl）/ 官方编号（10201）。
+   命中结果按舰种分组，↑↓ 选、Enter 确认、Esc 取消。 */
+const KIND = { 1: '战机', 2: '护航艇', 3: '护卫舰', 4: '驱逐舰', 5: '巡洋舰', 6: '战巡', 7: '支援舰', 8: '航母', 9: '战列舰' };
+const S_NAME = {}, S_PY = {}, S_ABBR = {};
+let dropIdx = -1, dropList = [];
+
+/* 拼音音节表：用来把 shalong 切成 sha|long → 取首字母 sl。
+   没有音节表的话只能按 `-` 分段取首字母，砂龙会变成 sd（错），所以要切开。 */
+const PY_SYL = new Set(('a ai an ang ao ba bai ban bang bao bei ben beng bi bian biao bie bin bing bo bu ' +
+  'ca cai can cang cao ce cen ceng cha chai chan chang chao che chen cheng chi chong chou chu chua chuai chuan chuang chui chun chuo ci cong cou cu cuan cui cun cuo ' +
+  'da dai dan dang dao de dei deng di dian diao die ding diu dong dou du duan dui dun duo ' +
+  'e ei en eng er fa fan fang fei fen feng fo fou fu ' +
+  'ga gai gan gang gao ge gei gen geng gong gou gu gua guai guan guang gui gun guo ' +
+  'ha hai han hang hao he hei hen heng hong hou hu hua huai huan huang hui hun huo ' +
+  'ji jia jian jiang jiao jie jin jing jiong jiu ju juan jue jun ' +
+  'ka kai kan kang kao ke ken keng kong kou ku kua kuai kuan kuang kui kun kuo ' +
+  'la lai lan lang lao le lei leng li lia lian liang liao lie lin ling liu long lou lu luan lun luo lv lve ' +
+  'ma mai man mang mao me mei men meng mi mian miao mie min ming miu mo mou mu ' +
+  'na nai nan nang nao ne nei nen neng ni nian niang niao nie nin ning niu nong nou nu nuan nuo nv nve ' +
+  'o ou pa pai pan pang pao pei pen peng pi pian piao pie pin ping po pou pu ' +
+  'qi qia qian qiang qiao qie qin qing qiong qiu qu quan que qun ' +
+  'ran rang rao re ren reng ri rong rou ru ruan rui run ruo ' +
+  'sa sai san sang sao se sen seng sha shai shan shang shao she shen sheng shi shou shu shua shuai shuan shuang shui shun shuo si song sou su suan sui sun suo ' +
+  'ta tai tan tang tao te teng ti tian tiao tie ting tong tou tu tuan tui tun tuo ' +
+  'wa wai wan wang wei wen weng wo wu ' +
+  'xi xia xian xiang xiao xie xin xing xiong xiu xu xuan xue xun ' +
+  'ya yan yang yao ye yi yin ying yo yong you yu yuan yue yun ' +
+  'za zai zan zang zao ze zei zen zeng zha zhai zhan zhang zhao zhe zhen zheng zhi zhong zhou zhu zhua zhuai zhuan zhuang zhui zhun zhuo zi zong zou zu zuan zui zun zuo').split(' '));
+
+function pyInitials(s) {
+  s = String(s || '').toLowerCase().replace(/[^a-z]/g, '');
+  let out = '', i = 0;
+  while (i < s.length) {
+    let hit = '';
+    for (let L = Math.min(6, s.length - i); L >= 1; L--) { const t = s.substr(i, L); if (PY_SYL.has(t)) { hit = t; break; } }
+    if (!hit) hit = s[i];                    // 切不出来的当单字母
+    out += hit[0]; i += hit.length;
+  }
+  return out;
+}
+function buildShipIndex() {
+  SHIPS.forEach(s => {
+    S_NAME[s.id] = String(s.name || '').toLowerCase();
+    const py = String(s.namePinyin || '').toLowerCase();
+    S_PY[s.id] = py.replace(/[^a-z0-9]/g, '');
+    // 首字母：先按拼音里的 `-` 分段，每段再切音节取首字母（砂龙 → shalong → sl）
+    S_ABBR[s.id] = py.split(/[^a-z]+/).filter(Boolean).map(pyInitials).join('')
+                 + py.replace(/[a-z]/g, '').replace(/[^0-9]/g, '');   // 型号里的数字也留一份
+  });
+}
+function shipHit(q) {
+  const raw = q.trim().toLowerCase();
+  if (!raw) return SHIPS.slice();
+  const qp = raw.replace(/[^a-z0-9\u4e00-\u9fa5]/g, '');
+  return SHIPS.filter(s => S_NAME[s.id].indexOf(raw) >= 0 || String(s.id).indexOf(raw) >= 0
+    || (qp && (S_PY[s.id].indexOf(qp) >= 0 || S_ABBR[s.id].indexOf(qp) >= 0)));
+}
+function renderDrop(q) {
+  dropList = shipHit(q);
+  dropIdx = dropList.length ? 0 : -1;
+  const dd = $('shipDrop');
+  if (!dropList.length) { dd.innerHTML = '<div class="none">没找到匹配的舰船</div>'; dd.classList.add('show'); return; }
+  let html = '', last = null;
+  dropList.forEach((s, i) => {
+    if (s.shipType !== last) { last = s.shipType; html += '<div class="grp">' + (KIND[last] || '其他') + '</div>'; }
+    html += '<div class="it' + (i === 0 ? ' on' : '') + (String(s.id) === String(curId) ? ' cur' : '') + '" data-i="' + i + '">'
+          + '<span>' + esc(s.name) + '</span><b>#' + s.id + '</b></div>';
+  });
+  dd.innerHTML = html;
+  dd.classList.add('show');
+  dd.querySelectorAll('.it').forEach(el => {
+    el.onmousedown = ev => { ev.preventDefault(); pickDrop(+el.dataset.i); };
+  });
+}
+function pickDrop(i) {
+  const s = dropList[i]; if (!s) return;
+  closeDrop();
+  if (String(s.id) !== String(curId)) openShip(s.id); else syncSearchBox();
+  $('shipSearch').blur();
+}
+function closeDrop() { $('shipDrop').classList.remove('show'); dropIdx = -1; }
+function moveDrop(d) {
+  if (!$('shipDrop').classList.contains('show')) return;
+  const its = $('shipDrop').querySelectorAll('.it'); if (!its.length) return;
+  dropIdx = (dropIdx + d + its.length) % its.length;
+  its.forEach((el, i) => el.classList.toggle('on', i === dropIdx));
+  its[dropIdx].scrollIntoView({ block: 'nearest' });
+}
+function syncSearchBox() {
+  const cs = SHIPS.find(s => String(s.id) === String(curId));
+  $('shipSearch').value = cs ? cs.name : '';
+}
+function wireSearchBox() {
+  const si = $('shipSearch');
+  si.onfocus = () => { si.select(); renderDrop(''); };
+  si.oninput = () => renderDrop(si.value);
+  si.onkeydown = ev => {
+    if (ev.key === 'ArrowDown') { ev.preventDefault(); moveDrop(1); }
+    else if (ev.key === 'ArrowUp') { ev.preventDefault(); moveDrop(-1); }
+    else if (ev.key === 'Enter') { ev.preventDefault(); if (dropIdx >= 0) pickDrop(dropIdx); }
+    else if (ev.key === 'Escape') { closeDrop(); syncSearchBox(); si.blur(); }
+  };
+  document.addEventListener('mousedown', ev => { if (!ev.target.closest('.shipPick')) closeDrop(); });
+  document.addEventListener('keydown', ev => { if (ev.key === 'Escape') closeDrop(); });
+}
+
 /* ---------- 启动 ---------- */
 function ctxLine() {
   const nm = P.get('name') || (ship && ship.shipName) || '';
@@ -682,8 +806,10 @@ async function boot() {
     SHIPS = ships; SHIPMAP = map; STATS = stats; SYSMAP = sm;
   } catch (e) { $('body').innerHTML = '<div class="warn">读不到加点数据（data/blueprint_ships.json）。请从配队页正常进入，或确认文件存在。</div>'; return; }
 
-  const sel = $('shipSel');
-  sel.innerHTML = SHIPS.map(s => '<option value="' + s.id + '">' + esc(s.name) + '</option>').join('');
+  /* ---- 舰船搜索：索引在数据载入后建，行为函数在顶层（openShip 也要用） ---- */
+  buildShipIndex();
+  syncSearchBox(); closeDrop();
+  wireSearchBox();
 
   // 从配队页进来：把 slug 换成 CDN 编号
   const slug = P.get('ship');
@@ -696,8 +822,6 @@ async function boot() {
     if (nm) { const f = SHIPS.find(s => s.name === nm || s.name.indexOf(nm) >= 0); if (f) { want = String(f.id); matched = true; } }
   }
   if (!want) want = String(SHIPS[0].id);
-  sel.value = want;
-  sel.onchange = () => openShip(sel.value);
 
   // 只有在「确实没有这艘船的加点数据」时才警告——按名字找回来的不算
   if (slug && !matched) {
@@ -710,7 +834,8 @@ async function boot() {
 
 async function openShip(cdnId) {
   if (!SHIPS.some(s => String(s.id) === String(cdnId))) cdnId = String(SHIPS[0].id);
-  $('shipSel').value = cdnId;
+  curId = String(cdnId);
+  syncSearchBox(); closeDrop();
   try {
     ship = await fetch('data/blueprint/' + cdnId + '.json', { cache: 'no-cache' }).then(r => r.json());
   } catch (e) { $('body').innerHTML = '<div class="warn">读不到 ' + cdnId + '.json</div>'; return; }
