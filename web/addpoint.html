@@ -20,6 +20,14 @@ body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#
 .topctl{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:9px 11px;margin-bottom:8px}
 .topctl select{flex:1;min-width:150px;background:rgba(0,0,0,.35);border:1px solid var(--border);border-radius:8px;color:var(--t1);padding:7px 9px;font-size:0.74rem;font-family:inherit;outline:none}
 .topctl select:focus{border-color:var(--cyan)}
+/* ---- 二选一：同位置多选项合成一张卡 + 右上角切换器 ---- */
+.node.alt{border-color:var(--gold)}
+.node.alt .altsw{position:absolute;top:3px;right:3px;display:flex;gap:3px;z-index:2}
+.node.alt .altsw .altdot{width:15px;height:15px;border-radius:50%;background:rgba(0,0,0,.55);border:1px solid var(--border);
+  color:var(--t3);font-size:0.5rem;line-height:13px;text-align:center;cursor:pointer;font-weight:700}
+.node.alt .altsw .altdot:hover{border-color:var(--cyan);color:#fff}
+.node.alt .altsw .altdot.on{background:var(--gold);border-color:var(--gold);color:#1a2332}
+.node.alt .minus{right:auto;left:3px}
 /* ---- 舰船搜索框 ---- */
 .shipPick{position:relative;flex:1;min-width:210px}
 .shipPick input{width:100%;background:rgba(0,0,0,.35);border:1px solid var(--border);border-radius:8px;color:var(--t1);padding:7px 9px;font-size:0.74rem;font-family:inherit;outline:none}
@@ -295,6 +303,41 @@ function slotFull(sys) { return slotUsed(sys) >= (sys.enhanceLimit || 99); }
 /* 点了但前置没满足的（换了配置/导入后可能出现）——不阻止显示，只提示 */
 function brokenNodes(sys) { return sys.nodes.filter(n => nodeLv(n.id) > 0 && !isEmptyNode(n) && !parentsOk(n)); }
 
+/* ---------- 二选一 ----------
+   游戏数据里同一位置（position 完全相同）会有 2 个节点，靠 priorty 区分（1 / 2）——
+   两个都在就能选一个，不能同时拥有。全库 39 组（31 艘船）。
+   判据来自游戏数据自带字段 priorty；无名的空槽组不用管。 */
+let altShow = {};                                  // posKey → 当前展示的 nodeId
+function altKey(sys, n) { return (sys && sys.sysId) + ':' + (n.position || []).join(','); }
+/* 同位置同系统的全部选项（按 priorty 排序） */
+function altsOf(sys, n) {
+  if (!sys || !n || !(n.priorty > 0)) return [];
+  const pos = (n.position || []).join(',');
+  return sys.nodes.filter(x => x.priorty > 0 && !isEmptyNode(x) && (x.position || []).join(',') === pos)
+                  .sort((a, b) => a.priorty - b.priorty);
+}
+/* 这一组里"当前显示"的那个：已加点的优先，其次看用户上次切到的，最后取 priorty 最小的 */
+function altCurrent(sys, group) {
+  if (!group.length) return null;
+  const leveled = group.find(x => nodeLv(x.id) > 0);
+  if (leveled) return leveled;
+  const want = altShow[altKey(sys, group[0])];
+  return group.find(x => x.id === want) || group[0];
+}
+/* 切到同位置的另一个选项：把当前那个的点数全部退回 */
+function switchAlt(nodeId) {
+  const sys = curSys(); if (!sys) return;
+  const n = sys.nodes.find(x => x.id === nodeId); if (!n) return;
+  const g = altsOf(sys, n); if (g.length < 2) return;
+  const others = g.filter(x => x.id !== n.id);
+  let cleared = 0;
+  others.forEach(x => { if (nodeLv(x.id) > 0) { delete lv[x.id]; cleared++; } });
+  altShow[altKey(sys, n)] = n.id;
+  selNode = n;
+  persist(); render();
+  toast('二选一 → 「' + (n.name || '') + '」' + (cleared ? '（已退回原来那个的点数）' : ''));
+}
+
 function totalCost() {
   if (!ship) return 0;
   let t = 0;
@@ -314,6 +357,14 @@ function addPoint(id) {
   if (isMax(n)) { toast('已经满了', 'err'); return; }
   if (nodeLv(n.id) === 0 && slotFull(sys)) {
     toast('「' + (sys.sysName || sys.sysLabel) + '」的 ' + sys.enhanceLimit + ' 个槽位已用完', 'err'); return;
+  }
+  /* ★ 二选一：同位置只能有一个。点了这个，把同位置另一个的点数退掉。 */
+  const grp = altsOf(sys, n);
+  if (grp.length > 1) {
+    const dropped = [];
+    grp.filter(x => x.id !== n.id).forEach(x => { if (nodeLv(x.id) > 0) { delete lv[x.id]; dropped.push(x.name || x.labelName || ''); } });
+    if (dropped.length) toast('二选一：已取消「' + dropped.join('、') + '」');
+    altShow[altKey(sys, n)] = n.id;
   }
   const c = nextCost(n);
   lv[n.id] = nodeLv(n.id) + 1;
@@ -524,6 +575,39 @@ function boardHtml(s) {
   });
 
   const nodes = s.nodes.map(n => {
+    /* ★ 二选一：同位置多选项合成一张卡。不是"当前展示"的那个就跳过（位置重叠，画了也看不见） */
+    const grp = altsOf(s, n);
+    if (grp.length > 1) {
+      const cur = altCurrent(s, grp);
+      if (!cur || cur.id !== n.id) return '';
+      const p0 = at(n);
+      const L0 = nodeLv(n.id), mx0 = n.maxLevel || 1;
+      const ok0 = unlocked(n), full0 = slotFull(s);
+      const others = grp.filter(x => x.id !== n.id);
+      const anyOtherLv = others.some(x => nodeLv(x.id) > 0);
+      let cls0 = 'node alt';
+      if (!ok0) cls0 += ' locked';
+      else if (L0 > 0) cls0 += (L0 >= mx0 ? ' max' : ' has');
+      else cls0 += ' avail';
+      const badge0 = n.type ? '<span class="tbadge t' + n.type + '" title="' + (TYPE_NAME[n.type] || '') + '">' + (n.type === 2 ? '策' : n.type === 3 ? '⬆' : '★') + '</span>' : '';
+      const minus0 = L0 > 0 ? '<span class="minus" onclick="event.stopPropagation();subPoint(' + n.id + ')" title="退一级">−</span>' : '';
+      /* 切换器：把同位置的其它选项列成小圆点，点哪个切哪个 */
+      const sw = grp.map((x, i) =>
+        '<span class="altdot' + (x.id === n.id ? ' on' : '') + '" title="' + esc(x.name || '') + (nodeLv(x.id) > 0 ? '（已加点）' : '') +
+        '" onclick="event.stopPropagation();switchAlt(' + x.id + ')">' + (i + 1) + '</span>').join('');
+      let ft0;
+      if (L0 > 0) ft0 = L0 + '/' + mx0;
+      else if (!ok0) ft0 = '🔒';
+      else { const c0 = nextCost(n); ft0 = c0 === null ? '—' : (c0 === 0 ? '免费' : '<span class="hex" style="width:8px;height:9px"></span> ' + c0); }
+      return '<div class="' + cls0 + '" style="left:' + p0.x + 'px;top:' + p0.y + 'px;width:' + NODE_W + 'px;height:' + NODE_H + 'px"'
+        + ' onclick="addPoint(' + n.id + ')" title="二选一：' + grp.map(x => esc(x.name || '')).join(' ／ ') + '">'
+        + badge0 + minus0
+        + '<div class="altsw">' + sw + '</div>'
+        + '<div class="lb">' + esc(n.labelName || '·') + '</div>'
+        + '<div class="nm">' + esc(n.name || '') + '</div>'
+        + '<div class="ft">' + ft0 + '</div>'
+        + '</div>';
+    }
     const p = at(n);
     const L = nodeLv(n.id), mx = n.maxLevel || 1;
     const empty = isEmptyNode(n), ok = unlocked(n), full = slotFull(s);
@@ -555,7 +639,7 @@ function boardHtml(s) {
     +   '<span class="n">' + used + '/' + lim + '</span>'
     +   (s.isWeaponSystem ? '<span class="tag" style="font-size:.56rem;border:1px solid var(--border);border-radius:6px;padding:1px 6px;color:var(--t2)">武器系统</span>' : '')
     +   '<span style="flex:1"></span>'
-    +   '<span class="hint">点节点加点 · 右上角 − 退一级 · 灰=前置没开</span>'
+    +   '<span class="hint">点节点加点 · 右上角 − 退一级 · 灰=前置没开' + (s.nodes.some(n => altsOf(s, n).length > 1) ? ' · <b style="color:var(--gold)">金框=二选一</b>，右上角 ①② 切换（切了会把另一个的点数退回）' : '') + '</span>'
     + '</div>'
     + (bad.length ? '<div class="warn" style="margin-bottom:8px">⚠ ' + bad.length + ' 个已加点的节点前置没满足（'+ bad.map(n => esc(n.labelName || n.name)).join('、') +'），可能是导入的配置来自别的船。</div>' : '')
     + '<div class="scroll"><div class="grid" style="width:' + W + 'px;height:' + H + 'px">'
