@@ -2527,6 +2527,108 @@
             }
         }
     }
+    /* ========== 舰队级机制（多舰队场景） ==========
+       我们的战场有 4 个舰队：敌方护航A / 敌方被护航B / 我方护航C / 我方被护航D。
+       「被多支舰队同时攻击」= 敌方两支都还有存活舰船（被护航舰队被摧毁前一般先打护航舰队，
+         所以【护航舰队是主目标、被护航舰队是副目标】，我方同理）。
+       玩家口述确认的 5 类机制（前 4 类必须是指定为旗舰才生效，且指挥系统被毁后失效）：
+         subTargetHit   每存在 1 个副目标舰队 → 对主力舰/舰载机命中 +N%
+         counterSub     被多支舰队攻击 → 除完整打主目标，还向副目标舰队打 N% 伤害
+         protectFromSub 被多支舰队攻击 → 减少【来自副目标舰队】的 N% 伤害
+         repairBoost    被多支舰队攻击 → 维修效果 +N%（按出战类型数叠加）
+         cutInSub       舰队不是主目标（即舰载机/舰艇在被护航舰队里）→ 优先选血量最低的 N 个目标
+    */
+    function subTargetCount(bs, side) {
+        const foes = side === 'ally' ? bs.enemyShips : bs.allyShips;
+        let n = 0;
+        if (foes.some(s => s.alive && s.hp > 0 && s.isEscort)) n++;
+        if (foes.some(s => s.alive && s.hp > 0 && s.isEscorted)) n++;
+        return Math.max(0, n - 1);                 // 副目标舰队数 = 攻击我的舰队数 − 1
+    }
+    /* 旗舰机制是否生效：必须是指定旗舰，且该舰【指挥系统未被摧毁】 */
+    function flagsMechOk(s, fm) {
+        if (!s) return false;
+        if (fm && fm.flagshipOnly && !s.isFlagship) return false;
+        const cs = (s.subSystems || []).find(x => x.type === 'command' || /指挥/.test(x.name || ''));
+        if (cs && cs.destroyed) return false;      // 指挥系统被毁 → 机制消失
+        return true;
+    }
+    /* 取某列的每级值 */
+    function fmCol(fm, lv, col) {
+        const row = (fm.lvRaw || [])[lv];
+        if (!row) return null;
+        const v = parseFloat(row[col == null ? 0 : col]);
+        return isNaN(v) ? null : v;
+    }
+    /* 该舰的舰队机制（只保留生效的） */
+    function fleetMechsOf(s) {
+        const out = [];
+        const ap = (typeof apOf === 'function') ? apOf(s.id) : null;
+        if (!ap || !BP_STATS) return out;
+        Object.keys(ap.lv).forEach(nid => {
+            const L = ap.lv[nid]; if (!L || L <= 0) return;
+            const st = BP_STATS.nodes[nid]; if (!st || !st.fleetMech) return;
+            const fm = st.fleetMech;
+            if (!flagsMechOk(s, fm)) return;
+            out.push({ fm: fm, lv: L });
+        });
+        return out;
+    }
+    /* ★ 舰队级机制 · 每 tick 求值（counterSub 多目标反击；其余在命中/伤害/维修处按需读） */
+    function processFleetMechs(ship, enemies, dt, bs) {
+        if (!ship.alive || !ship.fleetMechs || !ship.fleetMechs.length) return;
+        const n = subTargetCount(bs, ship.side);
+        if (n <= 0) return;                        // 只有一支敌方舰队在打我 → 无副目标，不生效
+        ship.fleetMechs.forEach(x => {
+            if (x.fm.kind !== 'counterSub') return;
+            const eff = fmCol(x.fm, x.lv, 1);      // 反击效率 20/30/40（第二列）
+            if (typeof eff !== 'number' || eff <= 0) return;
+            x._t = (x._t || 0) + dt;
+            const period = 10;                     // 近似：每 10 秒发动一次（引擎没有"舰队回合"概念）
+            if (x._t < period) return;
+            x._t -= period;
+            const subs = enemies.filter(e => e.alive && e.hp > 0 && e.isEscorted);
+            if (!subs.length) return;
+            let oneRound = 0;
+            (ship.weaponStates || []).forEach(ws => {
+                const w = ws.weapon || {};
+                oneRound += (w.singleDmg || 0) * (w.ammo || 1) * (w.attacks || 1);
+            });
+            if (oneRound <= 0) return;
+            const tgt = subs[Math.floor(Math.random() * subs.length)];
+            const d = Math.max(1, Math.round(oneRound * eff / 100));
+            tgt.hp -= d;
+            if (tgt.hp <= 0) { tgt.hp = 0; tgt.alive = false; }
+            addBattleLog('info', `⚔ ${ship.name || ship.id}「多目标反击」→ ${tgt.name || tgt.id} (-${d})`);
+        });
+    }
+    /* 该舰的「庇护作战」减伤（对副目标舰队来源的伤害）——给 UI/战报用 */
+    function subProtectOf(ship, bs) {
+        if (!ship.fleetMechs) return 0;
+        if (subTargetCount(bs, ship.side) <= 0) return 0;
+        let v = 0;
+        ship.fleetMechs.forEach(x => { if (x.fm.kind === 'protectFromSub') { const q = fmCol(x.fm, x.lv, x.fm.multi > 1 ? 1 : 0); if (typeof q === 'number') v = Math.max(v, q); } });
+        return v;
+    }
+    /* 这艘船的加点树里有没有「指挥系统」？（用来给模块数据缺指挥系统的船补一个） */
+    function bpHasCommandSystem(slug) {
+        const ap = (typeof apOf === 'function') ? apOf(slug) : null;
+        const tree = ap && BP_TREE ? BP_TREE[ap.cdnId] : null;
+        if (!tree) return false;
+        return tree.some(sys => /指挥/.test(sys.sysName || ''));
+    }
+    /* 该舰的「天权防线」维修加成 */
+    function subRepairBoost(ship, bs) {
+        if (!ship.fleetMechs) return 0;
+        const n = subTargetCount(bs, ship.side);
+        if (n <= 0) return 0;
+        let v = 0;
+        ship.fleetMechs.forEach(x => {
+            if (x.fm.kind !== 'repairBoost') return;
+            for (let c = 1; c < (x.fm.multi || 1); c++) { const q = fmCol(x.fm, x.lv, c); if (typeof q === 'number') v = Math.max(v, q); }
+        });
+        return v;
+    }
     /* 打开强化弹窗时显示一行小字：这艘船有没有加点配置 */
     function addpointSummary(slug) {
         const ap = apOf(slug);
@@ -2611,6 +2713,9 @@
             s.condEffects = b.conds.map(c => Object.assign({}, c, { applied:false, done:false, until:0 }));
             s.condEffects.src = b.conds;
         }
+        /* ★ 舰队级机制（多舰队场景）：存下来，战斗中按副目标舰队数求值 */
+        const fms = fleetMechsOf(s);
+        if (fms.length) s.fleetMechs = fms;
         // 机制类：优先打击 / 协同指挥 / 三种打击 / 掩护 / 周期爆发
         const mech = resolveAddPointMechanics(s.id);
         if(mech) {
@@ -3082,7 +3187,13 @@
                     for(let i=0; i<shipEntry.count; i++) {
                         const inst = createShipInstance(shipEntry, side, isEscort, isEscorted);
                         inst.instId = 'si'+(++instSeq);      // 单位唯一 id（母舰被毁时用它找到自己的载机）
-                        if(flagshipId && shipEntry.id===flagshipId) inst.isFlagship=true;
+                        /* ⚠️ 旗舰标记必须在 createShipInstance 之后补，但【舰队级机制依赖它是旗舰】——
+                           所以设完旗舰要重新收一次机制，否则"旗舰才生效"的机制永远收不到。 */
+                        if(flagshipId && shipEntry.id===flagshipId) {
+                            inst.isFlagship=true;
+                            const _fm = fleetMechsOf(inst);
+                            if(_fm.length) inst.fleetMechs = _fm; else delete inst.fleetMechs;
+                        }
                         if(side==='ally') {
                             if(isEscort) allyEscort.push(inst); else allyEscorted.push(inst);
                             allyShips.push(inst);
@@ -3290,6 +3401,12 @@
                     permanentDestroyed:false
                 });
             }
+        }
+        /* ⚠️ 数据缺口补丁：雷火之星/普鲁图斯之盾/天权级 的 ship_database.modules 里
+           【没有"指挥系统"】，但加点树里有「中排指挥系统」，而这三艘的旗舰机制
+           「指挥系统被摧毁后失效」依赖它。按加点树的证据补一个，否则机制永远失效不了。 */
+        if (bpHasCommandSystem(s.id) && !s.subSystems.some(x => x.type === 'command' || /指挥/.test(x.name || ''))) {
+            s.subSystems.push({ name: '指挥系统', type: 'command', key: '_cmd', destroyed: false, repairTimer: 0, repairCount: 0, maxRepairs: 3, permanentDestroyed: false });
         }
         return s;
     }
@@ -3502,6 +3619,7 @@
             if(!ship.alive || ship.hp<=0) return;
             const foes = ship.side==='ally' ? bs.enemyShips : bs.allyShips;
             processCondEffects(ship, foes, dt, bs);        // ★ 加点条件触发（血量阈值/前X秒/周期…）
+            processFleetMechs(ship, foes, dt, bs);         // ★ 舰队级机制（多目标反击）
             processShipWeapons(ship, foes, dt, bs);
         });
 
@@ -3785,8 +3903,7 @@
 
         // 【优先打击超主力】（船上的勾选，或加点里的"主武器优先打击XX"）
         const superCapTypes = ['battleship','aircraftcarrier','battlecruiser','support'];
-        const prioPick = ship.targetPriority;
-        if(ship.prioritizeSuperCapital || prioPick) {
+        const prioPick = ship.targetPriority;        if(ship.prioritizeSuperCapital || prioPick) {
             let scTargets = [];
             if(prioPick === 'smallCapital') {
                 scTargets = aliveEnemies.filter(e => (e.type==='cruiser'||e.type==='battlecruiser'||e.type==='battleship') && (e.size!=='large'));
@@ -3805,6 +3922,16 @@
         if(weapon.weaponType === 'direct') {
             const canAttack = getDirectFireTargets(ship, aliveEnemies);
             if(canAttack.length===0) return null;
+            /* ★ 舰队级机制 cutInSub（切入作战）：舰队不是作战对象的主目标时
+                  （即本舰在【被护航舰队】里），优先选血量最低的 N 个目标 */
+            const ci = (ship.fleetMechs || []).find(x => x.fm.kind === 'cutInSub');
+            if (ci && ship.isEscorted && bs && subTargetCount(bs, ship.side) >= 0) {
+                const n = fmCol(ci.fm, ci.lv, 0);
+                if (typeof n === 'number' && n > 0) {
+                    const sorted = canAttack.slice().sort((a, b) => (a.hp / (a.maxHp || 1)) - (b.hp / (b.maxHp || 1)));
+                    return sorted[Math.floor(Math.random() * Math.min(n, sorted.length))];
+                }
+            }
             // Follow attack sequence within visible targets
             const targets = weapon.targets || [];
             for(const tg of targets) {
@@ -3869,7 +3996,25 @@
         const hitBonus = (attacker.hitBonus || 0) + (((ws || {}).strengthen || {}).hitBonus || 0);  // 舰船级 + 本武器所属系统
         // ★「被XX命中率下降」是【被打的一方】让对手更难命中自己，必须减在受方（原来被当成攻方命中加成，方向反了）
         const ehd = target.enemyHitDown || 0;
-        hitRate *= (1 + (hitBonus + lockEff - evasion - ehd) / 100);
+        /* ★ 舰队级机制 subTargetHit：被多支舰队同时攻击时，每存在 1 个副目标舰队，
+              系统内武器对【主力舰 / 舰载机】命中提升 N%（如雷火之星「多目标反击辅助」25%）。
+              必须是指定为旗舰、且指挥系统未被摧毁才生效。 */
+        let subHit = 0;
+        if (attacker.fleetMechs && attacker.fleetMechs.length) {
+            const n = subTargetCount(bs, attacker.side);
+            if (n > 0) {
+                attacker.fleetMechs.forEach(x => {
+                    if (x.fm.kind !== 'subTargetHit') return;
+                    const ok = x.fm.vs === '舰载机'
+                        ? (target.size === 'aircraft' || matchesType(target, '舰载机'))
+                        : matchesType(target, x.fm.vs || '主力舰');
+                    if (!ok) return;
+                    const v = fmCol(x.fm, x.lv, x.fm.multi > 1 ? null : 0);
+                    if (typeof v === 'number') subHit += v * n;
+                });
+            }
+        }
+        hitRate *= (1 + (hitBonus + lockEff + subHit - evasion - ehd) / 100);
         hitRate = clamp(hitRate, 0.01, 0.99);
 
         // Bomb distance effect
@@ -3968,7 +4113,11 @@
         // ⚠️ 文档「每一次【动力系统】被破坏都会扣除自身5%的血量」→ 只有动力系统(engine)扣血
         let systemDmg = 0;
         const sysHpPenalty = (sys, label) => {
-            if(sys.type === 'engine'){
+            /* 玩家口述（2026-09-21）：【动力系统】和【指挥系统】被破坏各扣 5% 血量。
+               指挥系统尤其关键 —— 它一毁，旗舰机制就失效。 */
+            const isEngine = sys.type === 'engine' || /动力|引擎/.test(sys.name || label || '');
+            const isCommand = sys.type === 'command' || /指挥/.test(sys.name || label || '');
+            if (isEngine || isCommand) {
                 const pen = Math.round(target.maxHp * 0.05);
                 target.hp -= pen;
                 addBattleLog('system', `🔧 ${target.name||target.id} 的${sys.name||label}被破坏! (-${pen}HP)`);
@@ -4003,6 +4152,16 @@
         }
 
         // === APPLY DAMAGE ===
+        /* ★ 舰队级机制 protectFromSub：被多支舰队同时攻击时，
+              减少【来自副目标舰队】的 N% 伤害（如普鲁图斯之盾「庇护作战」10/20/30%）。
+              副目标舰队 = 攻击方里"被护航舰队"那一支（护航舰队是主目标）。 */
+        if (target.fleetMechs && target.fleetMechs.length && attacker.isEscorted && subTargetCount(bs, target.side) > 0) {
+            target.fleetMechs.forEach(x => {
+                if (x.fm.kind !== 'protectFromSub') return;
+                const v = fmCol(x.fm, x.lv, x.fm.multi > 1 ? 1 : 0);
+                if (typeof v === 'number' && v > 0) dmg = Math.round(dmg * (1 - Math.min(90, v) / 100));
+            });
+        }
         target.hp -= dmg;
         if(target.hp <= 0) {
             target.hp = 0;
@@ -4035,7 +4194,8 @@
                 // 一点物理护甲=0.25%受维修加成, 最高到150%
                 const armorBonus = Math.min((ship.physicalArmor||0)*0.25, 150);
                 // repairBonus：舰船级（加点/强化）+ 本系统级（系统内无人机维修效果提升）
-                const repB = (ship.repairBonus||0) + (((ship.weaponStates||[]).find(x=>x.weapon===w)||{}).strengthen||{}).repairBonus || 0;
+                const repB = (ship.repairBonus||0) + (((ship.weaponStates||[]).find(x=>x.weapon===w)||{}).strengthen||{}).repairBonus || 0
+                           + subRepairBoost(ship, bs);          // ★ 天权防线：被多支舰队攻击时维修效果提升
                 const repairPerSec = (repairDpm / 60) * (1 + armorBonus/100) * (1 + repB/100);
                 const actualRepair = repairPerSec * dt;
 

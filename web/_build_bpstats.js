@@ -282,6 +282,32 @@ function detectCondMeta(desc) {
     once: /一场战斗只|单场战斗只|只触发一次|只生效一次/.test(desc)
   };
 }
+/* ============ 舰队级机制识别 ============
+   我们的模拟器有 4 个舰队：敌方护航A / 敌方被护航B / 我方护航C / 我方被护航D。
+   「被多支舰队同时攻击」在这个结构里是真实存在的：
+     被护航舰队被完全摧毁前，一般先打护航舰队 → C 是主目标、D 是副目标（我方同理）。
+   所以「每存在1个副目标舰队…」= 敌方护航/被护航两支都还有船时算 1。
+   玩家口述确认（2026-09-21）：
+     · 多目标反击辅助  雷火在 A 被 C+D 打 → 副目标数 1 → 对主力舰命中 +25%
+     · 多目标反击      雷火在 B 被 C+D 打 → 除完整打 C，还向 D 打 20/30/40%
+     · 庇护作战        普鲁图斯在 A 被 C+D 打 → 减少来自 D 的 10/20/30% 伤害
+     · 天权防线        同上逻辑，效果是维修效果提升
+     · 切入作战        舰队不是主目标（即在被护航舰队里）→ 优先选血量最低的 N 个目标
+   ⚠️ 前四类【必须是指定为旗舰才生效】，且该舰【指挥系统被摧毁后失效】。 */
+function detectFleetMech(desc) {
+  let m;
+  if (m = desc.match(/舰队在被多支舰队同时攻击时，每存在1个副目标舰队，系统内武器对(.{2,4})命中提升/))
+    return { kind: 'subTargetHit', vs: m[1], flagshipOnly: true };
+  if (/舰队在被多支舰队同时攻击时，可对.{0,4}个副目标舰队发起反击/.test(desc))
+    return { kind: 'counterSub', flagshipOnly: true };
+  if (/当舰队同时受到多支舰队攻击时，所受作战主目标之外的.{0,4}支舰队伤害，将减少/.test(desc))
+    return { kind: 'protectFromSub', flagshipOnly: true };
+  if (/舰队被多支舰队同时攻击时，每多一支作战主目标之外的舰队/.test(desc))
+    return { kind: 'repairBoost', flagshipOnly: true };
+  if (/舰队不成为作战对象的主目标时/.test(desc))
+    return { kind: 'cutInSub', flagshipOnly: false };
+  return null;
+}
 /* 把条件里的 token 解成数值：写死的数字直接用；{xxx} 按"剔除文中已有数字后按顺序配位"的规则取 */
 function condValue(desc, row, tok) {
   if (!tok) return null;
@@ -435,6 +461,20 @@ bp.forEach(r => r.systems.forEach(y => y.nodes.forEach(n => {
       if (cd.kind === 'battleStartSec') cd.sec = condValue(desc, val0, cd.tok);
       if (cd.kind === 'firstRounds' || cd.kind === 'everyRounds') cd.rounds = condValue(desc, val0, cd.tok);
       rec.cond = cd; condCnt++;
+    }
+  }
+  /* ★ 舰队级机制（多舰队场景）—— 单独标记，引擎按旗舰+指挥系统判定 */
+  if (!rec.empty) {
+    const fm = detectFleetMech(desc);
+    if (fm) {
+      fm.stat = rec.stat;
+      fm.vals = (n.levelValue || []).map(v => Array.isArray(v) ? num(v[0]) : null);
+      fm.multi = rec.multi;
+      fm.perLevel = rec.perLevel;
+      fm.lvRaw = n.levelValue || [];            // 原始每级数组（多列时引擎按列取）
+      rec.fleetMech = fm;
+      rec.addable = false;                      // 不再当普通数值累加
+      delete rec.statValues;
     }
   }
   out.nodes[n.id] = rec;
