@@ -399,9 +399,9 @@ function resetAll() {
    A 组 10 项自动求和；B 组 4 项引擎还没有 → 手填。 */
 function computeStats() {
   const out = {}; GROUP_A.forEach(g => out[g[0]] = 0); GROUP_B.forEach(g => out[g[0]] = 0); GROUP_H.forEach(g => out[g[0]] = 0);
-  let counted = 0, skipped = 0, other = 0, pureRef = 0, decoded = 0, modOnly = 0, mech = 0;
-  const skippedList = [], pureRefList = [];
-  if (!ship || !STATS) return { out, counted, skipped, other, pureRef, decoded, modOnly, mech, skippedList, pureRefList };
+  let counted = 0, skipped = 0, other = 0, pureRef = 0, decoded = 0, modOnly = 0, mech = 0, cond = 0;
+  const skippedList = [], pureRefList = [], condList = [];
+  if (!ship || !STATS) return { out, counted, skipped, other, pureRef, decoded, modOnly, mech, cond, skippedList, pureRefList, condList };
   const IN = k => GROUP_A.some(g => g[0] === k) || GROUP_B.some(g => g[0] === k) || GROUP_H.some(g => g[0] === k);
   ship.systems.forEach(s => { if (!sysVisible(s.sysId)) return; s.nodes.forEach(n => {
     const L = nodeLv(n.id); if (L <= 0) return;
@@ -409,6 +409,11 @@ function computeStats() {
     // ⚠️ pureRef 必须先判：这类节点的 stat 往往是 unmapped，先判分组会把它误归到"引擎未实现"
     if (st.pureRef) { pureRef++; pureRefList.push({ node: n, token: st.pureRef }); return; }
     if (st.mechanic) { mech++; return; }                 // 战场机制（协同指挥/打击/优先打击）——已由引擎执行
+    if (st.cond) {                                       // ★ 条件触发：引擎里由 processCondEffects 按条件求值，不进常驻合计
+      cond++;
+      condList.push({ node: n, cond: st.cond, stat: st.stat });
+      return;
+    }
     if (st.statMap) {                                    // 已译术语节点：一条同时写多个属性
       let any = false;
       Object.keys(st.statMap).forEach(k => {
@@ -427,11 +432,23 @@ function computeStats() {
     if (typeof v !== 'number') { skipped++; skippedList.push({ node: n, stat: st.stat }); return; }
     out[st.stat] += v; counted++;
   }); });
-  return { out, counted, skipped, other, pureRef, decoded, modOnly, mech, skippedList, pureRefList };
+  return { out, counted, skipped, other, pureRef, decoded, modOnly, mech, cond, skippedList, pureRefList, condList };
+}
+/* 条件的中文描述，给面板显示用 */
+const COND_CN = { hpBelow: '自身血量低于', enemyHpBelow: '目标血量低于', battleStart: '战斗开始后', battleStartSec: '战斗开始后', firstRounds: '战斗开始后前', everyRounds: '每运行', everySec: '每' };
+function condText(c) {
+  if (!c) return '';
+  const n = COND_CN[c.kind] || c.kind;
+  if (c.kind === 'hpBelow' || c.kind === 'enemyHpBelow') return n + (c.threshold == null ? '?' : c.threshold) + '%';
+  if (c.kind === 'battleStartSec') return n + (c.sec == null ? '?' : c.sec) + '秒内';
+  if (c.kind === 'firstRounds') return n + (c.rounds == null ? '?' : c.rounds) + '轮';
+  if (c.kind === 'everyRounds') return n + (c.rounds == null ? '?' : c.rounds) + '轮';
+  if (c.kind === 'everySec') return n + (c.threshold == null ? '?' : c.threshold) + '秒';
+  return n;
 }
 function statPanelHtml() {
   if (!STATS) return '';
-  const { out, counted, skipped, other, pureRef, decoded, modOnly, mech, skippedList, pureRefList } = computeStats();
+  const { out, counted, skipped, other, pureRef, decoded, modOnly, mech, cond, skippedList, pureRefList, condList } = computeStats();
   const man = k => (manual[k] === undefined ? '' : manual[k]);
   const num = k => (typeof manual[k] === 'number' ? manual[k] : 0);
   /* A 组：自动汇总 + 手动追加，显示"自动 N ＋ [输入] ＝ 合计" */
@@ -464,6 +481,13 @@ function statPanelHtml() {
     + '（说明里的数值位与取值对不上，不敢硬算）——请把它们的加成<b>手动填进上面</b>：<br>'
     + skippedList.slice(0, 12).map(x => '· ' + esc(x.node.name || x.node.labelName) + ' <span style="color:var(--t3)">(' + esc(x.stat) + ')</span>').join('<br>')
     + (skippedList.length > 12 ? '<br>…共 ' + skippedList.length + ' 个' : '') + '</div>');
+  /* ★ 条件触发：不进上面的常驻合计，单独列出来（引擎按条件求值） */
+  if (condList.length) {
+    un.push('<div class="unsure" style="border-color:var(--gold)"><b style="color:var(--gold)">' + condList.length + ' 个「条件触发」节点（不计入上面的常驻合计）</b><br>'
+      + '这些效果<b>不是开场就有</b>，要满足条件才触发 —— 模拟器已按条件执行：<br>'
+      + condList.map(x => '· <b>' + esc(x.node.name || x.node.labelName) + '</b> <span style="color:var(--gold)">[' + esc(condText(x.cond)) + ']</span> <span style="color:var(--t3)">→ ' + esc(STATS.labels[x.stat] || x.stat) + '</span>').join('<br>')
+      + '</div>');
+  }
   if (pureRefList.length) un.push('<div class="unsure"><b style="color:var(--red)">' + pureRefList.length + ' 个节点的说明来自游戏术语表</b>'
     + '（数据里只有代号，本工具没有这份译文），原文如下，效果请自行判断后手填：<br>'
     + pureRefList.map(x => '· ' + esc(x.node.name || x.node.labelName) + ' <span style="color:var(--t3)">' + esc(x.token) + '</span>').join('<br>') + '</div>');
@@ -473,6 +497,7 @@ function statPanelHtml() {
     + (decoded ? '<span class="tag" style="color:var(--green);border-color:var(--green)">含 ' + decoded + ' 个已译术语节点</span>' : '')
     + (modOnly ? '<span class="tag" style="color:var(--blue);border-color:var(--blue)">' + modOnly + ' 个按系统生效</span>' : '')
     + (mech ? '<span class="tag" style="color:var(--green);border-color:var(--green)">' + mech + ' 个战场机制</span>' : '')
+    + (cond ? '<span class="tag" style="color:var(--gold);border-color:var(--gold)">' + cond + ' 个条件触发</span>' : '')
     + (skipped ? '<span class="tag" style="color:var(--gold);border-color:var(--gold)">' + skipped + ' 个需手填</span>' : '')
     + (pureRef ? '<span class="tag" style="color:var(--red);border-color:var(--red)">' + pureRef + ' 个无译文</span>' : '')
     + (other ? '<span class="tag">' + other + ' 个属于引擎暂未实现的机制</span>' : '')

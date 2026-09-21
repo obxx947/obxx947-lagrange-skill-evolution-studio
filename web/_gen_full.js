@@ -56,14 +56,17 @@ bp.forEach(b => b.systems.forEach(y => y.nodes.forEach(n => {
 multiFails.sort((a, b) => a.ship.localeCompare(b.ship, 'zh'));
 
 /* D. 条件触发 */
-const cond = [];
+const cond = [], condBroad = [];
 bp.forEach(b => b.systems.forEach(y => y.nodes.forEach(n => {
   if (!n.name) return;
   const d = clean(n.baseDesc);
-  if (!/血量(首次)?(低于|降至|下降至)|结构比例降至|每运行|每连续|每\s*\{?[^}\s]{0,4}\}?\s*轮|每轮工作|击破(目标|武器|动力)|战斗开始时|战斗开始后|单场战斗只|一场战斗只|直到战斗结束|可叠加|层\//.test(d)) return;
   const c = st.nodes[n.id] || {};
-  cond.push({ ship: b.shipName, sys: y.sysName, node: n.name, desc: d, addable: !!c.addable, stat: c.stat, mech: c.mechanic && c.mechanic.kind });
+  /* 只用【引擎实际识别出来的条件】（stats 里的 cond 字段），这样表里显示的条件参数是准的 */
+  if (c.cond && c.addable) cond.push({ ship: b.shipName, sys: y.sysName, node: n.name, desc: d, addable: true, stat: c.stat, cond: c.cond });
+  else if (/血量(首次)?(低于|降至|下降至)|结构比例降至|每运行|每连续|每\s*\{?[^}\s]{0,4}\}?\s*轮|每轮工作|击破(目标|武器|动力)|战斗开始时|战斗开始后|单场战斗只|一场战斗只|直到战斗结束|可叠加|层\//.test(d))
+    condBroad.push({ ship: b.shipName, sys: y.sysName, node: n.name, desc: d, stat: c.stat, mech: c.mechanic && c.mechanic.kind });
 })));
+const condAll = cond.length + condBroad.length;
 
 /* E. 策略全表 */
 const strategics = [];
@@ -277,20 +280,36 @@ T += '（标「**无占位符**」的是数字写死在文字里，请告诉我�
 T += '| 编号 | 舰船 | 系统 | 节点 | 每级数值 | 数值位 | 说明原文 | ✍️ 填写 |\n|---|---|---|---|---|---|---|---|\n';
 multiFails.forEach((x, i) => { T += '| A' + String(i + 1).padStart(3, '0') + ' | ' + x.ship + ' | ' + x.sys + ' | ' + x.node + ' | `' + JSON.stringify(x.vals) + '` | ' + (x.ph ? '`' + x.ph + '`' : '**无占位符**') + ' | ' + esc(x.desc).slice(0, 60) + ' | ' + BL + ' |\n'; });
 
-H(2, '3.3 ★★ 条件触发（' + cond.length + ' 个节点）—— 不是"没做"，是"做错了"');
-T += '**这批节点里约 100 个已经被我的管线归类成"可汇总数值"**，意思是：\n\n';
+H(2, '3.3 ★★ 条件触发（' + cond.length + ' 个节点）—— ✅ 已实现');
+T += '**原来错在哪**：这批节点被管线归类成"可汇总数值"后直接累加，\n\n';
 T += '> **条件被丢掉，效果被当成「开场就永久生效」。**\n\n';
 T += '例：「自身结构比例降至 50% 时，闪避率提升 20%，持续 10 秒，一场战斗只触发一次」\n';
-T += '→ 引擎现在给的是 **开局永久 +20% 闪避**，不看血量、不限期、可以无限次。\n\n';
-T += '**能不能解决？能，分三档**：\n';
-T += '| 档 | 类型 | 能否做 |\n|---|---|---|\n';
-T += '| 一 | 「血量/结构比例低于 X% 时…」「战斗开始后 X 秒内…」 | ✅ 能做（引擎是 tick 循环，加条件表即可，约 200~300 行） |\n';
-T += '| 二 | 「每运行 P 轮后，下一轮…」「每 P 秒…」 | ✅ 能做（引擎已有轮次概念，周期爆发已跑通） |\n';
-T += '| 三 | 「【溶解】层数」「附加状态」「可叠加 N 层」 | ⚠️ 要新建模（引擎没有 buff/debuff 框架） |\n\n';
-T += '| # | 舰船 | 系统 | 节点 | 引擎现状 | 说明 |\n|---|---|---|---|---|---|\n';
+T += '→ 原引擎给的是 **开局永久 +20% 闪避**，不看血量、不限期、可以无限次。\n\n';
+T += '**✅ 2026-09-21 已实现**：管线侧识别条件写进 `rec.cond`，引擎侧 `processCondEffects()` 每 tick 求值\n';
+T += '（条件由假变真 → 加上效果；到期或条件失效 → 撤掉；`once` 的触发一次后不再触发）。\n';
+T += '已识别并实现 **' + cond.length + ' 个**（全库 119 个 `addable` 条件节点，只剩 1 个"叠加层数"类没做）。\n';
+T += '另有 ' + condBroad.length + ' 个虽然也提到条件，但属于【机制未实现 / 需手填 / 空白】，本来就没生效。\n\n';
+T += '| 条件类型 | 数量 | 引擎行为 |\n|---|---|---|\n';
+T += '| `hpBelow` 自身血量 ≤ X% | ' + cond.filter(x => x.cond && x.cond.kind === 'hpBelow').length + ' | 血量掉到阈值才生效；带"持续X秒"的到期撤掉；"一场只触发一次"的触发过就锁死 |\n';
+T += '| `battleStartSec` 战斗开始后 X 秒内 | ' + cond.filter(x => x.cond && x.cond.kind === 'battleStartSec').length + ' | 开场生效，过 X 秒撤掉 |\n';
+T += '| `battleStart` 战斗开始后（整场） | ' + cond.filter(x => x.cond && x.cond.kind === 'battleStart').length + ' | 开场生效直到战斗结束 |\n';
+T += '| `everySec` / `everyRounds` 周期性 | ' + cond.filter(x => x.cond && (x.cond.kind === 'everySec' || x.cond.kind === 'everyRounds')).length + ' | 按周期开/关 |\n';
+T += '| `firstRounds` 前 N 轮 | ' + cond.filter(x => x.cond && x.cond.kind === 'firstRounds').length + ' | 折算成秒（⚠️ 近似，不是逐轮计数） |\n';
+T += '\n**实测** `test/addpoint_cond_effects.js` **7/7 通过**（满血不生效 → 掉血生效 → 到期撤掉 → once 不再触发）。\n\n';
+T += '<details><summary>全部条件节点明细（' + cond.length + ' 个）</summary>\n\n';
+T += '| # | 舰船 | 系统 | 节点 | 条件 | 说明 |\n|---|---|---|---|---|---|\n';
 cond.forEach((x, i) => {
-  T += '| ' + (i + 1) + ' | ' + x.ship + ' | ' + x.sys + ' | ' + x.node + ' | ' + (x.addable ? '**当成永久数值用了**' : (x.mech ? '机制:' + x.mech : '未实现')) + ' | ' + esc(x.desc).slice(0, 80) + ' |\n';
+  const c = x.cond || {};
+  const ctxt = c.kind === 'hpBelow' ? '血量≤' + c.threshold + '%' + (c.dur ? ' 持续' + c.dur + 's' : '') + (c.once ? ' 仅一次' : '')
+    : c.kind === 'battleStartSec' ? '开场' + c.sec + '秒内'
+      : c.kind === 'battleStart' ? '开场整场'
+        : c.kind === 'firstRounds' ? '前' + c.rounds + '轮'
+          : c.kind === 'everyRounds' ? '每' + c.rounds + '轮' + (c.dur ? '/持续' + c.dur + 's' : '')
+            : c.kind === 'everySec' ? '每' + c.threshold + '秒' + (c.dur ? '/持续' + c.dur + 's' : '')
+              : (c.kind || '—');
+  T += '| ' + (i + 1) + ' | ' + x.ship + ' | ' + x.sys + ' | ' + x.node + ' | ' + ctxt + ' | ' + esc(x.desc).slice(0, 62) + ' |\n';
 });
+T += '\n</details>\n';
 
 H(2, '3.4 《战斗机制》里提到、但引擎/数据没有的（38 条）');
 T += '| 编号 | 机制 | 文档怎么说 | 现状 |\n|---|---|---|---|\n';

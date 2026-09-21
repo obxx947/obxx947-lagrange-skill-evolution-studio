@@ -2339,6 +2339,7 @@
         const BLANK = () => { const o = {}; AP_A.forEach(k => o[k] = 0); AP_B.forEach(k => o[k] = 0); AP_H.forEach(k => o[k] = 0); return o; };
         const shipB = BLANK();                      // 舰船级
         const byModule = {};                        // 模块级：{ 'M_M1': {...} }
+        const conds = [];                           // ★ 条件触发：不立刻加，交给战斗中求值
         let counted = 0, skipped = 0, other = 0;
         const sysMap = (BP_SYSMAP && BP_SYSMAP[ap.cdnId]) ? BP_SYSMAP[ap.cdnId].systems : null;
         const nodeSys = {};                         // 节点 → 所属系统
@@ -2400,6 +2401,18 @@
                 if(st.statValues) v = st.statValues[L];
                 else if(st.multi <= 1) v = st.perLevel ? st.perLevel[L] : null;
                 if(typeof v !== 'number') { skipped++; return; }
+                /* ★★ 条件触发：不能当常量加进去！
+                   「自身结构比例降至50%时闪避+20%持续10秒，一场只触发一次」如果直接累加，
+                   就变成了"开局永久+20%"—— 条件和时限全丢了（这是原来最错的一类）。 */
+                if(st.cond){
+                    const m2 = sysMap ? sysMap[nodeSys[nid]] : null;
+                    conds.push({
+                        cond: st.cond, stat: k, val: v,
+                        sk: (m2 && m2.scope === 'module') ? (m2.variant ? m2.key + '_' + m2.variant : m2.key) : null,
+                        sysName: m2 ? m2.sysName : ''
+                    });
+                    counted++; return;
+                }
                 const tt = shipTgt(k);
                 tt[k] = (tt[k]||0) + v; counted++;      // ★ 必须累加：一个系统里可能有好几个同类节点
             } else other++;
@@ -2414,11 +2427,105 @@
         const sumM = BLANK();
         Object.keys(byModule).forEach(sk => Object.keys(byModule[sk]).forEach(k => sumM[k] += byModule[sk][k]));
         return {
-            ship: shipB, byModule: byModule, total: sumM,
+            ship: shipB, byModule: byModule, total: sumM, conds: conds,
             _counted: counted, _skipped: skipped, _other: other,
             _used: Object.keys(ap.lv).filter(k => ap.lv[k] > 0).length,
             _systems: Object.keys(byModule).length
         };
+    }
+    /* ========== 条件触发求值 ==========
+       加点里 119 个节点的效果不是开场就生效，而是【满足条件才触发】：
+         hpBelow        自身血量/结构比例 ≤ X%
+         enemyHpBelow   目标血量 ≤ X%（近似：场上还有满足血线的敌人）
+         battleStart    战斗开始后（整场）
+         battleStartSec 战斗开始后 X 秒内
+         firstRounds    战斗开始后前 N 轮（按该舰平均武器周期折算成秒 —— 近似）
+         everyRounds / everySec  周期性生效
+       每 tick 求值一次：条件由假变真 → 加上效果；由真变假（或到期）→ 撤掉。
+       ⚠️ "前N轮"是折算的近似值，不是真的逐轮计数。 */
+    const COND_SHIP_FIELD = {
+        evasion:'evasion', hitBonus:'hitBonus', enemyHitDown:'enemyHitDown', aaLockDown:'aaLockDown',
+        sysDmgReduce:'sysDmgReduce', hp:'hpBonus', physResist:'physResistBonus', energyResist:'energyResistBonus',
+        repairEff:'repairBonus', repairBonus:'repairBonus', dmgBonus:'dmgBonus', interceptRate:'interceptRate',
+        siege:'siegeBonus', multiTarget:'multiTarget', positionFix:'positionFix'
+    };
+    const COND_WEAPON_FIELD = {
+        singleDmg:'dmgBonus', cooldownReduction:'cooldownReduction', crit:'critRate', critDmg:'critDmg',
+        lockReduction:'lockReduction', atkReduction:'atkReduction', hitBonus:'hitBonus', lockEfficiency:'lockEfficiency',
+        antiIntercept:'antiIntercept', weaponDuration:'weaponDuration', hangarCd:'cdRed', hangarFlight:'flightRed'
+    };
+    /* 该舰武器平均一轮的周期（冷却+攻击持续），用来把"前N轮"折算成秒 */
+    function avgCycle(s) {
+        const ws = s.weaponStates || []; if (!ws.length) return 10;
+        let t = 0, n = 0;
+        ws.forEach(w => { const c = (w.cooldown || 0) + (w.atkDuration || 0); if (c > 0) { t += c; n++; } });
+        return n ? Math.max(1, t / n) : 10;
+    }
+    /* 加/撤一个条件效果：sign=+1 加，-1 撤 */
+    function applyCondDelta(ship, ce, sign) {
+        const k = ce.stat, v = ce.val * sign;
+        if (COND_WEAPON_FIELD[k]) {
+            (ship.weaponStates || []).forEach(ws => {
+                if (ce.sk && ws.strengthenKey !== ce.sk) return;   // 绑模块的只作用那个模块的武器
+                ws.strengthen = ws.strengthen || {};
+                const f = COND_WEAPON_FIELD[k];
+                ws.strengthen[f] = (ws.strengthen[f] || 0) + v;
+            });
+            return;
+        }
+        const f = COND_SHIP_FIELD[k];
+        if (!f) return;
+        ship[f] = (ship[f] || 0) + v;
+        if (k === 'hp') { ship.maxHp = Math.max(1, (ship.maxHp || 0) + v); if (ship.hp > ship.maxHp) ship.hp = ship.maxHp; }
+        if (k === 'interceptRate' && ship[f] > 0 && !ship.interceptType) ship.interceptType = 'sameRow';
+    }
+    function condWants(ship, ce, bs, hpPct, enemies) {
+        const c = ce.cond || {};
+        switch (c.kind) {
+            case 'hpBelow': return hpPct <= (c.threshold || 0);
+            case 'enemyHpBelow': {
+                const th = c.threshold || 0;
+                return (enemies || []).some(e => e.alive && e.maxHp && (e.hp / e.maxHp * 100) <= th);
+            }
+            case 'battleStart': return true;
+            case 'battleStartSec': return bs.time <= (c.sec || c.threshold || 0);
+            case 'firstRounds': return bs.time <= (c.rounds || 1) * (ship._avgCycle || 10);
+            case 'everySec':
+            case 'everyRounds': {
+                if (!ce._period) ce._period = (c.kind === 'everySec') ? (c.threshold || 10) : Math.max(1, (c.rounds || 1) * (ship._avgCycle || 10));
+                const ph = bs.time % ce._period;
+                const dur = c.dur || 0;
+                return dur > 0 ? (ph < dur) : true;
+            }
+            default: return true;
+        }
+    }
+    function processCondEffects(ship, enemies, dt, bs) {
+        const list = ship.condEffects;
+        if (!list || !list.length || !ship.alive) return;
+        if (!ship._avgCycle) ship._avgCycle = avgCycle(ship);
+        const hpPct = ship.maxHp ? (ship.hp / ship.maxHp * 100) : 100;
+        for (let i = 0; i < list.length; i++) {
+            const ce = list[i];
+            if (ce.done) continue;
+            const want = condWants(ship, ce, bs, hpPct, enemies);
+            if (want && !ce.applied) {
+                applyCondDelta(ship, ce, +1);
+                ce.applied = true;
+                if (ce.cond.dur > 0) ce.until = bs.time + ce.cond.dur;
+                ship._condFired = (ship._condFired || 0) + 1;
+            } else if (ce.applied) {
+                const expire = ce.until > 0 && bs.time >= ce.until;
+                const lost = ce.until === 0 && !want && !ce.cond.once;
+                if (expire || lost) {
+                    applyCondDelta(ship, ce, -1);
+                    ce.applied = false;
+                    if (ce.cond.once) ce.done = true;         // 一场只触发一次
+                } else if (ce.until > 0 && !want && !ce.cond.once) {
+                    /* 条件掉了但还在持续期内 —— 不改（按"触发后持续X秒"理解） */
+                }
+            }
+        }
     }
     /* 打开强化弹窗时显示一行小字：这艘船有没有加点配置 */
     function addpointSummary(slug) {
@@ -2448,6 +2555,8 @@
         s.evasion = (s.evasion||0) + sh.evasion;
         s.hitBonus = (s.hitBonus||0) + sh.hitBonus;
         s.siegeBonus = (s.siegeBonus||0) + sh.siege;
+        /* ★ 攻击持续时间提升（原「归了类但引擎没读」的 30 个节点，现在接上了） */
+        s.weaponDuration = (s.weaponDuration||0) + (sh.weaponDuration||0);
         /* ★ 被命中率下降：不是"我方命中提升"，是让敌人打我更难（原来 77 个被算反了） */
         s.enemyHitDown = (s.enemyHitDown||0) + sh.enemyHitDown;
         s.aaLockDown = (s.aaLockDown||0) + sh.aaLockDown;      // 受敌方防空锁定效率影响下降
@@ -2457,7 +2566,7 @@
         s.multiTarget = (s.multiTarget||0) + sh.multiTarget;
         /* 维修：效率(%) 与 一次性维修装甲(点数) 是两回事，不能混 */
         s.repairBonus = (s.repairBonus||0) + (sh.repairEff || 0) + (sh.repairBonus || 0);
-        s.repairArmor = (s.repairArmor||0) + (sh.repairArmor||0);
+        s.repairArmor = (s.repairArmor||0) + (sh.repairArmor||0);   // 一次性维修装甲（点数）
         /* 本舰船机库（作用全舰载机）：细分效果各走各的，不再全塞进 dmgBonus */
         s.hangarDmg     = (s.hangarDmg||0)     + (sh.hangarDmg || 0)     + (sh.hangarBonus || 0);
         s.hangarHit     = (s.hangarHit||0)     + (sh.hangarHit || 0)     + (sh.hangarBonus || 0);
@@ -2495,6 +2604,12 @@
                 o.critDmg = (o.critDmg||0) + (g.hangarModuleCritDmg || 0);
                 if(!o.dmg && !o.hit && !o.evasion && !o.lockRed && !o.cdRed && !o.flight && !o.critRate && !o.critDmg) delete s.hangarByModule[k];
             });
+        }
+        /* ★★ 条件触发：这批不加进上面的常驻桶，改存成"待触发效果"，
+           由 processCondEffects 每 tick 按条件求值。全库 119 个节点。 */
+        if(b.conds && b.conds.length){
+            s.condEffects = b.conds.map(c => Object.assign({}, c, { applied:false, done:false, until:0 }));
+            s.condEffects.src = b.conds;
         }
         // 机制类：优先打击 / 协同指挥 / 三种打击 / 掩护 / 周期爆发
         const mech = resolveAddPointMechanics(s.id);
@@ -3385,7 +3500,9 @@
         // Process each alive ship's weapons
         [...bs.allyShips, ...bs.enemyShips].forEach(ship => {
             if(!ship.alive || ship.hp<=0) return;
-            processShipWeapons(ship, ship.side==='ally'?bs.enemyShips:bs.allyShips, dt, bs);
+            const foes = ship.side==='ally' ? bs.enemyShips : bs.allyShips;
+            processCondEffects(ship, foes, dt, bs);        // ★ 加点条件触发（血量阈值/前X秒/周期…）
+            processShipWeapons(ship, foes, dt, bs);
         });
 
         // Process repairs
@@ -3595,8 +3712,11 @@
             if(ws.atkRemaining > 0 && ws.batchesRemaining > 0) {
                 ws.atkRemaining -= dt;
                 ws.batchTimer += dt;
-                // 「打击间隔缩短」：直接缩短攻击持续（批次间隔 = 持续/批数）
-                const atkDur = (w.atkDuration || 1) * (1 - Math.min(95, ((ws.strengthen||{}).atkReduction||0) + (ship.atkReduction||0) + (ws.burstCut||0))/100);
+                // 「攻击持续时间提升」加长、 「打击间隔缩短」缩短（批次间隔 = 持续/批数）
+                // 攻击持续为 0 的武器仍按 1 秒摊（原口径），避免除零
+                const atkDur = (w.atkDuration || 1)
+                    * (1 + (((ws.strengthen||{}).weaponDuration||0) + (ship.weaponDuration||0)) / 100)
+                    * (1 - Math.min(95, ((ws.strengthen||{}).atkReduction||0) + (ship.atkReduction||0) + (ws.burstCut||0)) / 100);
                 const batchInterval = Math.max(0.01, atkDur / ws.totalBatches);
                 const _mt = ((ws.strengthen||{}).multiTarget || 0) + (ship.multiTarget || 0);
                 const mtN = _mt > 0 ? Math.floor(_mt) : 0;
