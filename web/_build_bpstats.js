@@ -36,8 +36,22 @@ const DECODED = {
 
 /* 顺序敏感：机库/载机 必须排在 命中/伤害/闪避 之前，否则会被抢走 */
 const RULES = [
+  /* ================= 非战斗：舰队/星系/补给/运营 =================
+     这些跟"1v1 战斗"无关（星系航行、战略打击、资源运营、登陆接管），
+     不统计进战斗分母，也不该被后面的"伤害/命中/冷却"规则抢走。
+     ⚠️ 必须排在最前面。 */
+  [/补给速度|自持指挥值|引导目标数|打击距离|战略打击|封锁|驻守|视野增加|行动力|计划圈|吉米|作业效率|仓储|采集|采矿|对接权限|同小队|联合体|巡游|每日|资源点|主目标之外|副目标|支援舰生产/, 'fleetOps'],
+  [/常规移动速度|亚光速|曲率速度|航行速度|前进速度提升|移动速度提升/, 'speed'],
+  /* ---- 「优先派出载机/无人机攻击，并缩短其攻击持续时间」：效果落在武器持续 ---- */
+  [/(载机|舰载机|无人机)[^，。]{0,20}攻击持续时间(缩短|降低|减少)/, 'weaponDuration'],
+  /* 「舰队指挥值低于X」「指挥值规模超出」是编队/星系层面；但「舰队内XX舰船…」在 1v1 里就是自己，属战斗 */
+  [/舰队指挥值低于|指挥值规模超出|无法主动撤退/, 'fleetOps'],
+  /* ---- 两列型：机库内载机主武器「X%概率额外造成Y%暴击伤害」---- */
+  [/攻击将有(\{[^}]+\}|\d+)%概率额外造成(\{[^}]+\}|\d+)%暴击伤害/, 'critPair'],
+  /* ---- 支援舰生产的舰载机 —— 运营层，非战斗 ---- */
+  [/生产的舰载机/, 'fleetOps'],
   /* ---- 指挥舰「协同指挥」 ---- */
-  [/指挥舰队中\d+个[^，。]*主武器/, 'cmdAssist'],
+  [/指挥舰队中(\{[^}]+\}|\d+)个[^，。]*主武器/, 'cmdAssist'],
   /* ---- 三种「打击」 ---- */
   [/选择敌方防空能力最高/, 'strikeAA'],
   [/选择敌方血量较低/, 'strikeWeak'],
@@ -52,9 +66,18 @@ const RULES = [
   /* 兜底：只说「载机/舰载机/无人机」且是在讲【它们的属性】时，才算本舰船机库 */
   [/(载机|舰载机|无人机)[^，。]{0,10}(伤害|命中|闪避|冷却|飞行时间|选择目标|锁定)/, '__HS__'],
   [/提升本舰船|本舰船.{0,4}(载机|无人机)/, '__HS__'],
-  /* ---- 被拦截概率降低 / 对系统伤害：要排在「命中」「伤害」前面 ---- */
+  /* ---- 武器分散/集中打击：⚠️ 文本里是 {101} 占位符，不是阿拉伯数字，\d+ 匹配不到 ---- */
+  [/分散打击(\{[^}]+\}|\d+)个目标/, 'multiTarget'],
+  [/集中打击(\{[^}]+\}|\d+)个目标/, 'focusTargets'],
+  [/下一轮(?:可)?额外对(\{[^}]+\}|\d+)个目标/, 'multiTarget'],
+  /* ---- 武器持续时间 / 攻击次数（⚠️ 原文用「延长/缩短」，不止「提升」）
+         ⚠️ 不能只写「持续时间提升」—— 会把「干扰效果/护盾效果/防护效果持续时间提升」也吞进来，
+            那是状态持续时间，不是武器攻击持续时间。必须限定到 攻击/打击/射击/系统武器。 */
+  [/系统内武器输出时间降低|系统武器输出时间降低/, 'atkReduction'],
+  [/(?:缩短|降低|减少)[^，。]{0,24}(?:攻击|打击)持续时间|(?:攻击|打击|射击)持续时间(?:延长|缩短|降低|提升)|系统(?:内)?武器持续时间/, 'weaponDuration'],
+  [/攻击次数(?:增加|提升|\+)/, 'weaponDuration'],
+  /* ---- 被拦截概率降低 / 反拦截 ---- */
   [/被拦截概率降低|被拦截率下降|拦截率下降/, 'antiIntercept'],
-  [/系统内武器输出时间降低|系统武器输出时间降低|持续时间提升|攻击次数\+/, 'weaponDuration'],
   /* ---- 锁定效率 ≠ 锁定减免；且要区分「提升我方」与「被敌方锁定下降」 ---- */
   [/受防空武器锁定效率影响下降/, 'aaLockDown'],
   [/锁定效率/, 'lockEfficiency'],
@@ -67,7 +90,6 @@ const RULES = [
   /* ---- 其它明确可做的机制 ---- */
   [/攻击次数[×x]2|系统内武器攻击次数|密集射击/, 'denseFire'],
   [/对导弹\/鱼雷拦截率|获得对导弹.{0,4}拦截率/, 'sysIntercept'],
-  [/武器分散打击\d+个目标/, 'multiTarget'],
   [/攻城/, 'siege'],
   /* 维修：先分「装甲点数」和「效率百分比」 */
   [/一次性维修装甲/, 'repairArmor'],
@@ -76,28 +98,25 @@ const RULES = [
   [/被.{0,6}命中率下降|被.{0,6}命中率降低|降低被.{0,6}命中率|命中率下降|命中率降低/, 'enemyHitDown'],
   [/命中/, 'hitBonus'],
   [/闪避/, 'evasion'],
-  [/被拦截率下降|拦截率下降/, 'antiIntercept'],
   [/拦截/, 'interceptRate'],
-  [/冷却时间下降|冷却时间减少|冷却时间降低|武器冷却/, 'cooldownReduction'],
+  [/冷却时间下降|冷却时间减少|冷却时间降低|冷却缩减|武器冷却/, 'cooldownReduction'],
   [/锁定|选择目标时间/, 'lockReduction'],
   [/暴击/, 'crit'],
-  [/物理伤害抵抗|物理抵抗/, 'physResist'],
-  [/能量伤害抵抗|能量抵抗|能量抗性/, 'energyResist'],
-  [/舰船血量|血量提升|血量提高|结构值/, 'hp'],
+  [/物理伤害抵抗|物理抵抗|物理护甲/, 'physResist'],
+  [/能量伤害抵抗|能量抵抗|能量抗性|护盾值/, 'energyResist'],
+  [/舰船血量|血量提升|血量提高|结构值|装甲防御效果/, 'hp'],
   [/系统血量/, 'sysHp'],
   [/(火炮|导弹|鱼雷|脉冲炮|离子炮|轨道炮|伤害提升|伤害提高|炮伤害|武器伤害|单发)/, 'singleDmg'],
-  [/系统武器输出时间降低|打击和冷却时间/, 'atkReduction'],
   [/受到系统伤害降低/, 'sysDmgReduce'],
-  [/系统武器持续时间提升|攻击次数+/, 'weaponDuration'],
   [/本舰船主武器优先打击|主武器优先打击/, 'targetPriority'],
-  [/站位调整为|舰船站位调整/, 'positionFix'],
-  [/速度/, 'speed'],
+  [/站位调整为|舰船站位调整|优先锁定前排/, 'positionFix'],
   [/系统伤害降低|受到系统伤害/, 'sysDamageReduce'],
   [/打击间隔|打击和冷却/, 'atkReduction'],
   [/弹药|多目标|优先攻击|攻击次数/, 'tactics'],
   [/指挥值|指挥系统|舰队/, 'fleet'],
-  [/侦察|探测|隐身|隐蔽|伪装/, 'scout'],
+  [/侦察|探测|隐身|隐蔽|伪装|识别为战机/, 'scout'],
   [/维修效果|自动维修效率|受维修/, 'repairEff'],
+  [/速度/, 'speed'],
   [/掩护|仓储|站位|撤退|护盾|作业效率|溶解|干扰效果|防护效果/, 'special'],
 ];
 
@@ -131,7 +150,7 @@ const GROUPS = {
   /* 舰船级·防御向：作用于本舰受击 */
   defense: ['hp', 'physResist', 'energyResist', 'evasion', 'interceptRate', 'enemyHitDown', 'aaLockDown', 'sysDmgReduce'],
   /* 只作用于【本系统的武器】 */
-  moduleOnly: ['multiTarget', 'denseFire', 'sysIntercept', 'positionFix'],
+  moduleOnly: ['multiTarget', 'focusTargets', 'denseFire', 'sysIntercept', 'positionFix'],
   /* 本舰船机库（全舰载机） */
   hangar: ['hangarDmg', 'hangarHit', 'hangarEvasion', 'hangarLock', 'hangarCd', 'hangarFlight',
            'hangarAaResist', 'hangarCritRate', 'hangarCritDmg'],
@@ -140,6 +159,8 @@ const GROUPS = {
                  'hangarModuleCd', 'hangarModuleFlight', 'hangarModuleCritRate', 'hangarModuleCritDmg'],
   /* 其它（不进自动汇总，但也不算未实现） */
   misc: ['siege', 'repairEff', 'repairArmor', 'sysHp', 'weaponDuration'],
+  /* 非战斗：星系/航行/运营 —— 不统计进战斗分母 */
+  noncombat: ['speed', 'fleetOps'],
   /* 手填覆盖位（玩家在加点页手动追加） */
   manual: ['siege', 'repairBonus', 'hitBonus', 'hangarBonus', 'repairEff', 'hp', 'physResist',
            'energyResist', 'dmgBonus', 'crit', 'lockReduction', 'cooldownReduction', 'singleDmg',
@@ -167,7 +188,7 @@ const CN = {
   hangarModuleLock: '本系统机库·锁定时间', hangarModuleCd: '本系统机库·武器冷却',
   hangarModuleFlight: '本系统机库·飞行时间',
   hangarModuleCritRate: '本系统机库·暴击率', hangarModuleCritDmg: '本系统机库·暴击伤害',
-  targetPriority: '主武器优先打击', speed: '速度', sysDamageReduce: '系统减伤', interval: '打击间隔',
+  focusTargets: '武器集中打击', fleetOps: '舰队/星系/运营（非战斗）', targetPriority: '主武器优先打击', speed: '速度', sysDamageReduce: '系统减伤', interval: '打击间隔',
   tactics: '战术/弹药', fleet: '舰队/指挥', scout: '侦察/隐身', special: '特殊机制', unmapped: '未归类',
 };
 
@@ -215,7 +236,7 @@ const KEY = {
   multiTarget: /分散打击[^，。,；]{0,8}?(\{[^}]+\})/,
   denseFire: /装填冷却时间延长[^，。,；]{0,8}?(\{[^}]+\})/,
   sysHp: /(?:系统血量|系统耐久)[^，。,；]{0,8}?(\{[^}]+\})/,
-  weaponDuration: /持续时间[^，。,；]{0,8}?(\{[^}]+\})/,
+  weaponDuration: /攻击次数(?:增加|提升)[^，。,；]{0,6}?(\{[^}]+\})|(?:攻击|打击|射击)?持续时间(?:延长|提升|缩短|降低)[^，。,；]{0,6}?(\{[^}]+\})|持续时间[^，。,；]{0,8}?(\{[^}]+\})/,
 };
 const num = v => { const f = parseFloat(v); return isNaN(f) ? null : f; };
 
