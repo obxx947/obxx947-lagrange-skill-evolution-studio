@@ -15,6 +15,38 @@ const BL = '____________';
 const esc = s => String(s == null ? '' : s).replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ／ ');
 const clean = s => String(s || '').replace(/<[^>]+>/g, '');
 
+/* E. ★ 超主力武器「目标表缺大型舰船」（2026-09-21 浏览器实跑发现） */
+const scKinds = ['battlecruiser', 'battleship', 'aircraftcarrier', 'support'];
+const noBigTarget = [], allScWeapons = [];
+ships.forEach(s => {
+  if (!scKinds.includes(s.type)) return;
+  Object.entries(s.modules || {}).forEach(([k, m]) => {
+    if (k[0] === '_') return;
+    const gs = m.variants ? Object.entries(m.variants) : [[k, m]];
+    gs.forEach(([v, g]) => (g.weapons || []).forEach(w => {
+      const ts = (w.targets || []).map(t => t.types.join('+'));
+      allScWeapons.push({ ship: s.name, mod: k + v, name: w.name, ts });
+      const isAA = /防空|反导|拦截|防空炮|防御导弹/.test(w.name || '');
+      if (!isAA && !ts.some(t => /大型|主力/.test(t))) noBigTarget.push({ ship: s.name, mod: k + v, name: w.name, ts: ts.join(' , '), dpm: Math.max((w.dpm || {}).antiShip || 0, (w.dpm || {}).air || 0) });
+    }));
+  });
+});
+/* F. ★ 舰船缺「指挥系统」模块（旗舰机制依赖它） */
+const noCmdSys = [];
+ships.filter(s => ['thunder-star', 'plutus-shield', 'tianquan'].includes(s.id)).forEach(s => {
+  const has = Object.entries(s.modules || {}).some(([k, m]) => k[0] !== '_' && /指挥/.test((m.name || '') + (m.variants ? Object.values(m.variants).map(x => x.name).join('') : '')));
+  const cdn = String((bmap[s.id] || {}).cdnId || '');
+  const b = bp.find(x => String(x.id) === cdn);
+  const bpHas = b ? b.systems.some(y => /指挥/.test(y.sysName || '')) : false;
+  if (!has && bpHas) noCmdSys.push({ ship: s.name, slug: s.id, bpsys: (b.systems.filter(y => /指挥/.test(y.sysName || '')).map(y => y.sysName).join('、')) });
+});
+/* G. 舰队级机制（已实现） */
+const fleetMechNodes = [];
+bp.forEach(b => b.systems.forEach(y => y.nodes.forEach(n => {
+  const c = st.nodes[n.id] || {};
+  if (c.fleetMech) fleetMechNodes.push({ ship: b.shipName, sys: y.sysName, node: n.name, fm: c.fleetMech });
+})));
+
 /* ========== 收集 ========== */
 /* A. 同位置二选一 */
 const altGroups = [];
@@ -207,6 +239,35 @@ T += '| # | 舰船 | 武器 | 数值 | ✍️ 留 / 改 / 删 | ✍️ 若"改"�
 unsourced.forEach((x, i) => { T += '| ' + (i + 1) + ' | ' + x.ship + ' | ' + esc(x.name) + ' | `' + esc(JSON.stringify(x.v)) + '` | ' + BL + ' | ' + BL + ' |\n'; });
 T += '\n> ⚠️ 其中**米斯特拉**那条与**维塔斯A021**完全一样，而米斯特拉的资料里一个"系统"字都没有。\n';
 
+H(2, '1.8 ★超主力武器的「目标表」缺大型舰船（' + noBigTarget.length + ' 门）—— 浏览器实跑发现的');
+T += '**怎么发现的**：在浏览器里实跑一场超主力对轰，**我方输出只有面板的约 1/7**。查下来是：\n';
+T += '这些是**反舰主炮**，但 `targets` 表里**只写了「小型舰船」或「舰载机」，一行「大型舰船」都没有**。\n';
+T += '引擎找不到匹配就回落到默认命中率 50~70%，打超主力时输出偏低。\n\n';
+T += '按《战斗机制》文档，武器应对**不同舰种有不同命中区间**（"轻型武器打小型命中高、重型武器打大型更好"）。\n';
+T += '现在这批武器只有一行 → 等于整张表缺了。**' + allScWeapons.length + ' 门超主力武器里 ' + noBigTarget.length + ' 门中招。**\n\n';
+T += '| # | 舰船 | 模块·变体 | 武器 | 现在的目标表 | 面板DPM | ✍️ 填写（对「大型舰船」的命中区间，例 70~100） |\n|---|---|---|---|---|---|---|\n';
+noBigTarget.forEach((x, i) => {
+  T += '| ' + (i + 1) + ' | ' + x.ship + ' | `' + x.mod + '` | ' + esc(x.name) + ' | ' + x.ts + ' | ' + (x.dpm || '-') + ' | ' + BL + ' |\n';
+});
+
+H(2, '1.9 ★舰船缺「指挥系统」模块（' + noCmdSys.length + ' 艘）—— 旗舰机制依赖它');
+T += '**问题**：这几艘船的 `ship_database.modules` 里**没有"指挥系统"**，但**加点树里有**。\n';
+T += '而它们的旗舰机制（多目标反击/庇护作战/天权防线）**必须在指挥系统被摧毁后失效**——引擎里没这个系统，就永远失效不了。\n';
+T += '（我已按加点树的证据临时补了一个指挥系统进引擎，但**模块表本身还是缺的**，需要补上。）\n\n';
+T += '| # | 舰船 | 加点树里的系统 | ✍️ 填写（模块名 / 该系统的血量） |\n|---|---|---|---|\n';
+noCmdSys.forEach((x, i) => { T += '| ' + (i + 1) + ' | ' + x.ship + '（`' + x.slug + '`） | ' + x.bpsys + ' | ' + BL + ' |\n'; });
+
+H(2, '1.10 ✅ 舰队级机制（' + fleetMechNodes.length + ' 个节点）—— 已实现，供你核对');
+T += '**怎么做出来的**：你说明了模拟器本来就有 4 个舰队（敌护航A / 敌被护航B / 我护航C / 我被护航D），\n';
+T += '「被多支舰队同时攻击」在这个结构里真实存在 → 于是这 9 个节点全部实现了（**不是"架构做不了"**）。\n\n';
+T += '规则：**前 4 类必须是指定为旗舰才生效**；该舰**指挥系统被摧毁后机制消失**。\n\n';
+T += '| 舰船 | 系统 | 节点 | 机制 | 引擎行为 | ✍️ 对不对 |\n|---|---|---|---|---|---|\n';
+const FM_CN = { subTargetHit: '每存在 1 个副目标舰队 → 命中提升', counterSub: '除打主目标外，还向副目标舰队打 N% 伤害', protectFromSub: '减少来自副目标舰队的 N% 伤害', repairBoost: '被多支舰队攻击 → 维修效果提升', cutInSub: '舰队不是主目标 → 优先选血量最低的 N 个目标' };
+fleetMechNodes.forEach(x => {
+  T += '| ' + x.ship + ' | ' + x.sys + ' | ' + x.node + ' | ' + x.fm.kind + (x.fm.vs ? '/' + x.fm.vs : '') + ' | ' + (FM_CN[x.fm.kind] || '') + ' | ' + BL + ' |\n';
+});
+T += '\n实测 `test/fleet_mech_test.js` **13/13 通过**；浏览器实跑能看到战报里打出 `⚔ 雷火之星「多目标反击」→ 乌拉诺斯之矛 (-1289)`。\n';
+
 H(2, '1.7 同名武器数值不同');
 const byName = {};
 ships.forEach(s => Object.entries(s.modules || {}).forEach(([mk, m]) => {
@@ -385,17 +446,29 @@ T += '| 一 冲突 | 模块变体多选一（各带不同策略） | ' + varStra
 T += '| 一 冲突 | 面板 DPM 算不出 | ' + dpmBad.length + ' 门 |\n';
 T += '| 一 冲突 | 武器名损坏 | ' + badW.length + ' 门 |\n';
 T += '| 一 冲突 | 系统破坏数值雷同 / 无出处 | ' + Object.entries(bySig).filter(([, v]) => v.length > 1).reduce((a, x) => a + x[1].length, 0) + ' / ' + unsourced.length + ' |\n';
+T += '| 一 冲突 | **★超主力武器目标表缺「大型舰船」** | **' + noBigTarget.length + ' 门 / ' + allScWeapons.length + ' 门** |\n';
+T += '| 二 缺少 | **★舰船缺「指挥系统」模块**（旗舰机制依赖） | ' + noCmdSys.length + ' 艘 |\n';
 T += '| 二 缺少 | 舰载机作战模式 | ' + noMode.length + ' 艘 |\n';
 T += '| 二 缺少 | 系统独立血量 / 系统攻击效率 / 防空命中率 / 主动防空 / 武器轻重 / 三个系数 | 6 类 |\n';
 T += '| 二 缺少 | 零武器 / 无hp / 无加点 | ' + noW.length + ' / ' + noHp.length + ' / ' + noBp.length + ' 艘 |\n';
 T += '| 三 不明确 | 术语代号 | ' + (pureRefs.length + embedRefs.length) + ' 节点 |\n';
 T += '| 三 不明确 | 多数值位对不上 | ' + multiFails.length + ' 个 |\n';
-T += '| 三 不明确 | **条件触发（现在被当成永久效果）** | **' + cond.length + ' 个** |\n';
+T += '| 三 不明确 | **条件触发**（原来被当成开场永久生效） | ' + cond.length + ' 个 —— **✅ 已实现** |\n';
 T += '| 三 不明确 | 机制未实现 | 38 条 |\n';
 T += '| 四 策略 | type=2/3 策略节点 | ' + strategics.length + ' 个 —— **其中 ' + strategics.filter(x => !x.addable && !x.mech).length + ' 个引擎没实现（' + Math.round(strategics.filter(x => !x.addable && !x.mech).length / strategics.length * 100) + '%）** |\n';
 T += '| 四 策略 | ├ 已当数值生效 | ' + strategics.filter(x => x.addable).length + ' 个 |\n';
 T += '| 四 策略 | ├ 已按战场机制实现 | ' + strategics.filter(x => x.mech).length + ' 个 |\n';
 T += '| 四 策略 | └ **未实现** | **' + strategics.filter(x => !x.addable && !x.mech).length + ' 个** |\n';
+T += '\n**近期已做完的（供对照）**\n\n';
+T += '| 项 | 数量 | 说明 |\n|---|---|---|\n';
+T += '| ✅ 加点「二选一」 | 39 组 | 金框卡 + ①② 切换器；切了退另一个的点数（`test/addpoint_alt_choice.js` 14/14） |\n';
+T += '| ✅ 条件触发 | 119 个 | 原来被当成"开场永久生效"；现按 血量阈值/开场X秒/周期/前N轮 求值（`test/addpoint_cond_effects.js` 7/7） |\n';
+T += '| ✅ 舰队级机制 | 9 个 | 多目标反击/庇护作战/天权防线/多目标反击辅助/切入作战（`test/fleet_mech_test.js` 13/13） |\n';
+T += '| ✅ 归类规则补全 | — | 修 `\\d+` 匹配不到 `{101}` 的 bug；新增"非战斗"归一类（`fleetOps`），战斗相关实现率 **96.3%** |\n';
+T += '| ✅ 重抓 CDN 核对 | 177 艘 | 逐船 diff = 0 处，官网数据未更新 |\n';
+T += '\n**统计口径（2026-09-21 修正）**：剔除非战斗（航行速度 433 / 舰队运营 116 等）后，\n';
+T += '**战斗相关节点 4637 个，已实现 4464 = 96.3%**。\n';
+T += '（此前报的 56% / 81% 是把星系航行、舰队运营也算进分母，是错的。）\n';
 
 fs.writeFileSync(OUT + '/拉格朗日-缺少冲突不明确-全清单.md', T, 'utf8');
 ['拉格朗日-数据缺口清单.md'].forEach(f => { try { fs.unlinkSync(OUT + '/' + f); console.log('已删除：' + f); } catch (e) { } });
