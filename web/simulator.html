@@ -1080,6 +1080,9 @@
     function randBetween(min,max) { return Math.floor(Math.random()*(max-min+1))+min; }
     function randHit(hitMin,hitMax) { return hitMin + Math.random()*(hitMax-hitMin); }
     function clamp(v,min,max) { return Math.max(min,Math.min(max,v)); }
+    /* 资料《武器命中率与拦截率计算公式》：命中率存在极限值，最低 10%、最高 95%，
+       不存在 0% 命中和 100% 命中。 */
+    const HIT_MIN = 0.10, HIT_MAX = 0.95;
 
     // ============================================================
     //  NAVIGATION
@@ -2865,7 +2868,7 @@
                     arr[i].antiIntercept = Math.round((g.antiIntercept||0)*10)/10;    // 被拦截率下降
                     arr[i].hitBonus = Math.round((g.hitBonus||0)*10)/10;              // 系统内命中
                     arr[i].repairBonus = Math.round((g.repairBonus||0)*10)/10;
-                    arr[i].lockEfficiency = Math.round((g.lockEfficiency||0)*10)/10;  // 锁定效率（加命中）
+                    arr[i].lockEfficiency = Math.round((g.lockEfficiency||0)*10)/10;  // 锁定效率（缩锁定时间，2026-09-24 起不再算命中）
                     arr[i].denseFire = Math.round((g.denseFire||0)*10)/10;            // 密集射击：攻击次数翻倍
                     arr[i].sysIntercept = Math.round((g.sysIntercept||0)*10)/10;      // 系统内导弹获得拦截率
                 }
@@ -3806,7 +3809,10 @@
                 if(!t) return;                         // 无目标：锁定/冷却继续并行推进
                 const st0 = ws.strengthen || {};
                 ws.currentTarget = t;
-                ws.lockRemaining = (w.lockTime || 0) * (1 - (st0.lockReduction||0)/100);
+                /* 锁定时间 = 基础锁定时间 × (1 − 锁定减少)。资料里「锁定」是目标选择阶段的时间，
+                   「锁定效率」也属于这一类，所以一并放在这里（2026-09-24 起不再算作命中加成）。 */
+                const _lkEff = (w.lockEfficiency || 0) + (st0.lockEfficiency || 0) + (ship.lockEfficiency || 0);
+                ws.lockRemaining = (w.lockTime || 0) * (1 - Math.min(95, (st0.lockReduction||0) + _lkEff)/100);
                 ws.shotsRemaining = remainingShots;
                 ws.batchesRemaining = remainingBatches;
                 ws.atkRemaining = w.atkDuration || 0;
@@ -3990,9 +3996,10 @@
             }
         }
         let hitRate = (hitMin + Math.random() * (hitMax - hitMin)) / 100;
-        // 命中 = 基础命中 × (1 + 命中加成 + 武器锁定效率 − 敌方闪避 − 敌方"被命中率下降")
+        // 命中 = 基础命中 × (1 + 命中加成 − 敌方闪避 − 敌方"被命中率下降")
+        // ★ 2026-09-24 拍板：「锁定效率」不加命中 —— 资料里锁定是【目标选择阶段的时间】，
+        //   跟命中率无关，已挪到 processShipWeapons 的 lockRemaining（缩短锁定时间）。
         const evasion = target.evasion || 0;
-        const lockEff = (weapon.lockEfficiency || 0) + (((ws || {}).strengthen || {}).lockEfficiency || 0) + (attacker.lockEfficiency || 0);  // 武器自带 + 加点(系统级/舰船级)「锁定效率」
         const hitBonus = (attacker.hitBonus || 0) + (((ws || {}).strengthen || {}).hitBonus || 0);  // 舰船级 + 本武器所属系统
         // ★「被XX命中率下降」是【被打的一方】让对手更难命中自己，必须减在受方（原来被当成攻方命中加成，方向反了）
         const ehd = target.enemyHitDown || 0;
@@ -4014,13 +4021,13 @@
                 });
             }
         }
-        hitRate *= (1 + (hitBonus + lockEff + subHit - evasion - ehd) / 100);
-        hitRate = clamp(hitRate, 0.01, 0.99);
+        hitRate *= (1 + (hitBonus + subHit - evasion - ehd) / 100);
+        hitRate = clamp(hitRate, HIT_MIN, HIT_MAX);
 
         // Bomb distance effect
         if(bs.battleMode === 'bomb' && (attacker.size==='aircraft' || target.size==='aircraft')) {
             const distDiff = (bs.bombDistance || 15) - 15;
-            hitRate = clamp(hitRate + distDiff * 0.02, 0.01, 0.99);
+            hitRate = clamp(hitRate + distDiff * 0.02, HIT_MIN, HIT_MAX);
         }
 
         if(Math.random() > hitRate) {
@@ -4033,9 +4040,12 @@
         if(!weapon.cannotBeIntercepted && weapon.weaponType !== 'direct') {
             const friendlyShips = attacker.side==='ally' ? bs.enemyShips : bs.allyShips;
             // 拦截率 = 1 - (1-自身) × Π(1-同排) × Π(1-全局)（战斗机制.txt：每艘拦截船累乘）
+            // ★ 2026-09-24 修：原来 target 自己在下面 forEach 里被【重复计入一次】
+            //   （自身那行算过一遍，又因为"同排/全队"匹配到自己再乘一遍 → (1-r)²），
+            //   3 艘 23% 同排光防会算成 64.9% 而不是 54.3%。现在跳过 target 自身。
             let noIntercept = 1 - (target.interceptRate||0)/100;
             friendlyShips.forEach(s=>{
-                if(!s.alive) return;
+                if(!s.alive || s === target) return;
                 const r = s.interceptRate||0;
                 if(r<=0) return;
                 if(s.interceptType==='global') noIntercept *= (1 - r/100);
@@ -4052,28 +4062,40 @@
         }
 
         // === DAMAGE CALCULATION (伤害计算) ===
+        /* ★ 2026-09-24 按资料逐条校正（用户拍板）：
+           实弹单发 =（基础 + 各类伤害加成 + 策略增幅）×（1+调校）− 对方物理护甲
+           能量单发 =（基础 + 各类伤害加成 + 策略增幅 − 基础×对方护盾%）×（1+调校）
+             → 伤害加成与护甲/护盾是【加算】在同一个括号里，调校是【乘算】在括号外。
+               （实测佐证：维塔斯B 650 单发、+55% 加成，打 70% 能抗的电磁59 → 650×(1+0.55−0.70)=552，
+                 与实测 552 完全一致；乘算写法会得 302。）
+           两类都有 10% 保底：打不穿也至少造成 (基础×10%)×调校。
+           能量不再因为「能抗 ≥100%」直接免伤 —— 资料实测 100% 能抗只减 60%~80%。 */
         // Get strengthen data from weapon state
         const st = ws.strengthen || {dmgBonus:0,lockReduction:0,cooldownReduction:0,lockTimeReduction:0,flightTimeReduction:0};
         const tuningCoeff = 1.3; // 基础调校系数 (1 + 30%)
-        let dmg = weapon.singleDmg * (1 + (st.dmgBonus||0)/100); // Apply strengthen single-damage bonus
+        /* 所有伤害加成【加算】成一个比率，连同护甲/护盾一起作用在【原始单发】上：
+             加成率 = 武器强化「单发+%」 + 舰船级/系统级「伤害加成%」 + 策略增幅
+           回代资料实测：维塔斯B 650 单发 / +55% 加成 / 70% 能抗 → 650×(1+0.55−0.70)=552 ✓
+                        大帝M1 (400+60+40+80−340)×1.3=312 ✓   阋神星 (300+60)×1.3−140=328 ✓ */
+        const bonusRate = ((st.dmgBonus||0) + (attacker.dmgBonus||0)) / 100;
+        const baseVal = weapon.singleDmg * (1 + bonusRate);              // 保底用的「基础+加成」
         const physArmor = (target.physicalArmor || 0) + (target.physResistBonus || 0); // Ship base armor + bonus resist
         const energyArmor = target.energyArmor || 5;
 
+        let dmg;
         if(weapon.dmgType === 'energy') {
-            if(energyArmor + (target.energyResistBonus||0) >= 100) return;
-            dmg = dmg * (1 - (energyArmor + (target.energyResistBonus||0))/100) * tuningCoeff;
+            const resist = (energyArmor + (target.energyResistBonus||0)) / 100;
+            dmg = weapon.singleDmg * (1 + bonusRate - resist);            // ★ 加算（同一括号）
+            if(dmg <= 0) dmg = baseVal * 0.1;                             // ★ 10% 保底（能抗拉满也不是无敌）
+            dmg *= tuningCoeff;
         } else {
-            // Physical damage
-            const baseAfterArmor = dmg - physArmor;
-            if(baseAfterArmor > 0) {
-                dmg = baseAfterArmor * tuningCoeff;
-            } else {
-                // 不破防: 10%保底伤害 × 调校
-                dmg = dmg * 0.1 * tuningCoeff;
-            }
+            // 物理：(基础+加成) × 调校 − 护甲（★ 先乘调校再减甲，与资料算式顺序一致）
+            dmg = baseVal * tuningCoeff - physArmor;
+            if(dmg <= 0) dmg = baseVal * 0.1 * tuningCoeff;               // 不破防：10% 保底 × 调校
         }
 
         // Critical hit (暴击): apply strengthen critRate/critDmg
+        // 资料：暴击直接作用于【最终单发伤害】，基础暴伤 ×(1+爆伤加成)，基准即 +50%
         let critMult = 1;
         const critRate = (weapon.crit ? 0.15 : 0) + (st.critRate||0)/100;
         const critDmg = 1.5 + (st.critDmg||0)/100;
@@ -4082,25 +4104,15 @@
             if(Math.random() < 0.1) addBattleLog('info', `💥 ${attacker.name||attacker.id} 暴击!`);
         }
         dmg *= critMult;
+        // （原「dmg *= (1 + attacker.dmgBonus)」已折进上面的加算括号，删掉避免重复计算）
 
-        // Damage bonus from attacker
-        const dmgBonus = (attacker.dmgBonus || 0) / 100;
-        dmg *= (1 + dmgBonus);
+        /* ★ 2026-09-24 删除：这里原来硬编码「普鲁图斯之盾当旗舰 → 伤害 ×0.7」，
+           但它和下面通用的 protectFromSub 舰队机制【重复扣减】（0.7×0.7=0.49，实际减伤 51% 而不是 30%），
+           而且不管有没有点那个加点都生效。现在统一走 protectFromSub（会校验旗舰 + 指挥系统 + 加点等级）。 */
 
-        // Flagship: Plutus Shield reduces damage to allied ships from non-primary enemies by 30%
-        if(bs && target.side) {
-            const friendlySide = target.side;
-            const friendlyShips = friendlySide==='ally' ? bs.allyShips : bs.enemyShips;
-            const plutusFlagship = friendlyShips.find(s=>s.alive && s.id==='plutus-shield' && s.isFlagship);
-            if(plutusFlagship) {
-                const cmdSys = plutusFlagship.subSystems?.find(ss=>ss.key==='_' || ss.type==='command');
-                if(!cmdSys || !cmdSys.destroyed) {
-                    dmg *= 0.7; // 30% reduction
-                }
-            }
-        }
-
-        dmg = Math.max(0, Math.round(dmg));
+        // 资料通篇按【向下取整】结算（802.75→802 / 565.5→565 / 46.8→46），不是四舍五入。
+        // +1e-6 是浮点护栏：160×(1+0.40−1.00) 在 JS 里会算成 63.99999999999998，直接 floor 会少 1 点。
+        dmg = Math.max(0, Math.floor(dmg + 1e-6));
 
         // Escort protection: escorted ships immune to damage while escort alive
         if(bs && target.isEscorted) {
