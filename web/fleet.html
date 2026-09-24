@@ -870,6 +870,7 @@ function renderMine(){
                 <div style="display:flex;gap:6px">
                     <button class="btn" onclick="loadPlan('${p.id}')">载入</button>
                     <button class="btn cyan" onclick="sendPlanToAI('${p.id}')">🤖 发给AI</button>
+                    <button class="btn gold" onclick="exportPlan('${p.id}')">📤 导出</button>
                     <button class="btn green" onclick="copyPlan('${p.id}')">复制</button>
                     <button class="btn red" onclick="delPlan('${p.id}')">删除</button>
                 </div>
@@ -1065,6 +1066,14 @@ function exportAllPlans(){
     const plans=store.plans||[];
     if(!plans.length){ toast('没有已保存的配队','err'); return; }
     download('拉格朗日_我的配队_'+new Date().toISOString().slice(0,10)+'.json', JSON.stringify({type:'plans',plans},null,2));
+}
+/* 单条配队导出：文件格式和「导出全部配队」完全一致（{type:'plans',plans:[…]}），
+   所以导出的单条文件可以直接用「📥 导入配队」读回来 */
+function exportPlan(id){
+    const p=(store.plans||[]).find(x=>x.id===id); if(!p) return;
+    const safe=String(p.name||'配队').replace(/[\\/:*?"<>|\s]/g,'_').slice(0,40);
+    download('拉格朗日_配队_'+safe+'_'+new Date().toISOString().slice(0,10)+'.json',
+        JSON.stringify({type:'plans',plans:[p]},null,2));
 }
 function exportLib(){
     const d=FleetLib.loadLocal();

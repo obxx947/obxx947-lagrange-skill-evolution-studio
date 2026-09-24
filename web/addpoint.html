@@ -167,6 +167,9 @@ body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#
         <button class="btn" onclick="openBuilds()">📁 我的方案</button>
         <button class="btn gold" onclick="copyCode()">导出配置码</button>
         <button class="btn" onclick="importCode()">导入配置码</button>
+        <button class="btn gold" onclick="exportAllAddpoints()">📤 导出全部加点</button>
+        <button class="btn" onclick="$('apImp').click()">📥 导入加点文件</button>
+        <input type="file" id="apImp" accept=".json" style="display:none" onchange="importAddpointsFile(this)">
     </div>
     <div id="modLine" class="hint" style="margin:-2px 0 6px 2px"></div>
 
@@ -752,6 +755,7 @@ function openBuilds() {
     + '<span class="tag">' + Object.keys(b.lv || {}).filter(k => (b.lv[k] || 0) > 0).length + ' 点</span>'
     + '<span style="flex:1"></span>'
     + '<button class="btn pri" style="padding:3px 9px;font-size:0.6rem" onclick="applyBuild(' + i + ')">载入</button>'
+    + '<button class="btn gold" style="padding:3px 9px;font-size:0.6rem" onclick="exportBuild(' + i + ')">导出</button>'
     + '<button class="btn red" style="padding:3px 9px;font-size:0.6rem" onclick="delBuild(' + i + ')">删</button>'
     + '</div></div>').join('');
   $('body').innerHTML = '<div class="detail"><div class="dh"><b>我的方案</b>'
@@ -814,6 +818,87 @@ function importCode() {
     persist(); render();
     toast(unknown ? ('已导入，其中 ' + unknown + ' 个节点本船没有、已忽略') : '已导入');
   } catch (e) { toast('配置码无法解析', 'err'); }
+}
+
+/* ---------- 批量导出 / 导入（全部舰船加点 + 全部方案） ----------
+   导出文件格式（自洽，可原样导回）：
+   { type:'lagrange_addpoints', version:1, exportedAt, names:{船名}, addpoints:{cdnId:{lv,manual}}, builds:[方案] }
+   · addpoints —— 「全部舰船加点」，空的船不写进文件
+   · builds    —— 「我的方案」（每条 = 加点 + 模块组合），和 addpoints 同一个文件一起带走
+   · 单条方案导出 走的是同一个格式（builds 里只放一条），所以两种文件都能用「导入加点文件」读回来 */
+function dlFile(name, text) {
+  const b = new Blob([text], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+function nameMap() {
+  const m = {};
+  try { (SHIPS || []).forEach(s => { m[s.id] = s.shipName || s.name || ''; }); } catch (e) { }
+  return m;
+}
+function bundleOf(addpoints, builds) {
+  return { type: 'lagrange_addpoints', version: 1, exportedAt: new Date().toISOString(),
+    note: '拉格朗日智能体3 · 舰船加点导出（addpoints=各舰船加点, builds=保存的方案含模块组合）',
+    names: nameMap(), addpoints: addpoints || {}, builds: builds || [] };
+}
+function exportAllAddpoints() {
+  const addpoints = {};
+  Object.keys(SAVE).forEach(k => {
+    const r = normRec(SAVE[k]);
+    if (!Object.keys(r.lv).length && !Object.keys(r.manual).length) return;   // 空配置不导出
+    addpoints[k] = r;
+  });
+  const builds = loadBuilds();
+  const n = Object.keys(addpoints).length;
+  if (!n && !builds.length) { toast('还没有任何加点或方案可以导出', 'err'); return; }
+  const stamp = new Date().toISOString().slice(0, 10);
+  dlFile('拉格朗日_全部舰船加点_' + stamp + '.json', JSON.stringify(bundleOf(addpoints, builds), null, 2));
+  toast('已导出 ' + n + ' 艘舰船的加点' + (builds.length ? ' + ' + builds.length + ' 个方案' : ''));
+}
+function exportBuild(i) {
+  const b = loadBuilds()[i]; if (!b) return;
+  const safe = String(b.name || '方案').replace(/[\\/:*?"<>|\s]/g, '_').slice(0, 40);
+  dlFile('拉格朗日_加点方案_' + safe + '.json', JSON.stringify(bundleOf({}, [b]), null, 2));
+  toast('已导出方案「' + b.name + '」');
+}
+function importAddpointsFile(inp) {
+  const f = inp.files && inp.files[0]; if (!f) { return; }
+  const rd = new FileReader();
+  rd.onload = () => {
+    let j = null;
+    try { j = JSON.parse(String(rd.result)); } catch (e) { toast('JSON 解析失败', 'err'); inp.value = ''; return; }
+    if (!j || (j.type !== 'lagrange_addpoints' && !j.addpoints && !Array.isArray(j.builds))) {
+      toast('不是本工具导出的加点文件', 'err'); inp.value = ''; return;
+    }
+    const merge = confirm('点【确定】= 合并（同名/同船覆盖，其余保留）\n点【取消】= 覆盖（先清空本机全部加点与方案再导入）\n\n文件里：加点 '
+      + Object.keys(j.addpoints || {}).length + ' 艘 · 方案 ' + ((j.builds || []).length) + ' 个');
+    if (!merge) {
+      Object.keys(SAVE).forEach(k => delete SAVE[k]);
+      storeBuilds([]);
+    }
+    let na = 0;
+    Object.keys(j.addpoints || {}).forEach(k => { SAVE[k] = normRec(j.addpoints[k]); na++; });
+    saveStore();
+    const all = loadBuilds();
+    let nb = 0;
+    (j.builds || []).forEach(b => {
+      if (!b || !b.name) return;
+      const i = all.findIndex(x => x.name === b.name);
+      if (i >= 0) all[i] = b; else all.push(b);
+      nb++;
+    });
+    if (nb) storeBuilds(all);
+    if (ship) {                                   // 当前这艘船跟着刷新
+      const rec = normRec(SAVE[ship.id]);
+      SAVE[ship.id] = rec;
+      lv = Object.assign({}, rec.lv); manual = Object.assign({}, rec.manual);
+      render();
+    }
+    inp.value = '';
+    toast('已导入 ' + na + ' 艘船的加点' + (nb ? ' + ' + nb + ' 个方案' : '') + '（' + (merge ? '合并' : '覆盖') + '）');
+  };
+  rd.readAsText(f, 'utf-8');
 }
 
 /* ---------- 舰船搜索 ----------
