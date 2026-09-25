@@ -3810,7 +3810,8 @@
                     (x.weaponStates || []).forEach(ws => {
                         if(!tgt.alive || tgt.hp <= 0) return;
                         const n = (ws.weapon.ammo || 1) * (ws.weapon.attacks || 1);
-                        for(let i = 0; i < n; i++) { if(!tgt.alive || tgt.hp <= 0) break; executeShot(x, tgt, ws.weapon, ws, bs); }
+                        // ★ 伤害仍按【出击的友军/载机】的武器与加成算，但战报记在指挥舰身上
+                        for(let i = 0; i < n; i++) { if(!tgt.alive || tgt.hp <= 0) break; executeShot(x, tgt, ws.weapon, ws, bs, ship); }
                     });
                 });
                 if(Math.random() < 0.35) addBattleLog('info', '📣 ' + (ship.name || ship.id) + ' 协同指挥：' + cands.length + ' 艘友军对目标进行 1 轮额外打击');
@@ -4049,7 +4050,11 @@
         return enemies.filter(e=>e.alive);
     }
 
-    function executeShot(attacker, target, weapon, ws, bs) {
+    /* creditTo（可选）：战报里把这次攻击记在谁头上。
+       用于「协同指挥」这类【指挥舰给友军加的一轮额外打击】—— 伤害照旧用出击方的武器与加成算，
+       但战报/击毁记录记到指挥舰身上（用户 2026-09-24：安东塔斯 M1 给舰载机多加的伤害算在他自己身上）。 */
+    function executeShot(attacker, target, weapon, ws, bs, creditTo) {
+        const CR = creditTo || attacker;
         // 掩护：目标被友军掩护时，攻击改打那个掩护舰（掩护者还活着才生效）
         if(bs && target && target.coveredBy) {
             const side = target.side === 'ally' ? bs.allyShips : bs.enemyShips;
@@ -4101,7 +4106,7 @@
         }
 
         if(Math.random() > hitRate) {
-            if(Math.random() < 0.05) addBattleLog('info', `${attacker.name||attacker.id} 对 ${target.name||target.id} 未命中`);
+            if(Math.random() < 0.05) addBattleLog('info', `${CR.name||CR.id} 对 ${target.name||target.id} 未命中`);
             return;
         }
 
@@ -4126,7 +4131,7 @@
             const ai = ((ws.strengthen || {}).antiIntercept || 0) + (attacker.antiIntercept || 0);
             const interceptProb = (1 - noIntercept) * (1 - Math.min(100, ai) / 100);
             if(Math.random() < interceptProb) {
-                if(Math.random() < 0.1) addBattleLog('info', `${attacker.name||attacker.id} 攻击被拦截`);
+                if(Math.random() < 0.1) addBattleLog('info', `${CR.name||CR.id} 攻击被拦截`);
                 return;
             }
         }
@@ -4171,7 +4176,7 @@
         const critDmg = 1.5 + (st.critDmg||0)/100;
         if(critRate > 0 && Math.random() < critRate) {
             critMult = critDmg;
-            if(Math.random() < 0.1) addBattleLog('info', `💥 ${attacker.name||attacker.id} 暴击!`);
+            if(Math.random() < 0.1) addBattleLog('info', `💥 ${CR.name||CR.id} 暴击!`);
         }
         dmg *= critMult;
         // （原「dmg *= (1 + attacker.dmgBonus)」已折进上面的加算括号，删掉避免重复计算）
@@ -4248,7 +4253,7 @@
         if(target.hp <= 0) {
             target.hp = 0;
             target.alive = false;
-            addBattleLog('destroy', `💀 ${target.name||target.id} 被击毁! (${attacker.name||attacker.id} -${formatNumber(Math.round(dmg))}HP)`);
+            addBattleLog('destroy', `💀 ${target.name||target.id} 被击毁! (${CR.name||CR.id} -${formatNumber(Math.round(dmg))}HP)`);
             // 机制文档：「如果搭载舰载机的母舰被摧毁，舰载机也会跟随母舰一起被摧毁」
             if(bs){
                 const side = target.side==='ally' ? bs.allyShips : bs.enemyShips;
