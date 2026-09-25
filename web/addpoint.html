@@ -120,6 +120,13 @@ body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#
 .sgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(176px,1fr));gap:6px}
 .srow{display:flex;align-items:center;gap:5px;background:rgba(0,0,0,.26);
       border:1px solid var(--border);border-radius:8px;padding:5px 7px;font-size:0.62rem}
+/* 顶部实时数值栏：现在这艘船的准确数值（可手填覆盖） */
+.liveBar{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:6px 10px;margin:2px 0 8px;font-size:0.62rem;line-height:1.5}
+.liveBar b{color:var(--cyan)}
+.liveBar .k{color:var(--t3)}
+.liveBar .seg{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;min-width:0}
+.liveBar .seg+.seg{border-left:1px solid var(--border);padding-left:12px}
+.liveBar input{width:62px;background:rgba(0,0,0,.35);border:1px solid var(--border);border-radius:5px;color:var(--t1);font-size:0.6rem;padding:1px 4px}
 .srow i{font-style:normal;color:var(--t2);flex:1 1 auto;min-width:0;white-space:normal;word-break:break-word;line-height:1.35}
 .srow .auto{color:var(--t3);font-size:0.56rem;white-space:nowrap;opacity:.85}
 .srow input{width:54px;background:rgba(0,0,0,.35);border:1px solid var(--border);border-radius:6px;
@@ -178,6 +185,7 @@ body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#
 
     <div id="ctxLine" class="hint" style="margin:-2px 0 8px 2px"></div>
 
+    <div id="liveBar" class="liveBar"></div>
     <div id="body"></div>
 </div>
 
@@ -501,6 +509,80 @@ function sysBreakdownHtml() {
        + '下面每一块只作用于它自己那个系统的武器（引擎也是这么算的）：</div>'
        + '<div class="sgrid" style="margin-top:6px">' + blocks.join('') + '</div>';
 }
+/* ============ 顶部【实时数值栏】============
+   用户 2026-09-25：在上面找个空位置，实时显示现在准确的数值 ——
+     · 所有舰船：结构值 / 物理护甲 / 能量护甲 / 受维修加成
+     · 武器系统：分钟伤害 / 单发 / 命中 / 攻击次数 / 冷却 / 锁定
+     · 维修系统：实时维修量
+     · 机库系统：实时载机加成
+     · 往复式舰载机：实时去程 / 回程
+   每一项都可以手动强制改（输入框直接覆盖），显示完整不省略。 */
+function liveVal(key, auto, unit, label) {
+  const m = (manual && manual['live_' + key] !== undefined && manual['live_' + key] !== '') ? manual['live_' + key] : '';
+  const shown = (m === '' ? auto : m);
+  return '<span class="seg"><span class="k">' + label + '</span>'
+    + '<b>' + (typeof shown === 'number' ? (Math.round(shown * 100) / 100) : shown) + (unit || '') + '</b>'
+    + '<input type="text" placeholder="改" value="' + esc(m) + '" title="手动强制改（留空=用算出来的）"'
+    + ' oninput="setManualLive(\' + key + \', this.value)"></span>';
+}
+function setManualLive(key, v) {
+  if (v === '' || v === null) delete manual['live_' + key]; else manual['live_' + key] = v;
+  persist();
+  const el = $('liveBar'); if (el) el.innerHTML = liveBarHtml();      // 只重画这一条，不整页重绘（避免输入失焦）
+}
+function liveNum(k) { const v = manual && manual['live_' + k]; return (v !== undefined && v !== '' && !isNaN(parseFloat(v))) ? parseFloat(v) : null; }
+function liveBarHtml() {
+  if (!ship || !STATS) return '';
+  const O = (function () { try { return computeStats().out || {}; } catch (e) { return {}; } })();
+  /* 基值（结构值/护甲）来自 ship_database.json —— 加点页默认【不加载】它，
+     所以拿不到基值时【只显示加点带来的加成】，不编一个假的绝对值出来。
+     手填框任何时候都能强制写死真实值。 */
+  const base = (function () {
+    try { const db = window.SHIP_DB; if (db && db.get) { const r = db.get(ship.id) || (db.all && db.all().find(x => String(x.id) === String(ship.id))); if (r) return r; } } catch (e) { }
+    return null;
+  })();
+  const hpBase = (base && base.hp) || 0;
+  const hpAuto = hpBase ? Math.round(hpBase * (1 + (O.hp || 0) / 100)) : ('+' + (Math.round((O.hp || 0) * 100) / 100) + '%');
+  const 物甲 = base ? Math.round(((base.physicalArmor || 0) + (O.physResist || 0))) : ('+' + (Math.round((O.physResist || 0) * 100) / 100));
+  const 能甲 = base ? Math.round(((base.energyArmor || 0) + (O.energyResist || 0))) : ('+' + (Math.round((O.energyResist || 0) * 100) / 100));
+  const 维修加成 = base ? Math.min(Math.round((base.physicalArmor || 0) * 0.25 * 100) / 100 + (O.repairEff || 0) + (O.repairBonus || 0), 150)
+                        : (Math.round(((O.repairEff || 0) + (O.repairBonus || 0)) * 100) / 100);
+  let h = '<span class="seg"><b style="color:var(--gold)">' + esc(ship.shipName || ship.id) + '</b></span>'
+        + liveVal('hp', hpAuto, '', '结构值')
+        + (base ? '' : '<span class="k" style="color:var(--gold)">（没加载舰船库→这里只有加点加成；真实绝对值请手填）</span>')
+        + liveVal('physArmor', 物甲, '', '物理护甲')
+        + liveVal('energyArmor', 能甲, (typeof 能甲 === 'number' ? '%' : ''), '能量护甲')
+        + liveVal('repairBonus', 维修加成, '%', '受维修加成');
+  /* 当前选中系统的那一类数值 */
+  const sys = ship.systems && ship.systems[sysIdx];
+  if (sys) {
+    const isW = sys.isWeaponSystem;
+    const isRep = /维修|支援/.test(sys.sysName || '') || (sys.nodes || []).some(n => { const st = STATS.nodes[n.id]; return st && st.stat === 'repairEff' && nodeLv(n.id) > 0; });
+    const isHangar = /机库|载机|坞舱|搭载/.test(sys.sysName || '');
+    const isRecip = ship.flightMode === 'reciprocating';
+    if (isW) {
+      const n = (sys.nodes || []).reduce((a, x) => a + (nodeLv(x.id) > 0 ? 1 : 0), 0);
+      h += '<span class="seg"><span class="k">本系统武器</span><b>' + esc(sys.sysName || '') + '</b>'
+         + liveVal('w_dpm', (O.singleDmg || 0) + '/' + (O.cooldownReduction || 0), '', '单发+/冷却-')
+         + liveVal('w_hit', O.hitBonus || 0, '%', '命中')
+         + liveVal('w_cd', O.cooldownReduction || 0, '%', '冷却')
+         + liveVal('w_lock', O.lockReduction || 0, '%', '锁定')
+         + '<span class="k">（' + n + ' 个节点）</span></span>';
+    } else if (isRep) {
+      h += '<span class="seg"><span class="k">本系统维修</span><b>' + esc(sys.sysName || '') + '</b>'
+         + liveVal('rep_dpm', O.repairEff || 0, '%', '维修量加成') + '</span>';
+    } else if (isHangar) {
+      h += '<span class="seg"><span class="k">本系统机库</span><b>' + esc(sys.sysName || '') + '</b>'
+         + liveVal('h_dmg', O.hangarDmg || 0, '%', '载机伤害') + liveVal('h_hit', O.hangarHit || 0, '%', '载机命中') + '</span>';
+    }
+    if (isRecip) {
+      h += '<span class="seg"><span class="k">往复</span><b>去程 ' + (ship.departSec || 0) + 's / 回程 ' + (ship.returnSec || 0) + 's</b>'
+         + liveVal('departSec', ship.departSec || 0, 's', '去程') + liveVal('returnSec', ship.returnSec || 0, 's', '回程') + '</span>';
+    }
+  }
+  return h;
+}
+function renderLiveBar() { const el = $('liveBar'); if (el) el.innerHTML = liveBarHtml(); }
 function statPanelHtml() {
   if (!STATS) return '';
   const { out, counted, skipped, other, pureRef, decoded, modOnly, mech, cond, skippedList, pureRefList, condList } = computeStats();
@@ -557,12 +639,8 @@ function statPanelHtml() {
     + (pureRef ? '<span class="tag" style="color:var(--red);border-color:var(--red)">' + pureRef + ' 个无译文</span>' : '')
     + (other ? '<span class="tag">' + other + ' 个属于引擎暂未实现的机制</span>' : '')
     + '</div>'
-    + '<div class="hint" style="margin-bottom:6px">每一行都是 <b>自动汇总</b>（取所点节点当前等级的数值）<b>＋手动追加</b>，右边是最终合计。'
-    +   '第二块含<b>只作用于本系统</b>的项（按模块生效，不进整船合计）；第三块是<b>本舰船机库</b>（作用全舰载机）；'
-    +   '最后两项引擎里没有对应字段，只有手填值有效。</div>'
-    + '<div class="sgrid">' + GROUP_A.map(rowA).join('') + '</div>'
-    + '<div class="sgrid" style="margin-top:6px">' + GROUP_B.map(rowA2).join('') + '</div>'
-    + '<div class="sgrid" style="margin-top:6px">' + GROUP_H.map(rowA).join('') + '</div>'
+    + '<div class="hint" style="margin-bottom:6px">只按<b>本系统</b>分开列（引擎里每个系统的加点就只作用于它自己的武器/载机）。'
+    +   '整船合计不在这里列了 —— 上面那条实时数值栏看的就是整船结果。</div>'
     + sysBreakdownHtml()
     + un.join('')
     + '</div>';
@@ -616,6 +694,7 @@ function render() {
     +   '<div class="board">' + boardHtml(sys) + detailHtml() + statPanelHtml() + '</div>'
     + '</div>';
   showModLine();
+  renderLiveBar();
 }
 
 function sysCardHtml(s, i) {

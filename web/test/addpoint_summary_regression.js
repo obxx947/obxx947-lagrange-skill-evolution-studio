@@ -65,6 +65,24 @@ const check = (n, ok, d) => { if (ok) { pass++; console.log('PASS ' + n + (d ? (
   check('③ 点了节点后，汇总里出现「按【本系统】分开看」分块', R2.有本系统块 === true,
     '点了 ' + R2.点了几个 + ' 个系统 · ' + R2.片段);
 
+
+  /* ============ ③ 顶部实时数值栏 ============ */
+  const R3 = await p.evaluate(() => {
+    const out = {};
+    out.有栏位 = !!document.getElementById('liveBar');
+    out.有函数 = typeof liveBarHtml === 'function' && typeof setManualLive === 'function';
+    out.内容 = (document.getElementById('liveBar') || {}).textContent || '';
+    /* 手动覆盖一项 → 该项应显示手填值 */
+    setManualLive('hp', '999999');
+    const t = (document.getElementById('liveBar') || {}).textContent || '';
+    out.覆盖后含手填 = t.indexOf('999999') >= 0;
+    try { delete manual['live_hp']; persist(); renderLiveBar(); } catch (e) {}
+    return out;
+  });
+  console.log('  [debug] ' + JSON.stringify(R3));
+  check('[12] 顶部有实时数值栏 #liveBar', R3.有栏位 === true && R3.有函数 === true, R3.内容.slice(0, 90));
+  check('[12] 实时栏里有「结构值」且可手动强制改',
+    /结构值/.test(R3.内容) && R3.覆盖后含手填 === true, R3.内容.slice(0, 90));
   await b.close();
   console.log('\n==== ' + pass + ' 通过 / ' + fail + ' 失败 ====');
   process.exit(fail ? 1 : 0);
