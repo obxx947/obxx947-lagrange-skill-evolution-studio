@@ -1742,11 +1742,11 @@
         let sets = [];
         try { sets = JSON.parse(localStorage.getItem('lagrange_addpoint_sets') || '[]') || []; } catch(e){}
         const cur = fleet.apSet || '';
-        let opts = '<option value="">整套加点:默认</option>';
-        sets.forEach(x => { opts += '<option value="' + apEsc(x.name) + '"' + (cur === x.name ? ' selected' : '') + '>整套加点:' + apEsc(x.name) + '</option>'; });
-        if (!sets.length) opts += '<option value="__go">（还没有整套方案，点这里去存）</option>';
+        let opts = '<option value="">总体加点:默认</option>';
+        sets.forEach(x => { opts += '<option value="' + apEsc(x.name) + '"' + (cur === x.name ? ' selected' : '') + '>总体加点:' + apEsc(x.name) + '</option>'; });
+        if (!sets.length) opts += '<option value="__go">（还没有总体加点方案，点这里去存）</option>';
         return '<select class="btn btn-sm" style="font-size:10px;max-width:190px"'
-             + ' title="这个舰队用哪一整套加点（在舰船加点页点「💾 存整套方案」）"'
+             + ' title="这个舰队用哪一套总体加点（在舰船加点页点「💾 存总体加点方案」）"'
              + ' onclick="event.stopPropagation()"'
              + ' onchange="event.stopPropagation();simSetFleetApSet(\' + fid + \', this.value)">' + opts + '</select>';
     }
@@ -1757,7 +1757,7 @@
         const all = [].concat(fleet.main || [], fleet.reinforcement || []);
         all.forEach(e => { if(name) e.apSet = name; else delete e.apSet; });
         refreshFleetViews();
-        showToast(name ? ('本舰队整套加点 = 「' + name + '」（' + all.length + ' 条已套用）') : '本舰队改回「默认整套加点」');
+        showToast(name ? ('本舰队总体加点 = 「' + name + '」（' + all.length + ' 条已套用）') : '本舰队改回「默认总体加点」');
     }
     /* 去「舰船加点」页配这艘船的方案（带上官方编号，直接跳到那艘船） */
     function apGoAddpoint(shipId){

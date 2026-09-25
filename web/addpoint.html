@@ -167,8 +167,8 @@ body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#
         <button class="btn" onclick="openBuilds()">📁 本舰方案列表</button>
         <button class="btn gold" onclick="copyCode()">导出配置码</button>
         <button class="btn" onclick="importCode()">导入配置码</button>
-        <button class="btn green" onclick="saveSet()">💾 存整套方案</button>
-        <button class="btn" onclick="openSets()">📁 整套方案</button>
+        <button class="btn green" onclick="saveSet()">💾 存总体加点方案</button>
+        <button class="btn" onclick="openSets()">📁 总体加点方案</button>
         <button class="btn gold" onclick="exportCurrentAddpoint()">📤 导出当前加点</button>
         <button class="btn gold" onclick="exportAllAddpoints()">📤 导出全部加点</button>
         <button class="btn" onclick="$('apImp').click()">📥 导入加点文件</button>
@@ -738,10 +738,10 @@ function saveBuild() {
   if (!ship) return;
   const all = loadBuilds();
   /* 默认名要一眼看出这是【单舰】方案 —— 之前直接用舰名，和旁边的「存整套方案」混（用户 2026-09-25）。
-     ⚠️ 这里只存【当前这一艘船】；要存所有舰船请用「💾 存整套方案」。 */
+     ⚠️ 这里只存【当前这一艘船】；要存所有舰船请用「💾 存总体加点方案」。 */
   const 点数 = Object.keys(lv).filter(k => lv[k] > 0).length;
   const def = '单舰·' + (ship.shipName || ship.id) + (modStr() ? ' ' + modStr() : '') + ' ' + 点数 + '点';
-  const name = prompt('本舰方案名称\n\n只存【当前这一艘：' + (ship.shipName || ship.id) + '】（含模块组合 ' + (modStr() || '未指定') + '）\n要存【所有舰船】请关掉这个，改点「💾 存整套方案」：', def);
+  const name = prompt('本舰方案名称\n\n只存【当前这一艘：' + (ship.shipName || ship.id) + '】（含模块组合 ' + (modStr() || '未指定') + '）\n要存【所有舰船】请关掉这个，改点「💾 存总体加点方案」：', def);
   if (!name) return;
   const rec = { name: name, ship: ship.id, shipName: ship.shipName, mods: selMods.slice(),
                 lv: Object.assign({}, lv), manual: Object.assign({}, manual), updatedAt: Date.now() };
@@ -765,7 +765,7 @@ function openBuilds() {
     + '<button class="btn red" style="padding:3px 9px;font-size:0.6rem" onclick="delBuild(' + i + ')">删</button>'
     + '</div></div>').join('');
   $('body').innerHTML = '<div class="detail"><div class="dh"><b>我的方案</b>'
-    + '<span class="hint">（只针对某一艘船：加点 + 模块组合；要整套所有舰船请返回点「💾 存整套方案」）</span><span style="flex:1"></span>'
+    + '<span class="hint">（只针对某一艘船：加点 + 模块组合；要整套所有舰船请返回点「💾 存总体加点方案」）</span><span style="flex:1"></span>'
     + '<button class="btn" onclick="render()">返回加点</button></div>'
     + '<div class="hint" style="margin-bottom:8px">载入后会自动切到对应舰船，并把模块组合设为保存时的选择 —— 这样加点就只显示那套模块的系统。</div>'
     + list + '</div>';
@@ -868,15 +868,17 @@ function saveSet() {
   const snap = loadStore();                       // 全部舰船的加点
   const n = Object.keys(snap).length;
   if (!n) { toast('还没有任何舰船的加点可以存', 'err'); return; }
-  const name = prompt('整套方案名称（存的是【所有舰船】的加点，' + setStat(snap) + '）：',
-    '整套方案 ' + new Date().toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }));
+  /* 默认名用「总体加点方案N」按序号递增（用户 2026-09-25：原来自动带舰船名/时间戳容易误会） */
+  const used = loadSets().map(x => x && x.name).filter(Boolean);
+  let k = 1; while (used.indexOf('总体加点方案' + k) >= 0) k++;
+  const name = prompt('总体加点方案名称\n\n存的是【所有舰船】的加点（当前 ' + setStat(snap) + '）\n（只存某一艘船请关掉这个，用左边的「💾 存本舰方案」）：', '总体加点方案' + k);
   if (!name) return;
   const all = loadSets();
   const rec = { name: name, addpoints: snap, updatedAt: Date.now() };
   const i = all.findIndex(x => x.name === name);
   if (i >= 0) { if (!confirm('已有同名整套方案，覆盖它？')) return; all[i] = rec; } else all.push(rec);
   storeSets(all);
-  toast('已存整套方案「' + name + '」（' + setStat(snap) + '）');
+  toast('已存总体加点方案「' + name + '」（' + setStat(snap) + '）');
 }
 /* 载入整套：先清空本机全部加点，再把快照写回去（问一下，避免误覆盖） */
 function applySet(i) {
@@ -910,12 +912,12 @@ function openSets() {
     + '<button class="btn gold" style="padding:3px 9px;font-size:0.6rem" onclick="exportSet(' + i + ')">导出</button>'
     + '<button class="btn red" style="padding:3px 9px;font-size:0.6rem" onclick="delSet(' + i + ')">删</button>'
     + '</div></div>').join('');
-  $('body').innerHTML = '<div class="detail"><div class="dh"><b>整套加点方案</b>'
-    + '<span class="hint">（每条 = 当时【所有舰船】的加点快照）</span><span style="flex:1"></span>'
+  $('body').innerHTML = '<div class="detail"><div class="dh"><b>总体加点方案</b>'
+    + '<span class="hint">（每条 = 当时【所有舰船】的加点快照，默认名「总体加点方案N」）</span><span style="flex:1"></span>'
     + '<button class="btn green" onclick="saveSet()">💾 存当前为一套</button>'
     + '<button class="btn" onclick="render()">返回加点</button></div>'
-    + '<div class="hint" style="margin-bottom:8px">在战斗模拟 / 战舰配队里，可以给【每个舰队】单独选一套（不同舰队各用各的）。</div>'
-    + (rows || '<div class="empty">还没有整套方案。先把各舰船配好，然后点上面的「💾 存当前为一套」。</div>')
+    + '<div class="hint" style="margin-bottom:8px">在战斗模拟里，【每个舰队方框】右侧都能单独选一套（各用各的、互不影响）。</div>'
+    + (rows || '<div class="empty">还没有总体加点方案。先把各舰船配好，然后点上面的「💾 存当前为一套」。</div>')
     + '</div>';
 }
 function exportCurrentAddpoint() {
