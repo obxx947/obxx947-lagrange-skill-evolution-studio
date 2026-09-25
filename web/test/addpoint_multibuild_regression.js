@@ -102,6 +102,18 @@ const check = (n, ok, d) => { if (ok) { pass++; console.log('PASS ' + n + (d ? (
 
   console.log('  [调试] ' + JSON.stringify(F));
   check('⑤ 配队页有 apBuildSelect / setApBuild / apBuildsOf', F.hasHelpers === true);
+
+  /* ⑧ 没有保存过方案时，下拉【也要出现】（用户 2026-09-25 反馈"没出现"） */
+  const F3 = await p.evaluate(() => {
+    localStorage.setItem('lagrange_addpoint_builds', '[]');       // 清空方案
+    const sel = typeof apBuildSelect === 'function' ? apBuildSelect({ id: 'constantine', name: '大帝' }, 'main', 0) : '';
+    localStorage.setItem('lagrange_addpoint_builds', JSON.stringify([
+      { name: '测试A', ship: '60401', shipName: '大帝', mods: [], lv: {}, manual: {}, updatedAt: 1 }]));
+    return { 没方案时: sel, 有方案时: apBuildSelect({ id: 'constantine', name: '大帝' }, 'main', 0) };
+  });
+  console.log('  [debug] ' + JSON.stringify(F3));
+  check('⑧ 没有方案时也显示「＋加点方案」入口', /apGoAddpoint/.test(F3.没方案时), F3.没方案时.slice(0, 90));
+  check('⑧ 有方案时下拉里出现「加点:测试A」', /加点:测试A/.test(F3.有方案时), (F3.有方案时.match(/加点:[^<]*/g)||[]).join(' | '));
   check('⑤ 配队页按舰船能查到方案（slug→cdnId 对得上）', F.buildsForSlug === 2, F.buildsForSlug + ' 条');
   check('⑤ exportFleet 导出条目带 apBuild（复制到模拟器不丢）', F.exported && F.exported.apBuild === '方案B·抵抗', JSON.stringify(F.exported));
 

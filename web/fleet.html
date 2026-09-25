@@ -328,9 +328,18 @@ function apBuildsOf(shipId){
         return all.filter(x=>x && (String(x.ship)===String(shipId) || (cdn && String(x.ship)===cdn)));
     }catch(e){ return []; }
 }
+function apGoAddpoint(shipId){
+    const cdn=(BPMAP&&BPMAP[shipId]&&BPMAP[shipId].cdnId)?BPMAP[shipId].cdnId:shipId;
+    location.href='addpoint.html?ship='+encodeURIComponent(cdn);
+}
 function apBuildSelect(s, sec, i){
     const list=apBuildsOf(s.id);
-    if(!list.length) return '';
+    /* 没方案也显示 —— 否则看不出有这个功能 */
+    if(!list.length) {
+        return '<button class="btn" style="flex:0 0 auto;padding:3px 8px;font-size:0.6rem"'
+             + ' onclick="event.stopPropagation();apGoAddpoint(\'' + s.id + '\')"'
+             + ' title="这艘船还没保存过加点方案 —— 点这里去「舰船加点」配好后按 💾 保存方案">＋加点方案</button>';
+    }
     const cur=s.apBuild||'';
     const opts=['<option value=""'+(cur?'':' selected')+'>加点:默认</option>']
         .concat(list.map(b=>'<option value="'+esc(b.name)+'"'+(cur===b.name?' selected':'')+'>加点:'+esc(b.name)+'</option>'));

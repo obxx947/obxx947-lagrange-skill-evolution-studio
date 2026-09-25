@@ -1728,9 +1728,19 @@
        没方案就不显示下拉；选了「默认」= 用加点页当前那套。
        因为是【按条目】存的，所以模拟器里 4 个舰队、同型舰的多条配置都能各选各的。 */
     function apEsc(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    /* 去「舰船加点」页配这艘船的方案（带上官方编号，直接跳到那艘船） */
+    function apGoAddpoint(shipId){
+        const cdn = (typeof BP_MAP !== 'undefined' && BP_MAP && BP_MAP[shipId]) ? BP_MAP[shipId].cdnId : shipId;
+        location.href = 'addpoint.html?ship=' + encodeURIComponent(cdn);
+    }
     function apBuildSelect(s, key){
         const bs = (typeof buildsOfShip === 'function') ? buildsOfShip(s.id) : [];
-        if(!bs.length) return '';
+        /* 没保存过方案时【也要显示】，否则用户根本不知道有这个功能（2026-09-25 用户反馈"没出现"） */
+        if(!bs.length) {
+            return '<button class="fbtn" style="font-size:0.55rem" onclick="apGoAddpoint(\'' + s.id + '\')"'
+                 + ' title="这艘船还没保存过加点方案 —— 点这里去「舰船加点」配好后按 💾 保存方案，回来就能选">'
+                 + '＋加点方案</button>';
+        }
         const cur = s.apBuild || '';
         const opts = ['<option value=""' + (cur?'':' selected') + '>加点:默认</option>']
             .concat(bs.map(b => '<option value="' + apEsc(b.name) + '"' + (cur===b.name?' selected':'') + '>加点:' + apEsc(b.name) + '</option>'));
