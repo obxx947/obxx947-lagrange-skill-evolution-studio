@@ -4281,12 +4281,15 @@
          · 装甲初始 = 模块的 armorCount（天枢A2/A3、玉衡两个支援系统 = 300）+ 加点「维修扩充/扩展」给的 repairArmor
          · 超量维修（加点）：战斗开始 60 秒后，每轮携带 2 个装甲 → 维修量×2、消耗也×2
          · 高效回收（天枢A3 自带）：舰载机死亡后转成维修无人机 → 每死 1 架 +9%（实测 4 架 124200→168700 = ×1.3583）
-       资料没给「一轮」的时长（只有玉衡写了冷却3秒）→ 暂用资料《战斗机制》里维修无人机的通用值
-       持续 32s / 冷却 12s，并在数据里标了来源，等你给准数后改数据即可，不用动代码。 */
-    const REP_DUR_DEFAULT = 32, REP_CD_DEFAULT = 12;
+       ★ 一轮的时长（用户 2026-09-24 明确）：维修武器【只有「锁定」和「冷却」，没有持续时间】
+         → 持续 = 0，维修量按面板【连续交付】（"直接贴上去"），
+           「一轮」只用来决定【什么时候消耗掉一个一次性维修装甲】：
+           一轮 = 锁定时间 + 冷却时间。
+         （若以后某门维修武器真的有 repairDuration，会走"工作期交付、轮末消耗"的老分支。） */
+    const REP_CYCLE_FALLBACK = 15;   // 数据里 锁定+冷却 都是 0 时的兜底（免得每帧都扣装甲）
     function repArmorInit(mod) { return (mod && mod.armorCount) || 0; }
     function repDeadCarriers(ship, side) {
-        if(!ship.recyclePerDead || !side) return 0;
+        if(!side || !side.length) return 0;
         return side.filter(x => x && !x.alive && x.position === 'aircraft' && x.carrierInstId === ship.instId).length;
     }
     function processRepairs(ship, friendlies, dt, bs) {
@@ -4312,27 +4315,27 @@
                 if(!st) {
                     st = ship._rep[rk] = {
                         armor: repArmorInit(mod) + (ship.repairArmor || 0),   // 模块自带 + 加点
-                        work: (w.repairDuration || REP_DUR_DEFAULT), cd: 0, stopped: false, used: 0
+                        work: 0, cd: 0, cycleLeft: 0, stopped: false, used: 0
                     };
                 }
                 if(st.stopped) continue;                                   // 装甲耗尽 → 从此不修
-                const dur = w.repairDuration || REP_DUR_DEFAULT;
-                const cd  = w.repairCooldown || REP_CD_DEFAULT;
-                if(st.work <= 0) {                                         // 冷却中
-                    st.cd -= dt;
-                    if(st.cd <= 0) { st.work = dur; }
-                    else continue;
-                }
-                const isLastTick = (st.work - dt) <= 0;
-                if(isLastTick) {
-                    /* 一轮结束 → 消耗装甲。装甲本来就没有（armorCount=0 且没加点）→ 不限次（普通奶船） */
-                    if(st.armor > 0) {
-                        if(st.used + batch > st.armor) { st.stopped = true; addBattleLog('system', '🔧 ' + (ship.name||ship.id) + ' 的一次性维修装甲耗尽，停止维修'); continue; }
-                        st.used += batch;
-                    }
-                    st.work = 0; st.cd = cd;
-                } else {
+                const dur = w.repairDuration || 0;                         // 维修没有持续时间 → 0
+                const cyc = (w.lockTime || 0) + (w.repairCooldown || w.cooldown || 0);
+                if(dur > 0) {
+                    /* 有持续时间的维修（老数据）：只在工作期交付 */
+                    if(st.work <= 0) { st.cd -= dt; if(st.cd > 0) continue; st.work = dur; }
                     st.work -= dt;
+                    if(st.work <= 0) { if(st.armor > 0) { if(st.used + batch > st.armor) { st.stopped = true; addBattleLog('system','🔧 '+(ship.name||ship.id)+' 的一次性维修装甲耗尽，停止维修'); continue; } st.used += batch; } st.cd = cyc; }
+                } else {
+                    /* 持续=0（天枢/玉衡这类）：连续交付，只按 锁定+冷却 计一轮来扣装甲 */
+                    st.cycleLeft -= dt;
+                    if(st.cycleLeft <= 0) {
+                        st.cycleLeft = cyc > 0 ? cyc : REP_CYCLE_FALLBACK;
+                        if(st.armor > 0) {
+                            if(st.used + batch > st.armor) { st.stopped = true; addBattleLog('system','🔧 '+(ship.name||ship.id)+' 的一次性维修装甲耗尽，停止维修'); continue; }
+                            st.used += batch;
+                        }
+                    }
                 }
 
                 // 维修量 = 面板维修量/60 × (100%+受维修加成%+修者维修量加成%)
