@@ -105,6 +105,29 @@ const check = (n, ok, d) => { if (ok) { pass++; console.log('PASS ' + n + (d ? (
   check('[9] 两个舰队各选各的 → 结果不同（互不影响）', S2.整套A.hp !== S2.整套B.hp, 'A.hp=' + S2.整套A.hp + ' vs B.hp=' + S2.整套B.hp);
   check('[9] 选了不存在的整套 → 安全回落默认', S2.不存在的整套.hp === S2.默认.hp, 'hp=' + S2.不存在的整套.hp);
 
+
+  /* ============ ⑩ 整套加点下拉挂在【5 个舰队方框】右侧 ============ */
+  const P2 = await p.evaluate(() => {
+    localStorage.setItem('lagrange_addpoint_sets', JSON.stringify([{ name: '整套X', addpoints: {} }]));
+    renderFleetPanels();
+    const panels = document.querySelectorAll('.fleet-panel');
+    const sels = document.querySelectorAll('.fleet-panel-apset select');
+    const h = panels[0] && panels[0].querySelector('.fleet-panel-header');
+    return {
+      方框数: panels.length,
+      下拉数: sels.length,
+      头部子元素: h ? h.children.length : -1,
+      最后一个: h ? [].slice.call(h.children).pop().className : '',
+      第一个下拉: sels[0] ? sels[0].outerHTML.slice(0, 130) : null,
+      含整套X: sels[0] ? /整套X/.test(sels[0].outerHTML) : false
+    };
+  });
+  console.log('  [debug] ' + JSON.stringify(P2));
+  check('[10] 模拟器有 5 个舰队方框（含轰炸编队）', P2.方框数 === 5, '方框=' + P2.方框数);
+  check('[10] 每个方框右侧都有「整套加点」下拉（在 header 最后）',
+    P2.下拉数 === 5 && P2.头部子元素 === 3 && /apset/.test(P2.最后一个),
+    '下拉=' + P2.下拉数 + ' 头部子元素=' + P2.头部子元素 + ' 末尾=' + P2.最后一个);
+  check('[10] 下拉里能看到已存的整套方案', P2.含整套X === true, P2.第一个下拉 || '');
   /* ============ 配队页：导出是否带 apBuild ============ */
   await p.goto(BASE + '/fleet.html', { waitUntil: 'load', timeout: 90000 });
   await sleep(4000);

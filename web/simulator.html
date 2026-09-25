@@ -155,8 +155,11 @@
         .fleet-panel.escort { border-top: 3px solid var(--accent-gold); }
         .fleet-panel.escorted { border-top: 3px solid var(--accent-purple); }
         .fleet-panel-header {
-            display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;
+            display: flex; justify-content: flex-start; gap: 10px; align-items: center; margin-bottom: 10px;
         }
+        /* 舰队方框右侧的「整套加点」下拉（占满剩余空间推到最后） */
+        .fleet-panel-apset { margin-left: auto; }
+        .fleet-panel-apset select { max-width: 132px; font-size: 10px; padding: 2px 4px; }
         .fleet-panel-name { font-size: 16px; font-weight: 600; color: var(--text-primary); }
         .fleet-panel-stats { font-size: 11px; color: var(--text-secondary); display: flex; gap: 12px; }
         .fleet-panel-ships { display: flex; flex-wrap: wrap; gap: 6px; min-height: 60px; align-items: flex-start; }
@@ -1278,6 +1281,7 @@
                         ${airCarried?`<span style="color:var(--accent-purple);">搭载:${airCarried}架</span>`:''}
                         ${reinfCount>0?`<span style="color:var(--accent-green);">增援:${reinfCount}艘</span>`:''}
                     </span>
+                    <span class="fleet-panel-apset" onclick="event.stopPropagation()">${fleetApSetSelect(c.id)}</span>
                 </div>
                 <div class="fleet-panel-ships">
                     ${fleet.main.length===0 && fleet.reinforcement.length===0 ?
@@ -1644,8 +1648,7 @@
             <div style="background:var(--bg-card);border:1px solid var(--accent-blue);border-radius:8px;padding:12px;margin-top:8px;">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
                     <b>编辑: ${FLEET_TYPE_NAMES[currentFleetType]}</b>
-                    <div style="display:flex;gap:6px;align-items:center">
-                        ${fleetApSetSelect()}
+                    <div>
                         <button class="btn btn-sm${currentFleetTab==='main'?' active':''}" style="font-size:10px;" onclick="currentFleetTab='main';renderInlineFleetEditor();renderFleetPanels();">主力舰队</button>
                         <button class="btn btn-sm${currentFleetTab==='reinforcement'?' active':''}" style="font-size:10px;" onclick="currentFleetTab='reinforcement';renderInlineFleetEditor();renderFleetPanels();">增援舰队(${fleet.reinforcement.length}/9)</button>
                         <span style="font-size:11px;margin-left:8px;">指挥值:${cmdVal}/500</span>
@@ -1732,9 +1735,10 @@
     /* ★ 舰队级「整套加点方案」下拉（用户 2026-09-25）：
        选中后把 set 名写到【本舰队每条船条目】的 apSet 上 —— 所以 4 个舰队各选各的、互不影响。
        「默认」= 用加点页当前那整套（lagrange_addpoint）。 */
-    function fleetApSetSelect(){
+    function fleetApSetSelect(fid){
         if (typeof fleetData === 'undefined') return '';
-        const fleet = fleetData[currentFleetType]; if(!fleet) return '';
+        fid = fid || currentFleetType;
+        const fleet = fleetData[fid]; if(!fleet) return '';
         let sets = [];
         try { sets = JSON.parse(localStorage.getItem('lagrange_addpoint_sets') || '[]') || []; } catch(e){}
         const cur = fleet.apSet || '';
@@ -1743,11 +1747,12 @@
         if (!sets.length) opts += '<option value="__go">（还没有整套方案，点这里去存）</option>';
         return '<select class="btn btn-sm" style="font-size:10px;max-width:190px"'
              + ' title="这个舰队用哪一整套加点（在舰船加点页点「💾 存整套方案」）"'
-             + ' onchange="simSetFleetApSet(this.value)">' + opts + '</select>';
+             + ' onclick="event.stopPropagation()"'
+             + ' onchange="event.stopPropagation();simSetFleetApSet(\' + fid + \', this.value)">' + opts + '</select>';
     }
-    function simSetFleetApSet(name){
+    function simSetFleetApSet(fid, name){
         if (name === '__go') { location.href = 'addpoint.html'; return; }
-        const fleet = fleetData[currentFleetType]; if(!fleet) return;
+        const fleet = fleetData[(fid || currentFleetType)]; if(!fleet) return;
         fleet.apSet = name || null;
         const all = [].concat(fleet.main || [], fleet.reinforcement || []);
         all.forEach(e => { if(name) e.apSet = name; else delete e.apSet; });
