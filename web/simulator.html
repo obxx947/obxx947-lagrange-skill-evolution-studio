@@ -1711,6 +1711,7 @@
                 <button class="fpos" onclick="simCyclePos('${rowKey(s)}')" title="点击切换站位">${pos}</button>
                 ${showMods?`<button class="fbtn gold" onclick="openSimMods('${rowKey(s)}')">${modStr||'模块'}</button>`:''}
                 ${showMods?`<button class="fbtn" onclick="simAddConfig('${rowKey(s)}')" title="再配一套不同的模块组合（服役上限仍按该舰合计）">⧉</button>`:''}
+                ${apBuildSelect(s, rowKey(s))}
                 <div class="fqty ${over?'over':''}">
                     <button onclick="changeFleetShipCount('${rowKey(s)}',-1);refreshFleetViews();">−</button>
                     <span>${s.count}</span>
@@ -1721,6 +1722,29 @@
                 <button class="fbtn red" onclick="removeShipFromFleet('${rowKey(s)}');refreshFleetViews();" title="移出舰队">✕</button>
             </div>${airRows}`;
         }).join('');
+    }
+    /* ★ 多方案（2026-09-24）：这条船用哪套加点。
+       方案来自加点页的「💾 保存方案」（存在 lagrange_addpoint_builds，按舰船分）。
+       没方案就不显示下拉；选了「默认」= 用加点页当前那套。
+       因为是【按条目】存的，所以模拟器里 4 个舰队、同型舰的多条配置都能各选各的。 */
+    function apEsc(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function apBuildSelect(s, key){
+        const bs = (typeof buildsOfShip === 'function') ? buildsOfShip(s.id) : [];
+        if(!bs.length) return '';
+        const cur = s.apBuild || '';
+        const opts = ['<option value=""' + (cur?'':' selected') + '>加点:默认</option>']
+            .concat(bs.map(b => '<option value="' + apEsc(b.name) + '"' + (cur===b.name?' selected':'') + '>加点:' + apEsc(b.name) + '</option>'));
+        return '<select class="fbtn gold" style="padding:1px 2px;font-size:0.55rem;max-width:104px"'
+             + ' title="这条用哪个加点方案（在舰船加点页「💾 保存方案」里存）"'
+             + ' onchange="simSetApBuild(\'' + key + '\', this.value)">' + opts.join('') + '</select>';
+    }
+    function simSetApBuild(key, name){
+        const fleet = fleetData[currentFleetType]; if(!fleet) return;
+        const list = currentFleetTab==='main' ? fleet.main : fleet.reinforcement;
+        const s = findRow(list, key); if(!s) return;
+        if(name) s.apBuild = name; else delete s.apBuild;
+        refreshFleetViews();
+        showToast(name ? ('这条改用加点方案「' + name + '」') : '这条改回用「加点页当前那套」');
     }
     /* 再配一套（同一艘舰的另一种模块组合）：新增一条独立条目，数量 1，
        服役上限仍按该舰在「主力+增援」的合计来卡 */
@@ -2324,20 +2348,43 @@
     }
 
     function apStore() { try { return JSON.parse(localStorage.getItem(AP_KEY) || '{}') || {}; } catch(e) { return {}; } }
-    function apOf(slug) {
+    /* 取某艘船的加点。
+       ★ 多方案（2026-09-24）：条目上可以写 apBuild = 某个「已保存方案」的名字，
+         写了就用那个方案的 lv/manual（存在 lagrange_addpoint_builds 里，独立于加点页当前那套）；
+         没写就用默认（加点页正在配的那套 lagrange_addpoint[cdnId]）。
+       —— 所以【同一艘船】在模拟器的不同舰队里可以各用各的方案。 */
+    function apOf(slug, buildName) {
         if(!BP_MAP) return null;
         const e = BP_MAP[slug];
         if(!e || !e.cdnId) return null;
+        if (buildName) {
+            try {
+                const builds = JSON.parse(localStorage.getItem('lagrange_addpoint_builds') || '[]') || [];
+                const bd = builds.find(x => x && x.name === buildName && String(x.ship) === String(e.cdnId));
+                if (bd) return { cdnId: e.cdnId, lv: bd.lv || {}, manual: bd.manual || {}, _fromBuild: bd.name, _mods: bd.mods || [] };
+            } catch (err) { }
+        }
         const rec = apStore()[e.cdnId];
         if(!rec) return null;
         return { cdnId: e.cdnId, lv: rec.lv || {}, manual: rec.manual || {} };
+    }
+    /* 某艘船有哪些已保存的加点方案（给下拉用） */
+    function buildsOfShip(slug) {
+        try {
+            const e = BP_MAP && BP_MAP[slug]; if(!e || !e.cdnId) return [];
+            const builds = JSON.parse(localStorage.getItem('lagrange_addpoint_builds') || '[]') || [];
+            return builds.filter(x => x && String(x.ship) === String(e.cdnId)).map(x => ({
+                name: x.name, points: Object.keys(x.lv || {}).filter(k => (x.lv[k] || 0) > 0).length,
+                mods: (x.mods || []).map(m => m.key + m.variant).join('+')
+            }));
+        } catch (err) { return []; }
     }
     /* 汇总某个舰队条目的加点加成。
        ★ 按系统作用域：加点的说明几乎都是"系统内武器…"，只该作用于【那个系统的武器】。
          blueprint_sysmap.json 给出每个系统对到哪个模块（或判定为舰船级）。
          返回 { ship:{...}, byModule:{ 'M_M1':{...}, ... }, ... } */
-    function buildAddPointBonus(slug) {
-        const ap = apOf(slug);
+    function buildAddPointBonus(slug, buildName) {
+        const ap = apOf(slug, buildName);
         if (!ap || !BP_STATS) return null;
         const BLANK = () => { const o = {}; AP_A.forEach(k => o[k] = 0); AP_B.forEach(k => o[k] = 0); AP_H.forEach(k => o[k] = 0); return o; };
         const shipB = BLANK();                      // 舰船级
@@ -2649,7 +2696,7 @@
         /* 兼容：早先用过「⬆ 从加点导入」的条目，字段已写死在条目上（带 _apApplied 标记），
            这里就不再自动叠加，避免同一份加点被算两遍。 */
         if(s._apApplied) { s._apB = null; return; }
-        const b = buildAddPointBonus(s.id);
+        const b = buildAddPointBonus(s.id, s.apBuild);
         s._apB = b || null;
         if(!b) return;
         const sh = b.ship;
@@ -2805,10 +2852,10 @@
             const list = currentFleetTab === 'main' ? fleet.main : fleet.reinforcement;
             const e = findRow(list, shipId);
             if(!e) { alert('找不到这个条目'); return; }
-            const ap0 = apOf(e.id);
+            const ap0 = apOf(e.id, e.apBuild);
             if(!ap0) { alert('「' + (e.name||e.id) + '」还没有加点配置。\n去配队页勾「加点」→ 点舰船右上角 ⬆ 配好后再来。'); return; }
             await loadBpTree(ap0.cdnId);
-            const b = buildAddPointBonus(e.id);
+            const b = buildAddPointBonus(e.id, e.apBuild);
             if(!b) { alert('加点汇总失败'); return; }
 
             // 清掉上一次由加点写入的逐武器加成（避免重复导入累加）
@@ -3300,6 +3347,10 @@
         s.energyResistBonus = shipEntry.energyResistBonus || 0;
         s.hpBonus = shipEntry.hpBonus || 0;
         s.prioritizeSuperCapital = shipEntry.prioritizeSuperCapital || false;
+        /* ★ 多方案（2026-09-24）：这条要用哪套加点 —— 存「已保存方案」的名字。
+           空/未设 = 用加点页当前那套（lagrange_addpoint）。
+           因为是【按条目】存的，同一艘船放到不同舰队条目里就能各用各的方案。 */
+        s.apBuild = shipEntry.apBuild || null;
         // 加点/强化带来的其它加成（由「⬆ 从加点导入」写进条目，或手动填）
         s.dmgBonus = shipEntry.dmgBonus || 0;            // 舰船级伤害加成 %
         s.hitBonus = shipEntry.hitBonus || 0;            // 命中加成 %（引擎原本没有这个字段）

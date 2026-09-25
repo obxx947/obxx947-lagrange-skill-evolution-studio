@@ -304,6 +304,47 @@ function wan(x){ return x>=10000? (x/10000).toFixed(1)+'万' : String(Math.round
 function slotsOf(ship){ return FleetCheck.slotsOf(ship); }
 /* 计算某舰(含所选模块)的 对舰/防空/攻城 DPM 与 是否带机库
    注意：模块槽「未装模块」时该槽不计武器/机库（不再默认回退到第一个变体） */
+/* ★ 多方案（2026-09-24）：这条船用哪套加点。
+   方案 = 加点页「💾 保存方案」存的那条（lagrange_addpoint_builds，按舰船分）。
+   不选 = 用加点页当前那套；选了 = 开战时用那条方案。
+   因为是【按条目】存的，所以同一艘船放多条配置、或放到不同舰队，可以各用各的方案。 */
+let BPMAP=null;                       // data/blueprint_map.json：slug → {cdnId,...}
+async function bpMapLoad(){
+    if(BPMAP) return BPMAP;
+    try{ BPMAP=await (await fetch('data/blueprint_map.json',{cache:'no-cache'})).json(); }
+    catch(e){ BPMAP={}; }
+    return BPMAP;
+}
+/* 方案是按【官方编号 cdnId】存的（加点页用 cdnId），配队页条目用 slug → 要转一下 */
+function cdnOfShip(shipId){
+    const e=BPMAP && BPMAP[shipId];
+    return e && e.cdnId ? String(e.cdnId) : '';
+}
+function apBuildsOf(shipId){
+    try{
+        const all=JSON.parse(localStorage.getItem('lagrange_addpoint_builds')||'[]')||[];
+        const cdn=cdnOfShip(shipId);
+        return all.filter(x=>x && (String(x.ship)===String(shipId) || (cdn && String(x.ship)===cdn)));
+    }catch(e){ return []; }
+}
+function apBuildSelect(s, sec, i){
+    const list=apBuildsOf(s.id);
+    if(!list.length) return '';
+    const cur=s.apBuild||'';
+    const opts=['<option value=""'+(cur?'':' selected')+'>加点:默认</option>']
+        .concat(list.map(b=>'<option value="'+esc(b.name)+'"'+(cur===b.name?' selected':'')+'>加点:'+esc(b.name)+'</option>'));
+    return '<select class="btn gold" style="flex:0 0 auto;padding:3px 4px;font-size:0.6rem;max-width:110px"'
+         + ' title="这条用哪个加点方案（在舰船加点页「💾 保存方案」里存）"'
+         + ' onclick="event.stopPropagation()" onchange="setApBuild(\'' + sec + '\',' + i + ',this.value)">'
+         + opts.join('') + '</select>';
+}
+function setApBuild(sec, i, name){
+    const f=activeFleet(), list=(sec==='main'||sec==='reinforce')?f[sec]:(f.reinforce||[]);
+    const s=list[i]; if(!s) return;
+    if(name) s.apBuild=name; else delete s.apBuild;
+    renderAll();
+    toast(name?('这条改用加点方案「'+name+'」'):'这条改回用「加点页当前那套」');
+}
 function shipDpm(ship, mods){
     const r={antiShip:0,antiAir:0,siege:0,hangar:0,wd:0};
     if(!ship||!ship.modules) return r;
@@ -533,6 +574,7 @@ function renderLists(){
                 <button class="pos ${esc(pos)}" style="cursor:pointer;background:none" title="点击切换站位" onclick="cyclePos('${sec}',${i})">${esc(pos)}</button>
                 ${showMods?`<button class="btn gold" style="flex:0 0 auto;padding:4px 8px" onclick="openMods('${sec}',${i})">${modStr?esc(modStr):'模块'}</button>`:''}
                 ${showMods?`<button class="btn" style="flex:0 0 auto;padding:4px 8px" onclick="addConfig('${sec}',${i})" title="再配一套不同的模块组合（服役上限仍按该舰合计）">⧉</button>`:''}
+                ${apBuildSelect(s, sec, i)}
                 <div class="qty ${over?'over':''}">
                     <button onclick="chQty('${sec}',${i},-1)">−</button>
                     <span>${s.qty}</span>
@@ -890,7 +932,7 @@ function renderMine(){
 /* ================= 联动：模拟器 / AI ================= */
 function exportFleet(){
     const af=activeFleet();
-    const dump=arr=>arr.map(s=>({id:s.id,name:s.name,pos:s.pos||'',qty:s.qty,mods:s.mods||{},
+    const dump=arr=>arr.map(s=>({id:s.id,name:s.name,pos:s.pos||'',qty:s.qty,mods:s.mods||{},apBuild:s.apBuild||'',
         air:(s.air||[]).map(a=>({id:a.id,name:a.name,kind:a.kind,slot:a.slot||'',qty:a.qty}))}));
     return { name:cur.name||'未命名方案', desc:cur.desc||'',
         main:dump(af.main), reinforcement:dump(af.reinforce), flagship:flagshipShipId() };
@@ -1116,6 +1158,7 @@ function switchTab(t){
 /* ================= 初始化 ================= */
 (async function init(){
     loadStore();
+    await bpMapLoad();                 // slug→cdnId（加点方案按 cdnId 存）
     try{
         await SHIP_DB.load();
         ALL=SHIP_DB.all();
