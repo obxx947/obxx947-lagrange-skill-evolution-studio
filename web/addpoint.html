@@ -61,7 +61,7 @@ body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#
 .syscard:hover{border-color:var(--blue)}
 .syscard.on{border-color:var(--gold);background:linear-gradient(160deg,rgba(255,215,0,.13),rgba(0,0,0,.2))}
 .syscard .nm{font-size:0.72rem;font-weight:700;line-height:1.25}
-.syscard .sec{font-size:0.54rem;color:var(--t3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.syscard .sec{font-size:0.54rem;color:var(--t3);margin-top:2px;white-space:normal;word-break:break-word;line-height:1.3}
 .syscard .bar{display:flex;gap:2px;margin-top:6px;justify-content:center}
 .syscard .bar i{width:5px;height:5px;border-radius:1px;background:rgba(255,255,255,.16)}
 .syscard .bar i.f{background:var(--gold)}
@@ -120,7 +120,7 @@ body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#
 .sgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(176px,1fr));gap:6px}
 .srow{display:flex;align-items:center;gap:5px;background:rgba(0,0,0,.26);
       border:1px solid var(--border);border-radius:8px;padding:5px 7px;font-size:0.62rem}
-.srow i{font-style:normal;color:var(--t3);white-space:nowrap;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.srow i{font-style:normal;color:var(--t2);flex:1 1 auto;min-width:0;white-space:normal;word-break:break-word;line-height:1.35}
 .srow .auto{color:var(--t3);font-size:0.56rem;white-space:nowrap;opacity:.85}
 .srow input{width:54px;background:rgba(0,0,0,.35);border:1px solid var(--border);border-radius:6px;
       color:var(--cyan);padding:2px 4px;font-size:0.64rem;font-family:inherit;outline:none;text-align:right;flex:0 0 auto}
@@ -469,6 +469,38 @@ function condText(c) {
   if (c.kind === 'everySec') return n + (c.threshold == null ? '?' : c.threshold) + '秒';
   return n;
 }
+/* ★【本系统】维度汇总（用户 2026-09-25）：
+   原来只有"整船合计"，看不出哪一个系统的加点各加了多少。
+   这里按系统分组，把该系统里已点亮的节点按 stat 归并成「单发+20 · 冷却-15%」这种一行。
+   —— 和引擎的"本系统生效"口径一致（每个系统的加成只作用于该系统自己的武器）。 */
+function sysBreakdownHtml() {
+  if (!ship || !STATS) return '';
+  const blocks = [];
+  ship.systems.forEach(s => {
+    if (!sysVisible(s.sysId)) return;
+    const agg = {};
+    let any = 0;
+    s.nodes.forEach(n => {
+      const L = nodeLv(n.id); if (L <= 0) return;
+      const st = STATS.nodes[n.id];
+      if (!st || st.empty || st.pureRef || st.mechanic || st.cond) return;
+      if (!GROUP_A.some(g => g[0] === st.stat) && !GROUP_B.some(g => g[0] === st.stat) && !GROUP_H.some(g => g[0] === st.stat)) return;
+      const v = (st.perLevel && st.perLevel[L] != null) ? st.perLevel[L] : (st.perLevel ? st.perLevel[st.perLevel.length - 1] : 0);
+      if (typeof v !== 'number' || !v) return;
+      agg[st.stat] = (agg[st.stat] || 0) + v; any++;
+    });
+    if (!any) return;
+    const parts = Object.keys(agg).map(k => (STATS.labels[k] || k) + ' +' + (Math.round(agg[k] * 100) / 100));
+    blocks.push('<div class="srow on"><i><b>' + esc(s.sysName || '系统') + '</b>'
+      + '<span style="color:var(--t3)">（' + any + ' 个节点）</span></i>'
+      + '<span style="grid-column:2 / -1;color:var(--t2);white-space:normal">' + esc(parts.join(' · ')) + '</span></div>');
+  });
+  if (!blocks.length) return '';
+  return '<div class="unsure" style="border-color:var(--cyan)">'
+       + '<b style="color:var(--cyan)">按【本系统】分开看（' + blocks.length + ' 个系统有加点）</b><br>'
+       + '下面每一块只作用于它自己那个系统的武器（引擎也是这么算的）：</div>'
+       + '<div class="sgrid" style="margin-top:6px">' + blocks.join('') + '</div>';
+}
 function statPanelHtml() {
   if (!STATS) return '';
   const { out, counted, skipped, other, pureRef, decoded, modOnly, mech, cond, skippedList, pureRefList, condList } = computeStats();
@@ -531,6 +563,7 @@ function statPanelHtml() {
     + '<div class="sgrid">' + GROUP_A.map(rowA).join('') + '</div>'
     + '<div class="sgrid" style="margin-top:6px">' + GROUP_B.map(rowA2).join('') + '</div>'
     + '<div class="sgrid" style="margin-top:6px">' + GROUP_H.map(rowA).join('') + '</div>'
+    + sysBreakdownHtml()
     + un.join('')
     + '</div>';
 }
@@ -590,7 +623,7 @@ function sysCardHtml(s, i) {
   const bars = Array.from({ length: Math.min(lim, 12) }, (_, k) => '<i class="' + (k < used ? 'f' : '') + '"></i>').join('');
   return '<div class="syscard' + (i === sysIdx ? ' on' : '') + '" onclick="pickSys(' + i + ')">'
     + '<div class="nm">' + esc(s.sysLabel || s.sysName || '系统') + '</div>'
-    + '<div class="sec">' + esc((s.sysName || '').slice(0, 8)) + '</div>'
+    + '<div class="sec">' + esc(s.sysName || '') + '</div>'
     + '<div class="bar">' + bars + '</div>'
     + '<div class="sec" style="color:var(--gold)">' + used + '/' + lim + '</div>'
     + (s.isWeaponSystem ? '<div class="lock">⚔️</div>' : '')
