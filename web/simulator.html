@@ -3411,6 +3411,17 @@
         s.apBuild = shipEntry.apBuild || null;
         /* ★ 整套方案名（舰队级）：这条船用哪一整套加点。空 = 用单船方案/默认。 */
         s.apSet = shipEntry.apSet || null;
+        /* ★ 伪装舰种（如 FSV830 用模块伪装成驱逐舰）：船级 disguiseAs，
+           或【所选模块变体】上自带 disguiseAs（disguiseModule 非空时只在该模块被选中才生效） */
+        s.disguiseAs = shipEntry.disguiseAs || null;
+        try {
+            Object.entries(s.modules || {}).forEach(([k, m]) => {
+                if (!m) return;
+                const sel = (s.selectedModules || {})[k];
+                const v = (m.type === 'moduleGroup' && m.variants) ? m.variants[sel || Object.keys(m.variants)[0]] : m;
+                if (v && v.disguiseAs && (!shipEntry.disguiseModule || shipEntry.disguiseModule === k)) s.disguiseAs = v.disguiseAs;
+            });
+        } catch (e) { }
         // 加点/强化带来的其它加成（由「⬆ 从加点导入」写进条目，或手动填）
         s.dmgBonus = shipEntry.dmgBonus || 0;            // 舰船级伤害加成 %
         s.hitBonus = shipEntry.hitBonus || 0;            // 命中加成 %（引擎原本没有这个字段）
@@ -4407,7 +4418,9 @@
                 for(const tg of repairTargets) {
                     const match = friendlies.filter(f=>{
                         if(!f.alive || f.hp>=f.maxHp) return false;
-                        return tg.types.some(t=>matchesType(f, t));
+                        /* 伪装：用模块把自己伪装成别的舰种的（如 FSV830 → 驱逐舰），
+                           判定时按伪装后的舰种算，所以"只能修驱逐舰/护卫舰"的奶船也能修它 */
+                        return tg.types.some(t => matchesType(f, t) || (f.disguiseAs && t === f.disguiseAs));
                     });
                     if(match.length>0) {
                         // Prefer lowest HP%
@@ -4416,8 +4429,11 @@
                         break;
                     }
                 }
-                // Fallback: self-repair or nearest friendly
-                if(!bestTarget) {
+                /* ★ 目标表限制：维修武器的 targets 非空就【严格按它来】，不许兜底。
+                   玉衡-支援巡洋舰 的 CRT-9 只写了「驱逐舰/护卫舰」（资料60：仅可维修驱逐舰和护卫舰），
+                   原来没有匹配就兜底去修任意友军 → 变成"什么都能修"（用户 2026-09-25 指出）。
+                   targets 为空的（数据没给目标表的）才走原来的兜底。 */
+                if(!bestTarget && repairTargets.filter(tg => tg && tg.types && tg.types.length).length === 0) {
                     if(ship.hp < ship.maxHp) bestTarget = ship;
                     else {
                         const damaged = friendlies.filter(f=>f.alive&&f.hp<f.maxHp);

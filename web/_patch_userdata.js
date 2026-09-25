@@ -227,6 +227,21 @@ setMod('SC002型-量子侦察机', { A: { name: '机载火炮系统', type: 'wea
 rep.push('E. 补武器：10 艘（共 ' + ['理智级A101-TE-战斗机','天枪-重型鱼雷艇','天枪-战术护航艇','佩刀Aer410-强击攻击机','牛蛙-两栖轰炸机','海氏追随者型-脉冲攻击机','林鸮A100型-联合攻击机','砂龙-大气层拦截机','平衡安德森SC020-侦察机','SC002型-量子侦察机']
   .reduce((n, x) => n + (Object.values(by(x).modules).reduce((m, mo) => m + ((mo.weapons || []).length), 0)), 0) + ' 门）');
 
+
+/* ================= F. 伪装舰种（用户 2026-09-25）=================
+   FSV830「用模块伪装为驱逐舰」—— 这样"只能修驱逐舰/护卫舰"的奶船也能修它。
+   ⚠️ 资料里查不到是【哪个模块】做的伪装 → disguiseModule 先留空；
+      留着空 = 一直按伪装算。等你告诉我模块名（M/A/B/C/D/E），我填进去就变成"装那个模块才伪装"。
+   引擎侧已支持：ship.disguiseAs / 模块变体上的 disguiseAs（见 createShipInstance）。 */
+(() => {
+  const s = db.find(x => /FSV830/.test(x.name || ''));
+  if (!s) { rep.push('F. ⚠ 找不到 FSV830'); return; }
+  s.disguiseAs = '驱逐舰';
+  s.disguiseModule = null;                       // ← 待用户确认是哪个模块
+  s._disguiseSrc = '用户 2026-09-25 口述：FSV830 用模块伪装为驱逐舰';
+  rep.push('F. FSV830 伪装为驱逐舰（disguiseAs=驱逐舰；disguiseModule 待确认是哪个模块）');
+})();
+
 fs.writeFileSync(P, JSON.stringify(db));   // ★ 必须单行
 rep.forEach(r => console.log('  ' + r));
 console.log('已写回（单行）');
