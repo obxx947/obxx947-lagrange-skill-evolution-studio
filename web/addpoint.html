@@ -575,13 +575,11 @@ function curSystemWeapons() {
       const ws = (g && g.weapons) || [];
       return ws.length ? { weapons: ws, key: rec.key, variant: rec.variant } : null;
     };
+    /* ★ 只认【当前这个系统自己】对到的模块 —— 绝不退回别的模块。
+       （原来加了"退回本舰第一个有武器的模块"的兜底，结果点任何一个非武器系统
+        都会把别的系统的武器拉出来显示 = "载机系统莫名多出一个武器系统"，用户 2026-09-25 指出） */
     const rec = m[String(sys.sysId)];
     if (rec && rec.scope === 'module') { const r = pick(rec); if (r) return r; }
-    /* 当前系统没对到模块（或那个模块没武器）→ 退回本舰第一个有武器的模块，
-       至少把"这艘船的武器现在是单发多少"显示出来 */
-    for (const k of Object.keys(m)) {
-      const r2 = m[k]; if (r2 && r2.scope === 'module') { const r = pick(r2); if (r) return r; }
-    }
     return null;
   } catch (e) { return null; }
 }
