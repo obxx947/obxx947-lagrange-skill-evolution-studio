@@ -46,7 +46,11 @@ const say = (...a) => console.log(a.join(' '));
       const e = JSON.parse(JSON.stringify(SHIP_DATABASE['constantine']));
       e.selectedModules = Object.assign({}, sel);
       const s = createShipInstance(e, 'ally', false, false);
-      return { hp: s.maxHp, shipB: s._apB ? s._apB.ship : null, mods: s._apB ? Object.keys(s._apB.byModule) : [], counted: s._apB ? s._apB._counted : 0 };
+      /* ⚠️ s._apB.ship 是【映射前】的中间桶（键名是原始 stat 名，维修叫 repairEff）。
+         引擎实际读的是实例上的 repairBonus / hangarDmg / hitBonus / siegeBonus，
+         所以判定必须看实例字段，否则会假报 ❌（2026-09-24 修正）。 */
+      return { hp: s.maxHp, shipB: s._apB ? s._apB.ship : null, mods: s._apB ? Object.keys(s._apB.byModule) : [], counted: s._apB ? s._apB._counted : 0,
+               实例: { hitBonus: s.hitBonus, repairBonus: s.repairBonus, hangarDmg: s.hangarDmg, siegeBonus: s.siegeBonus } };
     }, sel);
   };
 
@@ -62,7 +66,7 @@ const say = (...a) => console.log(a.join(' '));
 
   say('\n===== 判定 =====');
   say('舰船级加点改变结构值: ' + (n1.hp > n0.hp ? '✅ ' + n0.hp + ' → ' + n1.hp : '❌ 没变（' + n0.hp + '）'));
-  say('手填数值进入引擎桶  : ' + (n3.shipB.hitBonus === 50 && n3.shipB.repairBonus === 30 && n3.shipB.hangarBonus === 20 && n3.shipB.siege === 77 ? '✅ 四项都写入了' : '❌ ' + JSON.stringify(n3.shipB)));
+  say('手填数值进入引擎桶  : ' + (n3.实例.hitBonus === 50 && n3.实例.repairBonus === 30 && n3.实例.hangarDmg === 20 && n3.实例.siegeBonus === 77 ? '✅ 四项都到了引擎实例字段' : '❌ ' + JSON.stringify(n3.实例)));
   say('JS 报错: ' + (errs.length ? errs.slice(0, 2).join(' | ') : '无'));
   await b.close();
 })();

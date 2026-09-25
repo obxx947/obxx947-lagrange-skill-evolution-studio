@@ -3357,8 +3357,10 @@
                     shotsRemaining:0,
                     batchesRemaining:0,
                     // 「密集射击」：攻击次数翻倍，装填冷却按加点数值延长
+                    // ★ mounts = 武器安装数（名字里的「(×N)」）。只有 2026-09-24 新录的
+                    //   10 艘船带这个字段；老武器没这个字段 → ||1 不影响老数据。
                     denseFire: (st.denseFire || 0),
-                    totalShots: (w.ammo||1) * (w.attacks||1) * ((st.denseFire||0) > 0 ? 2 : 1),
+                    totalShots: (w.ammo||1) * (w.attacks||1) * (w.mounts||1) * ((st.denseFire||0) > 0 ? 2 : 1),
                     totalBatches: (w.attacks||1) * ((st.denseFire||0) > 0 ? 2 : 1),
                     firstShot:true
                 });
@@ -3398,8 +3400,13 @@
                 else if (isEngine) maxRepairs = 0;
                 else if (isWeaponSys || isHangar) maxRepairs = 2;
                 else maxRepairs = rmod.selfRepair ? 2 : 0;
+                /* ★ 系统独立血量（用户 2026-09-24 填：超主力所有系统 25500）：
+                   船级 s.sysHp → 每个系统自带 hp。有血量时系统伤害是【累计】打满才毁；
+                   没写 sysHp 的船沿用旧的"效率骰子命中即毁"（见 executeShot）。 */
+                const _sysHp = (s.sysHp > 0) ? s.sysHp : 0;
                 s.subSystems.push({
                     name: sysName, type: sysType, key: key,
+                    hp: _sysHp, maxHp: _sysHp,
                     destroyed:false, repairTimer:0, repairCount:0, maxRepairs:maxRepairs,
                     permanentDestroyed:false
                 });
@@ -3440,7 +3447,7 @@
                     cooldownRemaining:0, lockRemaining:0,
                     atkRemaining:0, batchTimer:0,
                     shotsRemaining:0, batchesRemaining:0,
-                    totalShots: (w.ammo||1)*(w.attacks||1),
+                    totalShots: (w.ammo||1)*(w.attacks||1)*(w.mounts||1),
                     totalBatches: (w.attacks||1),
                     firstShot:true
                 });
@@ -3776,6 +3783,16 @@
         return attacker.strikes.find(k => k.active && k.skey && k.skey === ws.strengthenKey) || null;
     }
 
+    /* 往复作战的【一轮额外耗时】= 去程 + 返程（秒）。
+       资料：往复式打完一轮要飞回母舰补弹，在机库内等冷却与锁定同时完成才再出舱
+       → 所以一轮 = 去程 + 攻击持续 + 返程 + 冷却（冷却在机库内等）。
+       独立作战 = 0（资料：除开局舱内首次锁敌外，其余时间就是在敌方阵型里的护卫舰，不返航）。
+       数据来自用户 2026-09-24 填报的船级 departSec / returnSec。 */
+    function flightCycleSec(ship) {
+        if (!ship || ship.flightMode !== 'reciprocating') return 0;
+        return (ship.departSec || 0) + (ship.returnSec || 0);
+    }
+
     function processShipWeapons(ship, enemies, dt, bs) {
         if(!ship.weaponStates) return;
         ship.weaponStates.forEach(ws => {
@@ -3878,7 +3895,9 @@
                 // 「密集射击」在冷却上附带延长；「爆发」期间额外缩短冷却
                 const cdPen = (ws.denseFire || 0) > 0 ? (1 + (ws.denseFire||0)/100) : 1;
                 const burst = ws.burstCut || 0;
-                ws.cooldownRemaining = (w.cooldown || 1) * (1 - Math.min(95, (st.cooldownReduction||0) + burst)/100) * cdPen;
+                // ★ 往复作战：去程 + 返程 的飞行时间算进这一轮（独立作战为 0）
+                const _flight = flightCycleSec(ship);
+                ws.cooldownRemaining = (w.cooldown || 1) * (1 - Math.min(95, (st.cooldownReduction||0) + burst)/100) * cdPen + _flight;
                 ws.shotsRemaining = 0;
                 ws.batchesRemaining = 0;
                 ws.completedCycles = (ws.completedCycles || 0) + 1;   // 供「协同指挥」按轮计时
@@ -4145,23 +4164,23 @@
                 const sys = target.subSystems.find(s=>s.name.includes(sysName) && !s.permanentDestroyed);
                 if(sys && Math.random() < (efficiencyMap[eff]||0.2) * (1 - sdr)) {
                     systemDmg = Math.round(weapon.singleDmg * 1.5 * tuningCoeff);
-                    sys.destroyed = true;
-                    sys.repairTimer = 0;
-                    sysHpPenalty(sys, sysName);
+                    /* ★ 系统独立血量：有 hp 就【累计】打满才毁（用户 2026-09-24 给超主力 25500）；
+                       没写 sysHp 的船沿用旧的"一击即毁"。 */
+                    if (sys.maxHp > 0) {
+                        sys.hp -= systemDmg * (weapon.mounts || 1);
+                        if (sys.hp <= 0) { sys.hp = 0; sys.destroyed = true; sys.repairTimer = 0; sysHpPenalty(sys, sysName); }
+                        else addBattleLog('system', `🔧 ${target.name||target.id} 的${sys.name}受创 -${systemDmg * (weapon.mounts||1)}（剩 ${Math.max(0, Math.round(sys.hp))}/${sys.maxHp}）`);
+                    } else {
+                        sys.destroyed = true; sys.repairTimer = 0; sysHpPenalty(sys, sysName);
+                    }
                     break;
                 }
             }
         }
 
-        // Random system damage (10% chance on any hit)
-        if(systemDmg === 0 && Math.random() < 0.1 * (1 - Math.max(0, Math.min(90, target.sysDmgReduce || 0)) / 100) && target.subSystems && target.subSystems.length > 0) {
-            const sys = target.subSystems.find(s=>!s.destroyed && !s.permanentDestroyed);
-            if(sys) {
-                sys.destroyed = true;
-                sys.repairTimer = 0;
-                sysHpPenalty(sys, sys.name);
-            }
-        }
+        /* ⚠️ 2026-09-24 删除「任意命中 10% 概率随机毁一个系统」那条：
+           资料《绝育》明确「只有特定标准的、可以攻击某个系统的舰船，才能攻击系统」，
+           而这条兜底等于让【每一门炮】都能打系统，和系统独立血量直接冲突。 */
 
         // === APPLY DAMAGE ===
         /* ★ 舰队级机制 protectFromSub：被多支舰队同时攻击时，
