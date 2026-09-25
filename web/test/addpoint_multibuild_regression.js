@@ -81,6 +81,7 @@ const check = (n, ok, d) => { if (ok) { pass++; console.log('PASS ' + n + (d ? (
   check('④ 两个条目各带不同方案 → 两个实例结果不同（多舰队独立）',
     S.两条独立 && S.两条独立[0] !== S.两条独立[1], 'A.hp=' + (S.两条独立 && S.两条独立[0]) + ' / B.hp=' + (S.两条独立 && S.两条独立[1]));
 
+
   /* ============ ⑨ 整套方案（所有舰船一起）+ 每个舰队各选一套 ============ */
   const S2 = await p.evaluate((HPN1, HPN2) => {
     const slug = 'constantine', cdn = String(BP_MAP[slug].cdnId);
@@ -129,6 +130,33 @@ const check = (n, ok, d) => { if (ok) { pass++; console.log('PASS ' + n + (d ? (
     '下拉=' + P2.下拉数 + ' 头部子元素=' + P2.头部子元素 + ' 末尾=' + P2.最后一个);
   check('[10] 下拉里能看到已存的整套方案', P2.含整套X === true, P2.第一个下拉 || '');
   /* ============ 配队页：导出是否带 apBuild ============ */
+  /* ============ ⑩ 重置=清空所有舰船 + 离开页面提醒 ============ */
+  /* ⑩ 需要在【加点页】跑 —— 单独导航一次 */
+  await p.goto(BASE + '/addpoint.html', { waitUntil: 'load', timeout: 90000 });
+  await sleep(3500);
+
+  const R2 = await p.evaluate(() => {
+    const out = {};
+    // 造两艘船的加点
+    localStorage.setItem('lagrange_addpoint', JSON.stringify({ '60401': { lv: { a: 1 }, manual: {} }, '60402': { lv: { b: 2 }, manual: {} } }));
+    out.重置前 = Object.keys(JSON.parse(localStorage.getItem('lagrange_addpoint')||'{}')).length;
+    // 重置（把 confirm 设成全部取消，只验证"不确认就不清"）
+    const oc = window.confirm; window.confirm = () => false;
+    resetAll();
+    out.取消后 = Object.keys(JSON.parse(localStorage.getItem('lagrange_addpoint')||'{}')).length;
+    // 再来一次，全部确认（第一个 confirm= 不先保存）
+    let step = 0; window.confirm = () => { step++; return step !== 1; };   // 第1次选否（不先存），第2次确认重置
+    resetAll();
+    out.确认后 = Object.keys(JSON.parse(localStorage.getItem('lagrange_addpoint')||'{}')).length;
+    window.confirm = oc;
+    out.就绪 = typeof resetAll === 'function';
+    return out;
+  }, );
+  console.log('  [debug] ' + JSON.stringify(R2));
+  check('[11] 重置前有多艘船的加点（两艘）', R2.重置前 === 2, '重置前=' + R2.重置前);
+  check('[11] 取消确认 → 一个都不清', R2.取消后 === 2, '取消后=' + R2.取消后);
+  check('[11] 确认后 → 清空【所有舰船】（不是只清当前这一艘）', R2.确认后 === 0, '确认后=' + R2.确认后);
+
   await p.goto(BASE + '/fleet.html', { waitUntil: 'load', timeout: 90000 });
   await sleep(4000);
 

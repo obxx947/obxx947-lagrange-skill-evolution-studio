@@ -391,13 +391,30 @@ function subPoint(id) {
   persist(); render();
   toast((n.labelName || n.name) + ' -1');
 }
+/* 「重置」= 清空【所有舰船】的加点（用户 2026-09-25：原来只清当前这一艘）。
+   清之前先问一次「要不要先存成总体加点方案」。 */
 function resetAll() {
-  if (!ship) return;
-  if (!confirm('把「' + ship.shipName + '」的加点全部清空？')) return;
-  lv = {}; selNode = null;
-  SAVE[ship.id] = {}; saveStore(); render();
-  toast('已重置');
+  const snap = loadStore();
+  const n = Object.keys(snap).length;
+  if (!n) { toast('当前没有任何加点可以重置'); return; }
+  if (confirm('「重置」会清空【所有舰船】的加点（共 ' + n + ' 艘）。\n\n要先存成一份「总体加点方案」吗？\n\n【确定】= 先保存，再问一次重置\n【取消】= 跳到下一步'))
+    { if (!saveSet()) return; }                       // 用户取消了保存弹窗 → 中止，什么都不清
+  if (!confirm('确认重置吗？\n\n将清空全部 ' + n + ' 艘舰船的加点，不可恢复。')) return;
+  SAVE && Object.keys(SAVE).forEach(k => delete SAVE[k]);
+  saveStore();
+  lv = {}; manual = {}; selNode = null;
+  AP_DIRTY = false;
+  render();
+  toast('已重置：清空了 ' + n + ' 艘舰船的加点');
 }
+/* 有改动但还没存成方案 → 离开页面时提醒一次 */
+let AP_DIRTY = false;
+window.addEventListener('beforeunload', function (e) {
+  if (!AP_DIRTY) return;
+  e.preventDefault();
+  e.returnValue = '你有还没存成方案的加点改动，确定离开吗？';
+  return e.returnValue;
+});
 
 /* ---------- 属性汇总 ----------
    加点效果取值规则：**perLevel[当前等级]**（比如冷却 5 级就是 15%），不是各级累加。
@@ -748,6 +765,7 @@ function saveBuild() {
   const i = all.findIndex(x => x.name === name);
   if (i >= 0) { if (!confirm('已有同名方案，覆盖它？')) return; all[i] = rec; } else all.push(rec);
   storeBuilds(all);
+  AP_DIRTY = false;                                  // 存过了 → 不再提醒
   toast('已存【本舰】方案「' + name + '」（' + (ship.shipName || ship.id) + ' · 模块 ' + (modStr() || '未指定') + '）');
 }
 function openBuilds() {
@@ -796,6 +814,7 @@ function showModLine() {
 function persist() {
   if (!ship) return;
   SAVE[ship.id] = curRec(); saveStore();
+  if (typeof AP_DIRTY !== 'undefined') AP_DIRTY = true;   // 有改动 → 离开页面时提醒
 }
 function codeOf() {
   if (!ship) return '';
@@ -867,18 +886,20 @@ function setStat(dp) {
 function saveSet() {
   const snap = loadStore();                       // 全部舰船的加点
   const n = Object.keys(snap).length;
-  if (!n) { toast('还没有任何舰船的加点可以存', 'err'); return; }
+  if (!n) { toast('还没有任何舰船的加点可以存', 'err'); return null; }
   /* 默认名用「总体加点方案N」按序号递增（用户 2026-09-25：原来自动带舰船名/时间戳容易误会） */
   const used = loadSets().map(x => x && x.name).filter(Boolean);
   let k = 1; while (used.indexOf('总体加点方案' + k) >= 0) k++;
   const name = prompt('总体加点方案名称\n\n存的是【所有舰船】的加点（当前 ' + setStat(snap) + '）\n（只存某一艘船请关掉这个，用左边的「💾 存本舰方案」）：', '总体加点方案' + k);
-  if (!name) return;
+  if (!name) return null;                            // 用户取消 → 调用方据此中止
   const all = loadSets();
   const rec = { name: name, addpoints: snap, updatedAt: Date.now() };
   const i = all.findIndex(x => x.name === name);
-  if (i >= 0) { if (!confirm('已有同名整套方案，覆盖它？')) return; all[i] = rec; } else all.push(rec);
+  if (i >= 0) { if (!confirm('已有同名总体加点方案，覆盖它？')) return null; all[i] = rec; } else all.push(rec);
   storeSets(all);
+  AP_DIRTY = false;                                  // 存过了 → 不再提醒
   toast('已存总体加点方案「' + name + '」（' + setStat(snap) + '）');
+  return name;
 }
 /* 载入整套：先清空本机全部加点，再把快照写回去（问一下，避免误覆盖） */
 function applySet(i) {
