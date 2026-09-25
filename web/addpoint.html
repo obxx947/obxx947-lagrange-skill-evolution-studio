@@ -167,6 +167,7 @@ body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#
         <button class="btn" onclick="openBuilds()">📁 我的方案</button>
         <button class="btn gold" onclick="copyCode()">导出配置码</button>
         <button class="btn" onclick="importCode()">导入配置码</button>
+        <button class="btn gold" onclick="exportCurrentAddpoint()">📤 导出当前加点</button>
         <button class="btn gold" onclick="exportAllAddpoints()">📤 导出全部加点</button>
         <button class="btn" onclick="$('apImp').click()">📥 导入加点文件</button>
         <input type="file" id="apImp" accept=".json" style="display:none" onchange="importAddpointsFile(this)">
@@ -841,6 +842,40 @@ function bundleOf(addpoints, builds) {
   return { type: 'lagrange_addpoints', version: 1, exportedAt: new Date().toISOString(),
     note: '拉格朗日智能体3 · 舰船加点导出（addpoints=各舰船加点, builds=保存的方案含模块组合）',
     names: nameMap(), addpoints: addpoints || {}, builds: builds || [] };
+}
+/* 导出【当前这艘船正在配的这套加点】—— 不要求先保存方案。
+   产出的是【可读】JSON（不是配置码那种 base64）：舰船名 / 模块组合 /
+   每个已点亮节点（名字 + 所属系统 + 等级 + 说明原文）/ 手填四项 / 总计技术值。
+   同一次导出也带一份精简的 lv/manual，所以导入侧（importAddpointsFile）也能吃。 */
+function exportCurrentAddpoint() {
+    if (!ship) { toast('还没选舰船', 'err'); return; }
+    const idx = {};
+    (ship.systems || []).forEach(sy => (sy.nodes || []).forEach(n => { idx[n.id] = { sys: sy.sysName || '', n: n }; }));
+    const nodes = Object.keys(lv).filter(k => lv[k] > 0)
+        .map(k => ({ id: k, 节点: (idx[k] && idx[k].n && idx[k].n.name) || k, 系统: (idx[k] && idx[k].sys) || '', 等级: lv[k],
+                     说明: String((idx[k] && idx[k].n && idx[k].n.baseDesc) || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim() }))
+        .sort((a, b) => String(a.系统).localeCompare(String(b.系统), 'zh') || a.等级 - b.等级);
+    const tcEl = document.getElementById('totalCost');
+    const manual2 = {};
+    Object.keys(manual || {}).forEach(k => { if (manual[k]) manual2[k] = manual[k]; });
+    const doc = {
+        type: 'lagrange_addpoint_one',
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        note: '舰船加点·当前这套（含模块组合）。已点亮的节点按系统排好；手填=引擎里没有对应字段的那几项。',
+        舰船: ship.shipName || ship.id,
+        官方编号: ship.id,
+        模块组合: (typeof selMods !== 'undefined' ? selMods : []).map(m => m.key + m.variant),
+        一共点亮: nodes.length + ' 个节点',
+        总计技术值: tcEl ? tcEl.textContent : '',
+        已点亮节点: nodes,
+        手填: manual2,
+        addpoints: { [ship.id]: curRec() },     // 精简版：能被 importAddpointsFile 读回
+        builds: []
+    };
+    const safe = String(ship.shipName || ship.id).replace(/[\/:*?"<>|\s]/g, '_').slice(0, 40);
+    dlFile('拉格朗日_加点_' + safe + '_' + new Date().toISOString().slice(0, 10) + '.json', JSON.stringify(doc, null, 2));
+    toast('已导出「' + (ship.shipName || ship.id) + '」当前加点（' + nodes.length + ' 个节点）');
 }
 function exportAllAddpoints() {
   const addpoints = {};

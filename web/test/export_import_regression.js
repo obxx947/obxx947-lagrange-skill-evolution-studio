@@ -80,6 +80,26 @@ const check = (n, ok, d) => { if (ok) { pass++; console.log('PASS ' + n + (d ? (
   check('③ 单条方案导出：同一个格式', !!A.oneBundle && A.oneBundle.type === 'lagrange_addpoints' && A.oneBundle.builds.length === 1, A.one ? A.one.name : '无文件');
   check('③ 单条方案文件往返一致（导回后方案名还在）', A.roundTrip.builds.join(',') === '测试方案A', JSON.stringify(A.roundTrip));
   check('⑤ 文件名合法', !/[\\/:*?"<>| ]/.test((A.all || {}).name || '\\'), (A.all || {}).name);
+  /* ⑥ 加点页「导出当前加点」：可读 + 带模块组合 + 带节点明细 */
+  const A2 = await p.evaluate(() => {
+    const got = [];
+    const orig = window.dlFile;
+    window.dlFile = (name, text) => got.push({ name, text });
+    lv = {}; const ids = [];
+    ship.systems.forEach(sy => (sy.nodes || []).forEach(n => { if (ids.length < 2 && n.name && !n.disabled) ids.push(n.id); }));
+    ids.forEach(id => lv[id] = 1); manual = { siege: 7 };
+    exportCurrentAddpoint();
+    window.dlFile = orig;
+    let j = null; try { j = JSON.parse(got[0].text); } catch (e) { }
+    return { name: got[0] && got[0].name, j, nodes: j ? j['已点亮节点'].length : -1,
+             mods: j ? j['模块组合'] : null, sh: j ? j['舰船'] : null,
+             man: j ? j['手填'] : null, sid: j ? j['官方编号'] : null };
+  });
+  console.log('  [debug] ' + JSON.stringify({ name: A2.name, ship: A2.sh, nodes: A2.nodes, mods: A2.mods, manual: A2.man }));
+  check('[6] 加点页有「导出当前加点」且产出可读 JSON', !!A2.j && A2.j.type === 'lagrange_addpoint_one', A2.name || 'no-file');
+  check('[6] 文件带【模块组合】+【节点明细】', Array.isArray(A2.mods) && A2.nodes >= 1, 'mods=' + JSON.stringify(A2.mods) + ' nodes=' + A2.nodes);
+  check('[6] 附带精简 addpoints（能被导入读回）', !!(A2.j && A2.j.addpoints && A2.j.addpoints[A2.sid]), JSON.stringify(A2.man));
+
 
   /* ================= fleet.html ================= */
   await p.goto(BASE + '/fleet.html', { waitUntil: 'load', timeout: 90000 });
@@ -110,6 +130,31 @@ const check = (n, ok, d) => { if (ok) { pass++; console.log('PASS ' + n + (d ? (
   check('④ 单条配队导出：格式与「导出全部」一致（可被导入配队读回）', F.parsed && F.parsed.type === 'plans' && F.parsed.plans.length === 1, F.file ? F.file.name : '无文件');
   check('⑤ 配队文件名里的 / 被替换掉', !/[\\/:*?"<>| ]/.test((F.file || {}).name || '\\'), (F.file || {}).name);
   check('④ 「我的配队」列表里出现 📤 导出 按钮', F.hasBtn === true);
+  /* ⑦ 配队页「导出当前配舰」：含模块 + 载机（slot/kind/qty） */
+  const F2 = await p.evaluate(() => {
+    cur = { id: 'p2', name: 'cur', desc: '', active: 0, updatedAt: 1, fleets: [{
+      name: 'main', flagship: '', reinforce: [],
+      main: [
+        { id: 'constantine', name: 'A', pos: '中排', qty: 2, mods: { M: 'M2', A: 'A1' }, apBuild: 'B',
+          air: [{ id: 'mistral', name: '米斯特拉', kind: 'fighter', slot: 'M2', qty: 4 }] },
+        { id: 'kaiyang-A', name: 'B', pos: '前排', qty: 3, mods: {}, air: [] }
+      ] }] };
+    const got = [];
+    const orig = window.download;
+    window.download = (name, text) => got.push({ name, text });
+    exportCurrentPlan();
+    window.download = orig;
+    let j = null; try { j = JSON.parse(got[0].text); } catch (e) { }
+    const m = j && j.plans[0].fleets[0].main[0];
+    return { name: got[0] && got[0].name, n: j ? j.plans[0].fleets[0].main.length : -1, mods: m ? m.mods : null, air: m ? m.air : null };
+  });
+  console.log('  [debug] ' + JSON.stringify(F2));
+  check('[7] 配队页有「导出当前配舰」（不用先保存）', F2.n === 2, (F2.name || 'no-file') + ' main=' + F2.n);
+  check('[7] 导出里【模块选择】完整', !!(F2.mods && F2.mods.M === 'M2' && F2.mods.A === 'A1'), JSON.stringify(F2.mods));
+  check('[7] 导出里【舰载机选择】完整',
+    !!(F2.air && F2.air[0] && F2.air[0].slot === 'M2' && F2.air[0].qty === 4 && F2.air[0].kind === 'fighter'),
+    JSON.stringify(F2.air));
+
 
   await b.close();
   console.log('\n==== ' + pass + ' 通过 / ' + fail + ' 失败 ====');

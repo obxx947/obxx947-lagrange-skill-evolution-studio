@@ -214,6 +214,7 @@ textarea{min-height:52px;resize:vertical}
         <button class="btn pri" style="flex:1" onclick="savePlan()">💾 保存方案</button>
         <button class="btn gold" style="flex:1" onclick="toSimulator()">⚔️ 复制到模拟器</button>
         <button class="btn cyan" style="flex:1" onclick="sendToAI()">🤖 发给AI分析/改进</button>
+        <button class="btn gold" style="flex:1" onclick="exportCurrentPlan()">📤 导出当前配舰</button>
         <button class="btn" style="flex:1" onclick="newPlan()">➕ 新建方案</button>
     </div>
 </div>
@@ -1111,6 +1112,24 @@ function exportAllPlans(){
 }
 /* 单条配队导出：文件格式和「导出全部配队」完全一致（{type:'plans',plans:[…]}），
    所以导出的单条文件可以直接用「📥 导入配队」读回来 */
+/* 导出【当前正在编辑的配舰】—— 不要求先保存。
+   刻意把「模块选择」和「舰载机选择」摊开写清楚（用户要求）：
+     · mods  ：每个可选模块槽装的是哪个变体（含变体名）
+     · air   ：每个载机位装了什么机、几架、属于哪个载机位（slot）
+   格式与「导出全部配队」一致（{type:'plans',plans:[…]}），可直接被「📥 导入配队」读回。 */
+function exportCurrentPlan(){
+    const d=exportFleet();
+    const 主=(d.main||[]).length, 增=(d.reinforcement||[]).length;
+    if(!主 && !增){ toast('当前配舰是空的','err'); return; }
+    const safe=String(d.name||'当前配舰').replace(/[\/:*?"<>|\s]/g,'_').slice(0,40);
+    download('拉格朗日_配舰_'+safe+'_'+new Date().toISOString().slice(0,10)+'.json',
+        JSON.stringify({type:'plans',plans:[{
+            id:'plan_'+Date.now(), name:d.name||'当前配舰', desc:d.desc||'',
+            createdAt:Date.now(), updatedAt:Date.now(), active:0,
+            fleets:[{ name:'主队', flagship:d.flagship||'', main:d.main||[], reinforce:d.reinforcement||[] }]
+        }]},null,2));
+    toast('已导出当前配舰（主 '+主+' · 增援 '+增+'）—— 含模块与载机选择');
+}
 function exportPlan(id){
     const p=(store.plans||[]).find(x=>x.id===id); if(!p) return;
     const safe=String(p.name||'配队').replace(/[\\/:*?"<>|\s]/g,'_').slice(0,40);
