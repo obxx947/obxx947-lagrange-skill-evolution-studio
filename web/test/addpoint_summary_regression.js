@@ -83,6 +83,37 @@ const check = (n, ok, d) => { if (ok) { pass++; console.log('PASS ' + n + (d ? (
   check('[12] 顶部有实时数值栏 #liveBar', R3.有栏位 === true && R3.有函数 === true, R3.内容.slice(0, 90));
   check('[12] 实时栏里有「结构值」且可手动强制改',
     /结构值/.test(R3.内容) && R3.覆盖后含手填 === true, R3.内容.slice(0, 90));
+
+  /* ============ ④ 实时栏：绝对值 + 按需显示（含暴击）============ */
+  await p.evaluate(() => loadLiveBase());
+  await new Promise(r => setTimeout(r, 2500));
+  const R4 = await p.evaluate(() => {
+    const out = {};
+    renderLiveBar();
+    const t0 = (document.getElementById('liveBar') || {}).textContent || '';
+    out.基值到位 = !!liveBase();
+    out.基值 = liveBase() ? { hp: liveBase().hp, phy: liveBase().physicalArmor, eng: liveBase().energyArmor } : null;
+    out.原文 = t0;
+    out.含百分号堆 = ((t0.match(/\+\d+(\.\d+)?%/g) || []).length) > 2;
+    /* 加点里没暴击 → 实时栏不该出现「暴击率」 */
+    out.没暴击时不显示 = t0.indexOf('暴击率') < 0;
+    /* 手动加一个暴击 → 应该出现 */
+    setManualLive('crit', '25');
+    const t1 = (document.getElementById('liveBar') || {}).textContent || '';
+    out.手加暴击后出现 = t1.indexOf('暴击率') >= 0 && t1.indexOf('25') >= 0;
+    /* 手填结构值 → 应该显示手填值 */
+    setManualLive('hp', '181184');
+    const t2 = (document.getElementById('liveBar') || {}).textContent || '';
+    out.手填结构值生效 = t2.indexOf('181184') >= 0;
+    try { delete manual['live_crit']; delete manual['live_hp']; persist(); renderLiveBar(); } catch (e) {}
+    return out;
+  });
+  console.log('  [debug] ' + JSON.stringify({ 基值到位: R4.基值到位, 基值: R4.基值, 原文: (R4.原文||'').slice(0,120) }));
+  check('[13] 实时栏拿到真实基值（舰船库已加载）', R4.基值到位 === true, JSON.stringify(R4.基值));
+  check('[13] 结构值/护甲给绝对数值（不是 +N% 堆）', R4.含百分号堆 === false, (R4.原文||'').slice(0, 100));
+  check('[13] 加点/手填里没暴击时「暴击率」不显示', R4.没暴击时不显示 === true);
+  check('[13] 手加暴击 25% 后「暴击率」出现且显示 25', R4.手加暴击后出现 === true);
+  check('[13] 手填结构值能强制覆盖', R4.手填结构值生效 === true);
   await b.close();
   console.log('\n==== ' + pass + ' 通过 / ' + fail + ' 失败 ====');
   process.exit(fail ? 1 : 0);

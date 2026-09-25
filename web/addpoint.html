@@ -510,79 +510,95 @@ function sysBreakdownHtml() {
        + '<div class="sgrid" style="margin-top:6px">' + blocks.join('') + '</div>';
 }
 /* ============ 顶部【实时数值栏】============
-   用户 2026-09-25：在上面找个空位置，实时显示现在准确的数值 ——
-     · 所有舰船：结构值 / 物理护甲 / 能量护甲 / 受维修加成
-     · 武器系统：分钟伤害 / 单发 / 命中 / 攻击次数 / 冷却 / 锁定
-     · 维修系统：实时维修量
-     · 机库系统：实时载机加成
-     · 往复式舰载机：实时去程 / 回程
-   每一项都可以手动强制改（输入框直接覆盖），显示完整不省略。 */
-function liveVal(key, auto, unit, label) {
-  const m = (manual && manual['live_' + key] !== undefined && manual['live_' + key] !== '') ? manual['live_' + key] : '';
-  const shown = (m === '' ? auto : m);
-  return '<span class="seg"><span class="k">' + label + '</span>'
-    + '<b>' + (typeof shown === 'number' ? (Math.round(shown * 100) / 100) : shown) + (unit || '') + '</b>'
-    + '<input type="text" placeholder="改" value="' + esc(m) + '" title="手动强制改（留空=用算出来的）"'
-    + ' oninput="setManualLive(\' + key + \', this.value)"></span>';
+   用户 2026-09-25：
+     · 显示【实时准确数值】—— 结构值/护甲给绝对值（不是"+"多少百分比）
+     · 只有本身只能是百分比的东西才用百分比（能量护甲、受维修加成…）
+     · 别忘了暴击那些 —— 但【只有在"加点"或"手动追加"里真的有、并且真的生效时才显示】
+   基值来自 ship_database.json（懒加载一次，缓存）。 */
+let SHIPDB = null, BPMAP2 = null, _liveLoading = false;
+async function loadLiveBase() {
+  if (SHIPDB) return true;
+  if (_liveLoading) return false;
+  _liveLoading = true;
+  try {
+    const [db, mp] = await Promise.all([
+      fetch('data/ship_database.json', { cache: 'no-cache' }).then(r => r.json()),
+      fetch('data/blueprint_map.json', { cache: 'no-cache' }).then(r => r.json()).catch(() => ({}))
+    ]);
+    const arr = Array.isArray(db) ? db : (db.ships || []);
+    const byCdn = {};
+    arr.forEach(x => { const e = mp[x.id]; if (e && e.cdnId) byCdn[String(e.cdnId)] = x; });
+    SHIPDB = { arr, byCdn };
+    BPMAP2 = mp;
+    renderLiveBar();
+    return true;
+  } catch (e) { _liveLoading = false; return false; }
 }
+function liveBase() { return (SHIPDB && SHIPDB.byCdn[String(ship && ship.id)]) || null; }
+function statOf(k) { const v = manual && manual['live_' + k]; return (v !== undefined && v !== '' && isFinite(parseFloat(v))) ? parseFloat(v) : null; }
 function setManualLive(key, v) {
   if (v === '' || v === null) delete manual['live_' + key]; else manual['live_' + key] = v;
-  persist();
-  const el = $('liveBar'); if (el) el.innerHTML = liveBarHtml();      // 只重画这一条，不整页重绘（避免输入失焦）
+  persist(); renderLiveBar();
 }
-function liveNum(k) { const v = manual && manual['live_' + k]; return (v !== undefined && v !== '' && !isNaN(parseFloat(v))) ? parseFloat(v) : null; }
+function lv1(key, auto, unit, label, force) {
+  const m = statOf(key);
+  /* ★ 只有【加点算出来有值】或【手填了】才显示 —— 用户要求：
+     暴击那些"只有在手动加入或加点中有、并且使用了之后"才出现 */
+  if (!force && !m && !(typeof auto === 'number' && Math.abs(auto) > 1e-9)) return '';
+  const shown = (m !== null ? m : auto);
+  const v = (typeof shown === 'number') ? (Math.round(shown * 100) / 100) : shown;
+  return '<span class="seg"><span class="k">' + label + '</span><b>' + v + (unit || '') + '</b>'
+    + '<input type="text" placeholder="改" value="' + esc(m === null ? '' : m) + '" title="手动强制改（留空=用算出来的）"'
+    + ' oninput="setManualLive(' + JSON.stringify(key) + ', this.value)"></span>';
+}
+/* 会出现在实时栏里的「按需显示」项：都是从加点/手填里来，没值就不占地方 */
+const LIVE_OPT = [
+  ['singleDmg', '单发伤害', '%'], ['cooldownReduction', '冷却减免', '%'], ['atkReduction', '打击间隔缩短', '%'],
+  ['lockReduction', '锁定减免', '%'], ['lockEfficiency', '锁定效率', '%'], ['hitBonus', '命中加成', '%'],
+  ['crit', '暴击率', '%'], ['critDmg', '暴击伤害', '%'], ['antiIntercept', '反拦截', '%'],
+  ['evasion', '闪避率', '%'], ['interceptRate', '拦截率', '%'], ['enemyHitDown', '被命中率下降', '%'],
+  ['dmgBonus', '伤害加成', '%'], ['sysDmgReduce', '受系统伤害降低', '%'], ['multiTarget', '分散打击目标数', ''],
+  ['weaponDuration', '攻击持续提升', '%'], ['repairEff', '维修效率', '%'], ['hangarDmg', '载机伤害', '%'],
+  ['hangarHit', '载机命中', '%']
+];
 function liveBarHtml() {
   if (!ship || !STATS) return '';
   const O = (function () { try { return computeStats().out || {}; } catch (e) { return {}; } })();
-  /* 基值（结构值/护甲）来自 ship_database.json —— 加点页默认【不加载】它，
-     所以拿不到基值时【只显示加点带来的加成】，不编一个假的绝对值出来。
-     手填框任何时候都能强制写死真实值。 */
-  const base = (function () {
-    try { const db = window.SHIP_DB; if (db && db.get) { const r = db.get(ship.id) || (db.all && db.all().find(x => String(x.id) === String(ship.id))); if (r) return r; } } catch (e) { }
-    return null;
-  })();
-  const hpBase = (base && base.hp) || 0;
-  const hpAuto = hpBase ? Math.round(hpBase * (1 + (O.hp || 0) / 100)) : ('+' + (Math.round((O.hp || 0) * 100) / 100) + '%');
-  const 物甲 = base ? Math.round(((base.physicalArmor || 0) + (O.physResist || 0))) : ('+' + (Math.round((O.physResist || 0) * 100) / 100));
-  const 能甲 = base ? Math.round(((base.energyArmor || 0) + (O.energyResist || 0))) : ('+' + (Math.round((O.energyResist || 0) * 100) / 100));
-  const 维修加成 = base ? Math.min(Math.round((base.physicalArmor || 0) * 0.25 * 100) / 100 + (O.repairEff || 0) + (O.repairBonus || 0), 150)
-                        : (Math.round(((O.repairEff || 0) + (O.repairBonus || 0)) * 100) / 100);
-  let h = '<span class="seg"><b style="color:var(--gold)">' + esc(ship.shipName || ship.id) + '</b></span>'
-        + liveVal('hp', hpAuto, '', '结构值')
-        + (base ? '' : '<span class="k" style="color:var(--gold)">（没加载舰船库→这里只有加点加成；真实绝对值请手填）</span>')
-        + liveVal('physArmor', 物甲, '', '物理护甲')
-        + liveVal('energyArmor', 能甲, (typeof 能甲 === 'number' ? '%' : ''), '能量护甲')
-        + liveVal('repairBonus', 维修加成, '%', '受维修加成');
-  /* 当前选中系统的那一类数值 */
+  const base = liveBase();
+  const pct = v => (Math.round(v * 100) / 100) + '%';
+  let h = '<span class="seg"><b style="color:var(--gold)">' + esc(ship.shipName || ship.id) + '</b>'
+        + (base ? '<span class="k">' + esc(base.type || '') + '</span>' : '<span class="k" style="color:var(--gold)">（舰船库加载中…）</span>') + '</span>';
+  /* ---- 绝对数值（不是百分比）---- */
+  if (base) {
+    const hp = Math.round((base.hp || 0) * (1 + (O.hp || 0) / 100));
+    h += lv1('hp', hp, '', '结构值', true);
+    h += lv1('physArmor', Math.round((base.physicalArmor || 0) + (O.physResist || 0)), '', '物理护甲', true);
+  } else {
+    h += lv1('hp', statOf('hp') || 0, '', '结构值（手填）', true);
+  }
+  /* ---- 本身只能是百分比的 ---- */
+  h += lv1('energyArmor', base ? Math.round((base.energyArmor || 0) + (O.energyResist || 0)) : 0, '%', '能量护甲', true);
+  h += lv1('repairBonus', Math.min(Math.round((base ? (base.physicalArmor || 0) * 0.25 : 0) * 100) / 100 + (O.repairEff || 0) + (O.repairBonus || 0), 150), '%', '受维修加成', true);
+  /* ---- 按需显示：加点/手填里有才出现（含暴击）---- */
+  LIVE_OPT.forEach(([k, cn, u]) => { h += lv1(k, O[k] || 0, u, cn); });
+  /* ---- 当前选中系统那一类 ---- */
   const sys = ship.systems && ship.systems[sysIdx];
   if (sys) {
-    const isW = sys.isWeaponSystem;
-    const isRep = /维修|支援/.test(sys.sysName || '') || (sys.nodes || []).some(n => { const st = STATS.nodes[n.id]; return st && st.stat === 'repairEff' && nodeLv(n.id) > 0; });
-    const isHangar = /机库|载机|坞舱|搭载/.test(sys.sysName || '');
-    const isRecip = ship.flightMode === 'reciprocating';
-    if (isW) {
+    const nm = sys.sysName || '';
+    if (sys.isWeaponSystem) {
       const n = (sys.nodes || []).reduce((a, x) => a + (nodeLv(x.id) > 0 ? 1 : 0), 0);
-      h += '<span class="seg"><span class="k">本系统武器</span><b>' + esc(sys.sysName || '') + '</b>'
-         + liveVal('w_dpm', (O.singleDmg || 0) + '/' + (O.cooldownReduction || 0), '', '单发+/冷却-')
-         + liveVal('w_hit', O.hitBonus || 0, '%', '命中')
-         + liveVal('w_cd', O.cooldownReduction || 0, '%', '冷却')
-         + liveVal('w_lock', O.lockReduction || 0, '%', '锁定')
-         + '<span class="k">（' + n + ' 个节点）</span></span>';
-    } else if (isRep) {
-      h += '<span class="seg"><span class="k">本系统维修</span><b>' + esc(sys.sysName || '') + '</b>'
-         + liveVal('rep_dpm', O.repairEff || 0, '%', '维修量加成') + '</span>';
-    } else if (isHangar) {
-      h += '<span class="seg"><span class="k">本系统机库</span><b>' + esc(sys.sysName || '') + '</b>'
-         + liveVal('h_dmg', O.hangarDmg || 0, '%', '载机伤害') + liveVal('h_hit', O.hangarHit || 0, '%', '载机命中') + '</span>';
+      h += '<span class="seg"><span class="k">本系统武器</span><b>' + esc(nm) + '</b><span class="k">（' + n + ' 个节点）</span></span>';
     }
-    if (isRecip) {
-      h += '<span class="seg"><span class="k">往复</span><b>去程 ' + (ship.departSec || 0) + 's / 回程 ' + (ship.returnSec || 0) + 's</b>'
-         + liveVal('departSec', ship.departSec || 0, 's', '去程') + liveVal('returnSec', ship.returnSec || 0, 's', '回程') + '</span>';
+    if (/维修|支援/.test(nm)) h += '<span class="seg"><span class="k">本系统维修</span><b>' + esc(nm) + '</b></span>';
+    if (/机库|载机|坞舱|搭载/.test(nm)) h += '<span class="seg"><span class="k">本系统机库</span><b>' + esc(nm) + '</b></span>';
+    if (ship.flightMode === 'reciprocating') {
+      h += '<span class="seg"><span class="k">往复</span>' + lv1('departSec', ship.departSec || 0, 's', '去程', true) + lv1('returnSec', ship.returnSec || 0, 's', '回程', true) + '</span>';
     }
   }
   return h;
 }
-function renderLiveBar() { const el = $('liveBar'); if (el) el.innerHTML = liveBarHtml(); }
+function renderLiveBar() { const el = $('liveBar'); if (el) el.innerHTML = liveBarHtml(); if (!SHIPDB) loadLiveBase(); }
+
 function statPanelHtml() {
   if (!STATS) return '';
   const { out, counted, skipped, other, pureRef, decoded, modOnly, mech, cond, skippedList, pureRefList, condList } = computeStats();
