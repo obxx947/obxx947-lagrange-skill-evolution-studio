@@ -167,6 +167,8 @@ body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#
         <button class="btn" onclick="openBuilds()">📁 我的方案</button>
         <button class="btn gold" onclick="copyCode()">导出配置码</button>
         <button class="btn" onclick="importCode()">导入配置码</button>
+        <button class="btn green" onclick="saveSet()">💾 存整套方案</button>
+        <button class="btn" onclick="openSets()">📁 整套方案</button>
         <button class="btn gold" onclick="exportCurrentAddpoint()">📤 导出当前加点</button>
         <button class="btn gold" onclick="exportAllAddpoints()">📤 导出全部加点</button>
         <button class="btn" onclick="$('apImp').click()">📥 导入加点文件</button>
@@ -847,6 +849,72 @@ function bundleOf(addpoints, builds) {
    产出的是【可读】JSON（不是配置码那种 base64）：舰船名 / 模块组合 /
    每个已点亮节点（名字 + 所属系统 + 等级 + 说明原文）/ 手填四项 / 总计技术值。
    同一次导出也带一份精简的 lv/manual，所以导入侧（importAddpointsFile）也能吃。 */
+/* ================= 整套加点方案（方案集）=================
+   用户 2026-09-25 明确：保存的是【所有舰船的加点数据】，模拟器里选的也是这一整套。
+   一条 = 某个时刻 localStorage['lagrange_addpoint'] 的完整快照。
+   存在新键 lagrange_addpoint_sets（不影响旧的单船 builds）。 */
+const SKEY = 'lagrange_addpoint_sets';
+function loadSets() { try { return JSON.parse(localStorage.getItem(SKEY) || '[]') || []; } catch (e) { return []; } }
+function storeSets(a) { try { localStorage.setItem(SKEY, JSON.stringify(a)); } catch (e) { } }
+function setStat(dp) {
+  const ids = Object.keys(dp || {});
+  let pts = 0; ids.forEach(k => pts += Object.keys((dp[k] || {}).lv || {}).filter(x => (dp[k].lv[x] || 0) > 0).length);
+  return ids.length + ' 艘 / ' + pts + ' 点';
+}
+function saveSet() {
+  const snap = loadStore();                       // 全部舰船的加点
+  const n = Object.keys(snap).length;
+  if (!n) { toast('还没有任何舰船的加点可以存', 'err'); return; }
+  const name = prompt('整套方案名称（存的是【所有舰船】的加点，' + setStat(snap) + '）：',
+    '整套方案 ' + new Date().toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }));
+  if (!name) return;
+  const all = loadSets();
+  const rec = { name: name, addpoints: snap, updatedAt: Date.now() };
+  const i = all.findIndex(x => x.name === name);
+  if (i >= 0) { if (!confirm('已有同名整套方案，覆盖它？')) return; all[i] = rec; } else all.push(rec);
+  storeSets(all);
+  toast('已存整套方案「' + name + '」（' + setStat(snap) + '）');
+}
+/* 载入整套：先清空本机全部加点，再把快照写回去（问一下，避免误覆盖） */
+function applySet(i) {
+  const all = loadSets(); const rec = all[i]; if (!rec) return;
+  if (!confirm('载入「' + rec.name + '」会把本机【所有舰船】的加点换成这一套（当前那套会被覆盖）。继续？')) return;
+  SAVE && Object.keys(SAVE).forEach(k => delete SAVE[k]);
+  Object.keys(rec.addpoints || {}).forEach(k => { SAVE[k] = normRec(rec.addpoints[k]); });
+  saveStore();
+  if (ship) { const r = normRec(SAVE[ship.id]); lv = Object.assign({}, r.lv); manual = Object.assign({}, r.manual); }
+  render(); toast('已载入整套方案「' + rec.name + '」（' + setStat(rec.addpoints) + '）');
+}
+function delSet(i) {
+  const all = loadSets(); const rec = all[i]; if (!rec) return;
+  if (!confirm('删除整套方案「' + rec.name + '」？')) return;
+  all.splice(i, 1); storeSets(all); openSets(); toast('已删除');
+}
+function exportSet(i) {
+  const all = loadSets(); const rec = all[i]; if (!rec) return;
+  const safe = String(rec.name || '整套方案').replace(/[\/:*?"<>|\s]/g, '_').slice(0, 40);
+  dlFile('拉格朗日_整套加点_' + safe + '.json',
+    JSON.stringify(bundleOf(rec.addpoints || {}, []), null, 2));
+  toast('已导出整套方案「' + rec.name + '」');
+}
+function openSets() {
+  const all = loadSets();
+  const rows = all.map((x, i) =>
+    '<div class="detail" style="margin-bottom:6px"><div class="dh">'
+    + '<b>' + esc(x.name) + '</b><span class="tag">' + setStat(x.addpoints) + '</span>'
+    + '<span style="flex:1"></span>'
+    + '<button class="btn pri" style="padding:3px 9px;font-size:0.6rem" onclick="applySet(' + i + ')">载入</button>'
+    + '<button class="btn gold" style="padding:3px 9px;font-size:0.6rem" onclick="exportSet(' + i + ')">导出</button>'
+    + '<button class="btn red" style="padding:3px 9px;font-size:0.6rem" onclick="delSet(' + i + ')">删</button>'
+    + '</div></div>').join('');
+  $('body').innerHTML = '<div class="detail"><div class="dh"><b>整套加点方案</b>'
+    + '<span class="hint">（每条 = 当时【所有舰船】的加点快照）</span><span style="flex:1"></span>'
+    + '<button class="btn green" onclick="saveSet()">💾 存当前为一套</button>'
+    + '<button class="btn" onclick="render()">返回加点</button></div>'
+    + '<div class="hint" style="margin-bottom:8px">在战斗模拟 / 战舰配队里，可以给【每个舰队】单独选一套（不同舰队各用各的）。</div>'
+    + (rows || '<div class="empty">还没有整套方案。先把各舰船配好，然后点上面的「💾 存当前为一套」。</div>')
+    + '</div>';
+}
 function exportCurrentAddpoint() {
     if (!ship) { toast('还没选舰船', 'err'); return; }
     const idx = {};

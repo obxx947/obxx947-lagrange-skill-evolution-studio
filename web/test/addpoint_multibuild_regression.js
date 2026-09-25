@@ -81,6 +81,30 @@ const check = (n, ok, d) => { if (ok) { pass++; console.log('PASS ' + n + (d ? (
   check('④ 两个条目各带不同方案 → 两个实例结果不同（多舰队独立）',
     S.两条独立 && S.两条独立[0] !== S.两条独立[1], 'A.hp=' + (S.两条独立 && S.两条独立[0]) + ' / B.hp=' + (S.两条独立 && S.两条独立[1]));
 
+  /* ============ ⑨ 整套方案（所有舰船一起）+ 每个舰队各选一套 ============ */
+  const S2 = await p.evaluate((HPN1, HPN2) => {
+    const slug = 'constantine', cdn = String(BP_MAP[slug].cdnId);
+    const mk = (setName) => {
+      const e = JSON.parse(JSON.stringify(SHIP_DATABASE[slug]));
+      e.selectedModules = { M: 'M1', A: 'A1' };
+      if (setName) e.apSet = setName;
+      const inst = createShipInstance(e, 'ally', false, false);
+      return { hp: inst.maxHp, res: inst.physResistBonus || 0, apSet: inst.apSet || null };
+    };
+    /* 整套A：这艘船走 hp 节点；整套B：走抵抗节点；默认：什么都不点 */
+    localStorage.setItem('lagrange_addpoint', '{}');
+    localStorage.setItem('lagrange_addpoint_sets', JSON.stringify([
+      { name: '整套A', addedAt: 1, addpoints: { [cdn]: { lv: { [HPN1]: 5 }, manual: {} } } },
+      { name: '整套B', addedAt: 2, addpoints: { [cdn]: { lv: { [HPN2]: 5 }, manual: {} } } }
+    ]));
+    return { 默认: mk(null), 整套A: mk('整套A'), 整套B: mk('整套B'), 不存在的整套: mk('没有这套') };
+  }, N1, N2);
+  console.log('  [debug] ' + JSON.stringify(S2));
+  check('[9] 选「整套A」→ 实例拿到整套A的加点（结构值被改）', S2.整套A.hp !== S2.默认.hp, 'A.hp=' + S2.整套A.hp + ' 默认.hp=' + S2.默认.hp);
+  check('[9] 选「整套B」→ 实例拿到整套B的加点（抵抗被改）', S2.整套B.res > 0 && S2.整套B.hp === S2.默认.hp, 'B.res=' + S2.整套B.res + ' B.hp=' + S2.整套B.hp);
+  check('[9] 两个舰队各选各的 → 结果不同（互不影响）', S2.整套A.hp !== S2.整套B.hp, 'A.hp=' + S2.整套A.hp + ' vs B.hp=' + S2.整套B.hp);
+  check('[9] 选了不存在的整套 → 安全回落默认', S2.不存在的整套.hp === S2.默认.hp, 'hp=' + S2.不存在的整套.hp);
+
   /* ============ 配队页：导出是否带 apBuild ============ */
   await p.goto(BASE + '/fleet.html', { waitUntil: 'load', timeout: 90000 });
   await sleep(4000);
