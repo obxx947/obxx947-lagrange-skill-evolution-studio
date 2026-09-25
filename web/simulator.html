@@ -2698,6 +2698,13 @@
         if(s._apApplied) { s._apB = null; return; }
         const b = buildAddPointBonus(s.id, s.apBuild);
         s._apB = b || null;
+        /* ★「超量维修」（节点 808010503，天枢A槽）：战斗开始 60 秒后每轮携带 2 个一次性维修装甲
+           → 维修量×2、装甲消耗也×2。它 stat 归到 repairArmor，但"60秒"只写在说明里，
+           所以这里按节点 id 特判一次（全库只此一个节点是这个机制）。 */
+        (() => {
+            const ap = apOf(s.id, s.apBuild);
+            if (ap && ap.lv && ap.lv['808010503'] > 0) s.repairDoubleAt = 60;
+        })();
         if(!b) return;
         const sh = b.ship;
         s.hpBonus = (s.hpBonus||0) + sh.hp;
@@ -4267,15 +4274,66 @@
         }
     }
 
+    /* ============ 一次性维修装甲（用户 2026-09-24）============
+       规则：
+         · 一轮完整维修 = 工作(repairDuration) + 冷却(repairCooldown)
+         · 【一轮结束时】消耗 batch 个一次性维修装甲；装甲不足 → 之后完全不再维修
+         · 装甲初始 = 模块的 armorCount（天枢A2/A3、玉衡两个支援系统 = 300）+ 加点「维修扩充/扩展」给的 repairArmor
+         · 超量维修（加点）：战斗开始 60 秒后，每轮携带 2 个装甲 → 维修量×2、消耗也×2
+         · 高效回收（天枢A3 自带）：舰载机死亡后转成维修无人机 → 每死 1 架 +9%（实测 4 架 124200→168700 = ×1.3583）
+       资料没给「一轮」的时长（只有玉衡写了冷却3秒）→ 暂用资料《战斗机制》里维修无人机的通用值
+       持续 32s / 冷却 12s，并在数据里标了来源，等你给准数后改数据即可，不用动代码。 */
+    const REP_DUR_DEFAULT = 32, REP_CD_DEFAULT = 12;
+    function repArmorInit(mod) { return (mod && mod.armorCount) || 0; }
+    function repDeadCarriers(ship, side) {
+        if(!ship.recyclePerDead || !side) return 0;
+        return side.filter(x => x && !x.alive && x.position === 'aircraft' && x.carrierInstId === ship.instId).length;
+    }
     function processRepairs(ship, friendlies, dt, bs) {
         if(!ship.alive || ship.hp<=0) return;
+        ship._rep = ship._rep || {};
+        /* 本舰是否有「超量维修」（每轮携带2个装甲）——由加点机制写进 s.repairDoubleAt */
+        const dblAt = (ship.repairDoubleAt > 0) ? ship.repairDoubleAt : 0;
+        const batch = (dblAt && bs.time >= dblAt) ? 2 : 1;
         // Find repair modules
         for(const [key, mod] of Object.entries(ship.modules||{})) {
             if(key.startsWith('_')) continue;
             if(!mod.weapons) continue;
+            /* 舰载机死亡 → 维修量加成（天枢A3 高效回收）。取本模块的 recyclePerDead。 */
+            const deadN = mod.recyclePerDead ? repDeadCarriers(ship, ship.side === 'ally' ? bs.allyShips : bs.enemyShips) : 0;
+            const recycleMul = 1 + (mod.recyclePerDead || 0) * deadN;
             for(const w of mod.weapons) {
                 const repairDpm = w.dpm?.repair;
                 if(!repairDpm) continue;
+
+                /* ---------- 一次性维修装甲：状态 + 轮次 ---------- */
+                const rk = key + '|' + w.name;
+                let st = ship._rep[rk];
+                if(!st) {
+                    st = ship._rep[rk] = {
+                        armor: repArmorInit(mod) + (ship.repairArmor || 0),   // 模块自带 + 加点
+                        work: (w.repairDuration || REP_DUR_DEFAULT), cd: 0, stopped: false, used: 0
+                    };
+                }
+                if(st.stopped) continue;                                   // 装甲耗尽 → 从此不修
+                const dur = w.repairDuration || REP_DUR_DEFAULT;
+                const cd  = w.repairCooldown || REP_CD_DEFAULT;
+                if(st.work <= 0) {                                         // 冷却中
+                    st.cd -= dt;
+                    if(st.cd <= 0) { st.work = dur; }
+                    else continue;
+                }
+                const isLastTick = (st.work - dt) <= 0;
+                if(isLastTick) {
+                    /* 一轮结束 → 消耗装甲。装甲本来就没有（armorCount=0 且没加点）→ 不限次（普通奶船） */
+                    if(st.armor > 0) {
+                        if(st.used + batch > st.armor) { st.stopped = true; addBattleLog('system', '🔧 ' + (ship.name||ship.id) + ' 的一次性维修装甲耗尽，停止维修'); continue; }
+                        st.used += batch;
+                    }
+                    st.work = 0; st.cd = cd;
+                } else {
+                    st.work -= dt;
+                }
 
                 // 维修量 = 面板维修量/60 × (100%+受维修加成%+修者维修量加成%)
                 // 一点物理护甲=0.25%受维修加成, 最高到150%
@@ -4283,7 +4341,8 @@
                 // repairBonus：舰船级（加点/强化）+ 本系统级（系统内无人机维修效果提升）
                 const repB = (ship.repairBonus||0) + (((ship.weaponStates||[]).find(x=>x.weapon===w)||{}).strengthen||{}).repairBonus || 0
                            + subRepairBoost(ship, bs);          // ★ 天权防线：被多支舰队攻击时维修效果提升
-                const repairPerSec = (repairDpm / 60) * (1 + armorBonus/100) * (1 + repB/100);
+                // 超量维修：每轮携带2个装甲 → 这一轮的量也翻倍；高效回收：按死亡载机数加成
+                const repairPerSec = (repairDpm / 60) * (1 + armorBonus/100) * (1 + repB/100) * batch * recycleMul;
                 const actualRepair = repairPerSec * dt;
 
                 // Find repair target following repair priority
