@@ -535,7 +535,7 @@ function statPanelHtml() {
   if (skippedList.length) un.push('<div class="unsure"><b style="color:var(--gold)">' + skippedList.length + ' 个已点节点没能自动计入</b>'
     + '（说明里的数值位与取值对不上，不敢硬算）——请把它们的加成<b>手动填进上面</b>：<br>'
     + skippedList.slice(0, 12).map(x => '· ' + esc(x.node.name || x.node.labelName) + ' <span style="color:var(--t3)">(' + esc(x.stat) + ')</span>').join('<br>')
-    + (skippedList.length > 12 ? '<br>…共 ' + skippedList.length + ' 个' : '') + '</div>');
+    + (skippedList.length > 12 ? '<br>，共 ' + skippedList.length + ' 个' : '') + '</div>');
   /* ★ 条件触发：不进上面的常驻合计，单独列出来（引擎按条件求值） */
   if (condList.length) {
     un.push('<div class="unsure" style="border-color:var(--gold)"><b style="color:var(--gold)">' + condList.length + ' 个「条件触发」节点（不计入上面的常驻合计）</b><br>'
