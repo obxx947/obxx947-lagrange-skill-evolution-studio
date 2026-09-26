@@ -2448,6 +2448,56 @@
        ★ 按系统作用域：加点的说明几乎都是"系统内武器…"，只该作用于【那个系统的武器】。
          blueprint_sysmap.json 给出每个系统对到哪个模块（或判定为舰船级）。
          返回 { ship:{...}, byModule:{ 'M_M1':{...}, ... }, ... } */
+    /* ★★★ 引擎【真会从模块桶(byModule)里读】的那些键 —— 只有这些键按"这个节点属于哪个系统"分桶才有意义。
+       其余键（hp/物理装甲/能量抗性/闪避/拦截率/被命中下降/防空锁定下降/维修量/系统血量…）
+       在引擎里都是【整船口径】，塞进模块桶就没人读了 → 加成静默消失。
+       维护提示：必须和 applyAddPointWeapons + hangarByModule + sysDmgReduce 三处保持一致。 */
+    const MODULE_CONSUMED = new Set([
+        // applyAddPointWeapons 逐武器读（按当前模块变体 key 取）
+        'singleDmg', 'crit', 'critDmg', 'lockReduction', 'cooldownReduction', 'atkReduction',
+        'antiIntercept', 'hitBonus', 'repairBonus', 'lockEfficiency', 'sysIntercept',
+        'denseFire', 'multiTarget',
+        // 本系统机库（作用该模块机位上的载机）
+        'hangarModuleDmg', 'hangarModuleHit', 'hangarModuleEvasion', 'hangarModuleLock',
+        'hangarModuleCd', 'hangarModuleFlight', 'hangarModuleCritRate', 'hangarModuleCritDmg',
+        // 受系统伤害降低（引擎只在模块桶里取）
+        'sysDmgReduce'
+    ]);
+    /* 「本舰船机库内…」= 整艘船所有载机，不受系统↔模块映射影响，必须走舰船级。
+       写成函数是因为 BP_STATS 是异步加载的，不能在建表时就算死。 */
+    function hangarShipSet() {
+        return new Set([].concat(
+            (BP_STATS && BP_STATS.groups && BP_STATS.groups.hangar) || [],
+            ['hangarCritRate', 'hangarCritDmg', 'hangarBonus']));
+    }
+    /* 这个模块桶的 key（'M_M1' / 'C_C1' / 'M'）在当前配装下是否在用。
+       未显式选模块时，引擎按"第一个变体"当默认（见 createShipInstance 的 moduleGroup 解析），
+       所以这里也得用同样的默认规则，否则默认配装的加点会被判成"没装"而丢掉。 */
+    function moduleBucketOn(sk, modules, selectedModules) {
+        const i = sk.indexOf('_');
+        const gk = i < 0 ? sk : sk.slice(0, i);
+        const vk = i < 0 ? null : sk.slice(i + 1);
+        const m = (modules || {})[gk]; if (!m) return false;        // 这艘船没这个模块槽
+        if (!vk) return true;                                       // 没有变体的模块：装了就算
+        const sel = (selectedModules || {})[gk];
+        const eff = sel || (m.variants ? Object.keys(m.variants)[0] : null);
+        return eff === vk;
+    }
+    /* 把【在用的模块】桶里的「舰船级」统计量并进舰船桶（hp/装甲/闪避/拦截/攻城/维修…）。
+       只有"引擎不从模块桶读"的键才需要合并 —— 见 MODULE_CONSUMED 的说明。 */
+    function foldShipLevelFromModules(b, modules, selectedModules) {
+        const sh = Object.assign({}, b.ship);
+        const HANGAR = hangarShipSet();
+        Object.keys(b.byModule || {}).forEach(sk => {
+            if (!moduleBucketOn(sk, modules, selectedModules)) return;
+            const g = b.byModule[sk];
+            Object.keys(g).forEach(k => {
+                if (!g[k] || MODULE_CONSUMED.has(k) || HANGAR.has(k)) return;
+                sh[k] = (sh[k] || 0) + g[k];
+            });
+        });
+        return sh;
+    }
     function buildAddPointBonus(slug, buildName, setName) {
         const ap = apOf(slug, buildName, setName);
         if (!ap || !BP_STATS) return null;
@@ -2472,9 +2522,7 @@
         };
         const alias = k => (AP_ALIAS[k] || k);       // 旧属性名 → 新名
         /* 「本舰船机库内…」= 整艘船所有载机，不受系统↔模块映射影响，必须走舰船级 */
-        const HANGAR_SHIP = new Set([].concat(
-            (BP_STATS.groups && BP_STATS.groups.hangar) || [],
-            ['hangarCritRate', 'hangarCritDmg', 'hangarBonus']));
+        const HANGAR_SHIP = hangarShipSet();
         Object.keys(ap.lv).forEach(nid => {
             const L = ap.lv[nid]; if(!L || L <= 0) return;
             const st = BP_STATS.nodes[nid]; if(!st || st.empty) return;
@@ -2791,7 +2839,16 @@
             if (ap && ap.lv && ap.lv['808010503'] > 0) s.repairDoubleAt = 60;
         })();
         if(!b) return;
-        const sh = b.ship;
+        /* ★★★ 模块桶里的「舰船级」统计量，必须按【这个模块变体是否在用】并进舰船桶。
+           像安东塔斯「强化装甲系统·舰船血量提升35%」这种节点住在某个模块的系统里
+           （sk = M_M1 / C_C1），但 hp 是【整船属性】，而引擎只从舰船桶读 sh.hp
+           → 这批加成原来【静默丢失】（全量 503 个节点 / 132 艘船）。
+           更糟的是：加点树【没加载】时反而"生效"（不知道节点属于哪个系统 → 全落到舰船级）
+           → 同一个方案时好时坏（2026-09-26 实测安东塔斯结构加成 35% / 0% 来回变）。
+           ★ 但不能一律当舰船级 —— 那样"没装的模块加了点"也会生效。用户明确要求
+             「只给 M2 加点、战斗装 M1 时必须完全没影响」，见 test/module_scope_probe.js。 */
+        const _modOn = (sk) => moduleBucketOn(sk, s.modules, s.selectedModules);
+        const sh = foldShipLevelFromModules(b, s.modules, s.selectedModules);
         s.hpBonus = (s.hpBonus||0) + sh.hp;
         s.physResistBonus = (s.physResistBonus||0) + sh.physResist;
         s.energyResistBonus = (s.energyResistBonus||0) + sh.energyResist;
@@ -2823,14 +2880,18 @@
         s.hangarCritDmg  = (s.hangarCritDmg||0)  + (sh.hangarCritDmg||0);
         // 拦截率（加点里"系统内导弹获得拦截率"也算进来）
         let sysInt = 0;
-        Object.keys(b.byModule).forEach(k => { sysInt += (b.byModule[k].sysIntercept || 0); });
+        /* ★ 同样按"模块是否在用"过滤：没装的模块的拦截率不该算进来 */
+        Object.keys(b.byModule).forEach(k => { if(_modOn(k)) sysInt += (b.byModule[k].sysIntercept || 0); });
         const intRate = (s.interceptRate||0) + (sh.interceptRate||0) + sysInt;
         if(intRate > 0) { s.interceptRate = intRate; s.interceptType = s.interceptType || 'sameRow'; }
-        // 受系统伤害降低
+        // 受系统伤害降低（模块桶也按"是否在用"过滤）
         Object.keys(b.byModule).forEach(k => {
+            if(!_modOn(k)) return;
             const g = b.byModule[k];
             if(g.sysDmgReduce) s.sysDmgReduce = Math.max(s.sysDmgReduce||0, g.sysDmgReduce);
         });
+        /* ★ 舰船级那份「受到系统伤害降低」原来没人读（上面只遍历模块桶）→ 5 类里 15 个节点白点 */
+        if(sh.sysDmgReduce) s.sysDmgReduce = Math.max(s.sysDmgReduce||0, sh.sysDmgReduce);
         /* ★ 本系统机库（作用该模块机位上的载机）：按效果分桶存，部署载机时逐架取 */
         if(Object.keys(b.byModule).length) {
             s.hangarByModule = s.hangarByModule || {};
@@ -2961,8 +3022,8 @@
                     });
                 });
             }
-            // 舰船级
-            const sh = b.ship;
+            // 舰船级（★ 同样要把"在用模块"桶里的舰船级统计量并进来，否则和开战自动生效口径不一致）
+            const sh = foldShipLevelFromModules(b, e.modules, e.selectedModules);
             e.hpBonus = Math.round(sh.hp*10)/10;
             e.physResistBonus = Math.round(sh.physResist*10)/10;
             e.energyResistBonus = Math.round(sh.energyResist*10)/10;
@@ -3023,7 +3084,7 @@
             });
             /* 「系统内导弹获得拦截率」→ 计入本舰拦截（船级，因为引擎的拦截是按舰算的） */
             let sysInt = 0;
-            Object.keys(b.byModule).forEach(skey => { sysInt += (b.byModule[skey].sysIntercept || 0); });
+            Object.keys(b.byModule).forEach(skey => { if(moduleBucketOn(skey, e.modules, e.selectedModules)) sysInt += (b.byModule[skey].sysIntercept || 0); });
             if(sysInt) e.interceptRate = Math.round(((e.interceptRate||0) + sysInt)*10)/10;
             e._apApplied = true;
 
