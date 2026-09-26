@@ -4614,11 +4614,13 @@
              而"对空伤害"那一列实测只反映战机 —— 护航艇（corvette）算在"对舰"里。
              依据：太阳鲸（带星云，脉冲炮序列 [驱逐/护卫 → 护航艇 → 战机]、antiAirType=counter）
              对空只有 2150，而模拟器把打护航艇的伤害也记成对空 → 41 万。 */
-          /* 归类规则（2026-09-26 两版对照实验的结论）：按【目标类型】——
-             只有战机算"对空"，护航艇算"对舰"。
-             试过"按武器角色"（防空武器打的护航艇也算对空）→ A 对空从 -52% 飙到 +129%，
-             7 项平均绝对误差从 23.0% 恶化到 34.2%，故采用本规则。 */
-          if (_st) { const _isAir = (target.position === 'aircraft' && target.type !== 'corvette');
+          /* ★★★ 归类规则（2026-09-26 联网查证定稿）：凡是打在【载机单位】上的伤害都算"对空"。
+             依据（游戏 Wiki / 战报说明）：「对空伤害」指的是对【舰载机单位】的伤害，
+               而舰载机单位【包括战机与护航艇两类】；「对舰伤害」只统计对舰船本体的伤害。
+             走过的弯路：我曾按游戏战报「战损统计」把战机与护航艇分成两行的样子，
+               推断"护航艇算对舰" → A 对空掉到 -57%、A 对舰虚高。那是错的（那两行只是损失分类）。
+             ⚠️ 别再按"战机/护航艇"拆分，两者都是载机。 */
+          if (_st) { const _isAir = (target.position === 'aircraft');
             if (_isAir) _st.antiAir += dmg; else _st.antiShip += dmg;
             const _p = statPer(_st, statRowOf(CR)); if (_p) { if (_isAir) _p.antiAir += dmg; else _p.antiShip += dmg; }
             if (CR.position === 'aircraft') { if (_isAir) _st.byAirAir = (_st.byAirAir||0) + dmg; else _st.byAirShip = (_st.byAirShip||0) + dmg; } } }
