@@ -197,6 +197,25 @@ function classify(d) {
   for (const [re, t] of RULES) if (re.test(d)) return t;
   return 'unmapped';
 }
+/* ★ 一句话里写了【多个机制】的节点（用户 2026-09-25）：
+   例「本系统机库内载机/无人机飞行时间和主武器冷却时间减少{101}%」
+   —— 原来 RULES 首个匹配就返回，只拿到"飞行时间"，"主武器冷却"被丢掉。
+   这里的规则是：**说明里出现的每个机制都吃同一个 {数值}**（太阳鲸那类原文就是"…和…减少{101}%"）。
+   返回除主 stat 之外还要一并生效的那些。 */
+const SIBLING = [
+  [/(?=.*飞行时间)(?=.*冷却)/, { hangarFlight: 'hangarCd', hangarModuleFlight: 'hangarModuleCd' }],
+  [/(?=.*(?:打击间隔|输出时间))(?=.*冷却)/, { atkReduction: 'cooldownReduction' }],
+];
+function extraStats(d, primary) {
+  if (!d || !primary) return [];
+  const out = [];
+  for (const [re, map] of SIBLING) {
+    if (!re.test(d)) continue;
+    const sib = map[primary];
+    if (sib && sib !== primary && out.indexOf(sib) < 0) out.push(sib);
+  }
+  return out;
+}
 
 const KEY = {
   hitBonus: /命中(?:率)?[^，。,；]{0,6}?(\{[^}]+\})/,
@@ -354,6 +373,8 @@ let stat = {}, multiOk = 0, multiFail = 0, singleOk = 0, pureRef = 0, decodedCnt
 bp.forEach(r => r.systems.forEach(y => y.nodes.forEach(n => {
   if (!n.name) { out.nodes[n.id] = { empty: true }; return; }
   let s = classify(n.baseDesc);
+  /* ★ 一句说明写多个机制的，除主 stat 外再补上（吃同一个 {数值}）——用户 2026-09-25 */
+  const _extra = extraStats(String(n.baseDesc || ''), s);
   const desc = n.baseDesc || '';
   /* 机库类：按作用域 + 效果算出具体属性名；认不出效果就不归类 */
   if (s === '__HK__' || s === '__HS__') {
@@ -440,6 +461,11 @@ bp.forEach(r => r.systems.forEach(y => y.nodes.forEach(n => {
       } else { rec.addable = false; rec.needsManual = true; multiFail++; }
       cond = detectCond(desc);
       if (cond) { rec.cond = cond; rec.condMeta = detectCondMeta(desc); condCnt++; }
+      /* ★ 多机制补充：说明里写了多个机制、且共用同一个 {数值} 时，全部生效 */
+      if (rec && rec.stat && rec.addable !== false) {
+        const _e = extraStats(String(n.baseDesc || ''), rec.stat);
+        if (_e.length) rec.stats = [rec.stat].concat(_e);
+      }
       out.nodes[n.id] = rec; return;
     }
     if (rec.multi === 1) singleOk++;
@@ -477,7 +503,12 @@ bp.forEach(r => r.systems.forEach(y => y.nodes.forEach(n => {
       delete rec.statValues;
     }
   }
-  out.nodes[n.id] = rec;
+  /* ★ 多机制补充：说明里写了多个机制、且共用同一个 {数值} 时，全部生效 */
+      if (rec && rec.stat && rec.addable !== false) {
+        const _e = extraStats(String(n.baseDesc || ''), rec.stat);
+        if (_e.length) rec.stats = [rec.stat].concat(_e);
+      }
+      out.nodes[n.id] = rec;
 })));
 
 fs.writeFileSync(ROOT + '/data/blueprint_stats.json', JSON.stringify(out), 'utf8');
