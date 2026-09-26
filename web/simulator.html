@@ -4309,6 +4309,15 @@
                 if(noAir.length) return noAir[Math.floor(Math.random()*noAir.length)];
                 return pickByAirOrder(canAttack);
             }
+            /* ★★ 2026-09-27 修真 bug：这里的兑底原来是 `canAttack[随机]`，
+               它【忽略了攻击序列】—— 对空武器（序列里只有载机类）
+               在当前无法锁定任何载机时，会兑底去打舰船。
+               实测：天枢 M1 精密协同攻击无人艇（targets 只有战机）8331 炮里
+               7719 炮打在太阳鲸/游骑兵级上；星云追逐者追击炮塔 4248 炮全打舰船。
+               改为：序列里只列了载机类的武器 —— 找不到载机就【不开火】。 */
+            const onlyAirSeq = (targets.length > 0) && targets.every(tg => ((tg.types || []).length > 0)
+                && (tg.types || []).every(x => _airWords.test(String(x))));
+            if (onlyAirSeq) return null;
             return canAttack[Math.floor(Math.random()*canAttack.length)];
         }
 
