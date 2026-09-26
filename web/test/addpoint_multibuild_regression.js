@@ -82,6 +82,28 @@ const check = (n, ok, d) => { if (ok) { pass++; console.log('PASS ' + n + (d ? (
     S.两条独立 && S.两条独立[0] !== S.两条独立[1], 'A.hp=' + (S.两条独立 && S.两条独立[0]) + ' / B.hp=' + (S.两条独立 && S.两条独立[1]));
 
 
+  /* ============ ⑨ 选了方案就只用方案（方案里没这艘船 ≠ 回落当前加点）============ */
+  const E1 = await p.evaluate((HPN1) => {
+    const slug = 'constantine', cdn = String(BP_MAP[slug].cdnId);
+    const mk = (set) => { const e = JSON.parse(JSON.stringify(SHIP_DATABASE[slug])); e.selectedModules = { M: 'M1', A: 'A1' }; if (set) e.apSet = set; return createShipInstance(e, 'ally', false, false); };
+    localStorage.setItem('lagrange_addpoint', JSON.stringify({ [cdn]: { lv: { [HPN1]: 5 }, manual: {} } }));
+    const keep = localStorage.getItem('lagrange_addpoint');
+    localStorage.setItem('lagrange_addpoint', '{}');
+    const trueBase = mk(null).maxHp;                       // 完全不加点
+    localStorage.setItem('lagrange_addpoint', keep);
+    const withDefault = mk(null).maxHp;                    // 加点页当前那套
+    localStorage.setItem('lagrange_addpoint_sets', JSON.stringify([{ name: '不含此船', addpoints: {} }]));
+    const notCovered = mk('不含此船').maxHp;
+    localStorage.setItem('lagrange_addpoint_sets', JSON.stringify([{ name: '含此船', addpoints: { [cdn]: { lv: { [HPN1]: 5 }, manual: {} } } }]));
+    const covered = mk('含此船').maxHp;
+    localStorage.setItem('lagrange_addpoint_sets', JSON.stringify([{ name: '框', addpoints: {} }]));
+    const ghost = mk('不存在的方案').maxHp;
+    return { trueBase, withDefault, notCovered, covered, ghost };
+  }, N1);
+  console.log('  [debug] ' + JSON.stringify(E1));
+  check('⑨ 方案里有这艘船 → 拿到方案的加点（> 不加点）', E1.covered > E1.trueBase, JSON.stringify(E1));
+  check('⑨ 方案里【没】这艘船 → 不回落到当前加点（= 不加点）', E1.notCovered === E1.trueBase && E1.notCovered !== E1.withDefault, JSON.stringify(E1));
+  check('⑨ 方案名不存在 → 安全回落当前加点', E1.ghost === E1.withDefault, JSON.stringify(E1));
   /* ============ ⑨ 整套方案（所有舰船一起）+ 每个舰队各选一套 ============ */
   const S2 = await p.evaluate((HPN1, HPN2) => {
     const slug = 'constantine', cdn = String(BP_MAP[slug].cdnId);

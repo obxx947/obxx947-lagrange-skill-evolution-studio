@@ -2404,8 +2404,16 @@
             try {
                 const sets = JSON.parse(localStorage.getItem('lagrange_addpoint_sets') || '[]') || [];
                 const st0 = sets.find(x => x && x.name === setName);
-                const rec = st0 && st0.addpoints ? st0.addpoints[e.cdnId] : null;
-                if (rec) return { cdnId: e.cdnId, lv: rec.lv || {}, manual: rec.manual || {}, _fromSet: st0.name };
+                /* ★★ 选了这个总体方案 = 【只用这个方案】（用户 2026-09-26 实测"选了没生效"）。
+                   原来是"方案里有这艘船才用方案，没有就静默回落当前加点" ——
+                   而方案通常只覆盖一部分船 → 没被覆盖的船照样吃当前数据，
+                   看起来就是"选方案完全没用"。
+                   现在：方案找得到 → 就用它（没有这艘船 = 这艘船没加点，不吃当前数据）；
+                       方案名找不到（被删了）→ 才回落到当前加点，保证不崩。 */
+                if (st0) {
+                    const rec = (st0.addpoints || {})[e.cdnId];
+                    return { cdnId: e.cdnId, lv: (rec && rec.lv) || {}, manual: (rec && rec.manual) || {}, _fromSet: st0.name };
+                }
             } catch (err) { }
         }
         if (buildName) {
@@ -3652,6 +3660,8 @@
             units.forEach((ship,i)=>{
                 buckets[i].forEach(ac=>{
                     for(let j=0;j<ac.count;j++){
+                        /* 载机的加点方案跟着母舰：母舰选了总体方案，载机也读同一套 */
+                        if (ship.apSet && !ac.apSet) ac.apSet = ship.apSet;
                         const acInst = createShipInstance(ac, ship.side, ship.isEscort, ship.isEscorted);
                         acInst.carrierId = ship.id;
                         acInst.carrierName = ship.name;
