@@ -4595,6 +4595,19 @@
             </div>
         </div>`;
 
+        /* ★ 战报里写明【每个舰队实际用的加点方案】——用户 2026-09-26：
+           加在战斗日志里会被后面几十条刷掉（日志只显示最后 20 条），所以放战报保底。 */
+        try {
+            const _nk = { 'ally-escort': '我方护航', 'ally-escorted': '我方被护航', 'enemy-escort': '敌方护航', 'enemy-escorted': '敌方被护航' };
+            const rows = Object.keys(_nk).map(ft => {
+                const f = (typeof fleetData !== 'undefined') ? fleetData[ft] : null; if (!f) return '';
+                const n = [].concat(f.main || [], f.reinforcement || []).length; if (!n) return '';
+                return '<div style="font-size:11px;padding:2px 0;">· ' + _nk[ft] + '：<b style="color:' + (f.apSet ? 'var(--accent-green)' : 'var(--text-secondary)') + '">'
+                     + (f.apSet ? ('「' + f.apSet + '」') : '默认（加点页当前那套）') + '</b> <span style="color:var(--text-muted)">' + n + ' 条</span></div>';
+            }).join('');
+            if (rows) html += '<div style="margin-top:12px;padding:8px;border:1px solid rgba(45,74,111,.5);border-radius:6px;">'
+                            + '<b style="color:var(--gold)">⚙ 本场各舰队使用的加点方案</b>' + rows + '</div>';
+        } catch (e) { }
         // Per-ship stats
         html += '<div style="margin-top:12px;"><b>各舰船详情:</b></div>';
         [...bs.allyShips, ...bs.enemyShips].forEach(s=>{
