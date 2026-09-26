@@ -3780,6 +3780,7 @@
                         acInst.carrierId = ship.id;
                         acInst.carrierName = ship.name;
                         acInst.carrierInstId = ship.instId;   // 挂在【这一艘】母舰上 → 它被毁时载机跟着毁
+                        acInst.carrierName = ship.name || ship.id;   // 战报口径：载机的伤害算在母舰那一行（游戏就是这么显示的）
                         acInst.position = 'aircraft';
                         acInst.isEscort = !!ship.isEscort;
                         acInst.isEscorted = !!ship.isEscorted;
@@ -4276,6 +4277,27 @@
     /* creditTo（可选）：战报里把这次攻击记在谁头上。
        用于「协同指挥」这类【指挥舰给友军加的一轮额外打击】—— 伤害照旧用出击方的武器与加成算，
        但战报/击毁记录记到指挥舰身上（用户 2026-09-24：安东塔斯 M1 给舰载机多加的伤害算在他自己身上）。 */
+    /* ★★ 战报口径账本（2026-09-26）：游戏战报给的是
+         对舰伤害 / 对空伤害 / 维修量 / 生存时间占比 + 殉爆伤害(击毁系统时扣的舰船血量) + 系统伤害(击毁次数)
+       引擎原来只统计"双方损失结构值"，没有这套口径，根本没法跟游戏战报对比。
+       这里只记账、不参与任何战斗计算 → 不影响胜负。 */
+    function newStatBucket() { return { antiShip: 0, antiAir: 0, repair: 0, sysDmg: 0, sysKill: 0, blastHp: 0, per: {} }; }
+    /* 按舰种记账：游戏战报是【每个型号一行】，所以这里也按名字归并，好逐行对 */
+    /* 战报口径：载机的输出归到母舰那一行（游戏战报就是这么显示的） */
+    function statRowOf(ship) {
+        if (!ship) return '?';
+        return (ship.position === 'aircraft' && ship.carrierName) ? ship.carrierName : (ship.name || ship.id);
+    }
+    function statPer(bucket, name) {
+        if (!bucket) return null;
+        const k = String(name || '?');
+        return bucket.per[k] || (bucket.per[k] = { antiShip: 0, antiAir: 0, repair: 0, sysDmg: 0, sysKill: 0, blastHp: 0 });
+    }
+    function dmgStatOf(bs, side) {
+        if (!bs) return null;
+        if (!bs.stat) bs.stat = { ally: newStatBucket(), enemy: newStatBucket() };
+        return bs.stat[side === 'ally' ? 'ally' : 'enemy'];
+    }
     function executeShot(attacker, target, weapon, ws, bs, creditTo) {
         const CR = creditTo || attacker;
         // 掩护：目标被友军掩护时，攻击改打那个掩护舰（掩护者还活着才生效）
@@ -4430,6 +4452,7 @@
             if (isEngine || isCommand) {
                 const pen = Math.round(target.maxHp * 0.05);
                 target.hp -= pen;
+                { const _sb = dmgStatOf(bs, CR.side); if (_sb) { _sb.blastHp += pen; const _p = statPer(_sb, statRowOf(CR)); if (_p) _p.blastHp += pen; } }   // 殉爆伤害（战报口径）
                 addBattleLog('system', `🔧 ${target.name||target.id} 的${sys.name||label}被破坏! (-${pen}HP)`);
             } else {
                 addBattleLog('system', `🔧 ${target.name||target.id} 的${sys.name||label}被破坏!`);
@@ -4443,14 +4466,19 @@
                 const sys = target.subSystems.find(s=>s.name.includes(sysName) && !s.permanentDestroyed);
                 if(sys && Math.random() < (efficiencyMap[eff]||0.2) * (1 - sdr)) {
                     systemDmg = Math.round(weapon.singleDmg * 1.5 * tuningCoeff);
+                    const _sst = dmgStatOf(bs, CR.side);
                     /* ★ 系统独立血量：有 hp 就【累计】打满才毁（用户 2026-09-24 给超主力 25500）；
                        没写 sysHp 的船沿用旧的"一击即毁"。 */
                     if (sys.maxHp > 0) {
-                        sys.hp -= systemDmg * (weapon.mounts || 1);
-                        if (sys.hp <= 0) { sys.hp = 0; sys.destroyed = true; sys.repairTimer = 0; sysHpPenalty(sys, sysName); }
+                        const _sdm = systemDmg * (weapon.mounts || 1);
+                        sys.hp -= _sdm;
+                        if (_sst) { _sst.sysDmg += _sdm; const _p = statPer(_sst, statRowOf(CR)); if (_p) _p.sysDmg += _sdm; }  // 战报口径：系统伤害
+                        if (sys.hp <= 0) { sys.hp = 0; sys.destroyed = true; sys.repairTimer = 0; if (_sst) { _sst.sysKill++; const _p = statPer(_sst, statRowOf(CR)); if (_p) _p.sysKill++; } sysHpPenalty(sys, sysName); }
                         else addBattleLog('system', `🔧 ${target.name||target.id} 的${sys.name}受创 -${systemDmg * (weapon.mounts||1)}（剩 ${Math.max(0, Math.round(sys.hp))}/${sys.maxHp}）`);
                     } else {
-                        sys.destroyed = true; sys.repairTimer = 0; sysHpPenalty(sys, sysName);
+                        sys.destroyed = true; sys.repairTimer = 0;
+                        if (_sst) { _sst.sysKill++; _sst.sysDmg += systemDmg; }
+                        sysHpPenalty(sys, sysName);
                     }
                     break;
                 }
@@ -4473,6 +4501,11 @@
             });
         }
         target.hp -= dmg;
+        /* 战报口径：按【被打的目标是不是载机】分对舰/对空 */
+        { const _st = dmgStatOf(bs, CR.side);
+          if (_st) { const _isAir = (target.position === 'aircraft');
+            if (_isAir) _st.antiAir += dmg; else _st.antiShip += dmg;
+            const _p = statPer(_st, statRowOf(CR)); if (_p) { if (_isAir) _p.antiAir += dmg; else _p.antiShip += dmg; } } }
         if(target.hp <= 0) {
             target.hp = 0;
             target.alive = false;
@@ -4515,8 +4548,19 @@
         const dblAt = (ship.repairDoubleAt > 0) ? ship.repairDoubleAt : 0;
         const batch = (dblAt && bs.time >= dblAt) ? 2 : 1;
         // Find repair modules
-        for(const [key, mod] of Object.entries(ship.modules||{})) {
+        for(const [key, gmod] of Object.entries(ship.modules||{})) {
             if(key.startsWith('_')) continue;
+            /* ★★★ 必须解析 moduleGroup 的【当前变体】—— 2026-09-26 对齐游戏战报时抓到的真 bug：
+               moduleGroup 的武器挂在 variants[A1/A2/...] 里，组对象本身没有 weapons。
+               原来直接看 mod.weapons → undefined → continue → 【整条维修模块一个都不算】。
+               天枢的 A 槽(北斗维修无人机 9930/12930/10800) 和 C 槽(附加维修 13152) 全是 moduleGroup，
+               所以 5 艘天枢的维修量在模拟器里恒为 0，而游戏战报里天枢一行维修 80.9万。
+               修法：和 createShipInstance / applyAddPointWeapons 用同一套"取当前变体"的规则。 */
+            let mod = gmod;
+            if (gmod && gmod.type === 'moduleGroup' && gmod.variants) {
+                const sel = (ship.selectedModules || {})[key] || Object.keys(gmod.variants)[0];
+                mod = gmod.variants[sel] || gmod;
+            }
             if(!mod.weapons) continue;
             /* 舰载机死亡 → 维修量加成（天枢A3 高效回收）。取本模块的 recyclePerDead。 */
             const deadN = mod.recyclePerDead ? repDeadCarriers(ship, ship.side === 'ally' ? bs.allyShips : bs.enemyShips) : 0;
@@ -4594,7 +4638,11 @@
                 }
 
                 if(bestTarget) {
+                    const _hpBefore = bestTarget.hp;
                     bestTarget.hp = Math.min(bestTarget.maxHp, bestTarget.hp + actualRepair);
+                    /* 战报口径：维修量只记【真的回上去的血】（顶到上限的那部分不算） */
+                    { const _st = dmgStatOf(bs, ship.side); if (_st) { const _d = bestTarget.hp - _hpBefore; _st.repair += _d;
+                        const _p = statPer(_st, ship.name || ship.id); if (_p) _p.repair += _d; } }
                 }
             }
         }
