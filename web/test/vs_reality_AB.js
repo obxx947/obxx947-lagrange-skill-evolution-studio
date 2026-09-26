@@ -194,8 +194,11 @@ async function RUN(planSideIdx) {
   };
   console.log('\n===== 与游戏战报对比（列：模拟 / 游戏3场中位 / 差值） =====');
   console.log('  指标                模拟        游戏        差值');
-  L('A 总结构值',      sim.A总结构, GAME.A总结构万 * W);
-  L('B 总结构值',      sim.B总结构, GAME.B总结构万 * W);
+  /* ⚠️ 顶部那两个数（695/620）是【人口=指挥值】，不是结构值 —— 不能当血量靶子比。
+     结构值的真值来自你那张「结构值变动」曲线图：A ≈425万、B ≈550万。 */
+  console.log('  结构值（对曲线图，不在这张对比表里）: A ' + Math.round(sim.A总结构/10000) + '万 vs 曲线 ~425万 = ' +
+    (((sim.A总结构/4250000)-1)*100).toFixed(1) + '%  ｜ B ' + Math.round(sim.B总结构/10000) + '万 vs 曲线 ~550万 = ' +
+    (((sim.B总结构/5500000)-1)*100).toFixed(1) + '%');
   L('时长(秒)',        sim.时长,    mid(GAME.时长));
   L('A 对舰伤害',      sim.A对舰,   mid(GAME.A对舰万) * W);
   L('A 对空伤害',      sim.A对空,   mid(GAME.A对空万) * W);
