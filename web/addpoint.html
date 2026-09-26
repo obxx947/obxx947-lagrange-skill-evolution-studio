@@ -682,7 +682,7 @@ function statPanelHtml() {
     + '（数据里只有代号，本工具没有这份译文），原文如下，效果请自行判断后手填：<br>'
     + pureRefList.map(x => '· ' + esc(x.node.name || x.node.labelName) + ' <span style="color:var(--t3)">' + esc(x.token) + '</span>').join('<br>') + '</div>');
   return '<div class="detail" style="margin-top:10px">'
-    + '<div class="dh"><b>本船加点属性汇总</b>'
+    + '<div class="dh"><b>本系统加点汇总</b>'
     + '<span class="tag" style="color:var(--cyan);border-color:var(--cyan)">自动汇总 ' + counted + ' 个节点</span>'
     + (decoded ? '<span class="tag" style="color:var(--green);border-color:var(--green)">含 ' + decoded + ' 个已译术语节点</span>' : '')
     + (modOnly ? '<span class="tag" style="color:var(--blue);border-color:var(--blue)">' + modOnly + ' 个按系统生效</span>' : '')
@@ -692,8 +692,12 @@ function statPanelHtml() {
     + (pureRef ? '<span class="tag" style="color:var(--red);border-color:var(--red)">' + pureRef + ' 个无译文</span>' : '')
     + (other ? '<span class="tag">' + other + ' 个属于引擎暂未实现的机制</span>' : '')
     + '</div>'
-    + '<div class="hint" style="margin-bottom:6px">只按<b>本系统</b>分开列（引擎里每个系统的加点就只作用于它自己的武器/载机）。'
-    +   '整船合计不在这里列了 —— 上面那条实时数值栏看的就是整船结果。</div>'
+    + '<div class="hint" style="margin-bottom:6px">只列<b>本系统</b>的加点（引擎里每个系统的加点就只作用于它自己的武器/载机）。'
+    +   '每行都是 <b>自动汇总</b>（所点节点当前等级的数值）<b>＋手动追加</b>，右边是合计。'
+    +   '（手动追加的输入值目前仍是【整船一套】，正在改成按系统分别存。）</div>'
+    + '<div class="sgrid">' + GROUP_A.map(rowA).join('') + '</div>'
+    + '<div class="sgrid" style="margin-top:6px">' + GROUP_B.map(rowA2).join('') + '</div>'
+    + '<div class="sgrid" style="margin-top:6px">' + GROUP_H.map(rowA).join('') + '</div>'
     + sysBreakdownHtml()
     + un.join('')
     + '</div>';
