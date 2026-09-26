@@ -2532,6 +2532,15 @@
         /* 手填（加点页的「+追加」与旧的 4 个手填位）：一律算舰船级，叠加到自动汇总之上 */
         Object.keys(ap.manual || {}).forEach(k0 => {
             const v = ap.manual[k0]; if(typeof v !== 'number') return;
+            /* ★ 按系统的手填：键 = S<系统id>_<属性> → 写进【那个系统】的桶（模块级或舰船级）。
+               用户 2026-09-25：加点页那几张手填表按本系统统计，引擎也要按系统吃。 */
+            const _m = /^S(\d+)_(.+)$/.exec(k0);
+            if (_m) {
+                const kk = alias(_m[2]);
+                const tt = bucketFor(_m[1]);
+                if (kk in tt) { tt[kk] += v; counted++; }
+                return;
+            }
             const k = alias(k0);
             if(!(k in shipB)) return;                 // 引擎不认识的键忽略
             shipB[k] += v;

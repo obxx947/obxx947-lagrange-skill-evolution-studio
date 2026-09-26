@@ -428,13 +428,16 @@ window.addEventListener('beforeunload', function (e) {
    加点效果取值规则：**perLevel[当前等级]**（比如冷却 5 级就是 15%），不是各级累加。
    多参数节点（说明里有 2 个以上 # 位）不硬算，计入"未计入"。
    A 组 10 项自动求和；B 组 4 项引擎还没有 → 手填。 */
-function computeStats() {
+function computeStats(onlySysId) {
   const out = {}; GROUP_A.forEach(g => out[g[0]] = 0); GROUP_B.forEach(g => out[g[0]] = 0); GROUP_H.forEach(g => out[g[0]] = 0);
   let counted = 0, skipped = 0, other = 0, pureRef = 0, decoded = 0, modOnly = 0, mech = 0, cond = 0;
   const skippedList = [], pureRefList = [], condList = [];
   if (!ship || !STATS) return { out, counted, skipped, other, pureRef, decoded, modOnly, mech, cond, skippedList, pureRefList, condList };
   const IN = k => GROUP_A.some(g => g[0] === k) || GROUP_B.some(g => g[0] === k) || GROUP_H.some(g => g[0] === k);
-  ship.systems.forEach(s => { if (!sysVisible(s.sysId)) return; s.nodes.forEach(n => {
+  ship.systems.forEach(s => { if (!sysVisible(s.sysId)) return;
+    /* ★ 只算指定系统（本系统汇总用）——用户 2026-09-25 */
+    if (onlySysId != null && String(s.sysId) !== String(onlySysId)) return;
+    s.nodes.forEach(n => {
     const L = nodeLv(n.id); if (L <= 0) return;
     const st = STATS.nodes[n.id]; if (!st || st.empty) return;
     // ⚠️ pureRef 必须先判：这类节点的 stat 往往是 unmapped，先判分组会把它误归到"引擎未实现"
@@ -659,9 +662,12 @@ function renderLiveBar() { const el = $('liveBar'); if (el) el.innerHTML = liveB
 
 function statPanelHtml() {
   if (!STATS) return '';
-  const { out, counted, skipped, other, pureRef, decoded, modOnly, mech, cond, skippedList, pureRefList, condList } = computeStats();
-  const man = k => (manual[k] === undefined ? '' : manual[k]);
-  const num = k => (typeof manual[k] === 'number' ? manual[k] : 0);
+  /* ★ 下面三张表只统计【本系统】。手填也按系统存：键 = S<系统id>_<属性> */
+  const _curSysId = (ship.systems[sysIdx] || {}).sysId;
+  const _mk = k => 'S' + _curSysId + '_' + k;
+  const { out, counted, skipped, other, pureRef, decoded, modOnly, mech, cond, skippedList, pureRefList, condList } = computeStats(_curSysId);
+  const man = k => (manual[_mk(k)] === undefined ? '' : manual[_mk(k)]);
+  const num = k => (typeof manual[_mk(k)] === 'number' ? manual[_mk(k)] : 0);
   /* A 组：自动汇总 + 手动追加，显示"自动 N ＋ [输入] ＝ 合计" */
   const rowA = ([k, cn, u]) => {
     const a = Math.round((out[k] || 0) * 100) / 100, m = num(k);
@@ -670,7 +676,7 @@ function statPanelHtml() {
       + '<i>' + cn + '</i>'
       + '<span class="auto" title="由所点节点自动汇总">自动 ' + a + (u === '%' ? '%' : '') + '</span>'
       + '<input type="number" step="any" value="' + esc(man(k)) + '" placeholder="+追加" '
-      + 'oninput="setManual(\'' + k + '\',this.value)" title="手动追加（例如强化/模组/其它来源）">'
+      + 'oninput="setManualSys(\'' + k + '\',this.value)" title="手动追加（例如强化/模组/其它来源）">'
       + '<b>' + total + (u === '%' ? '%' : '') + '</b></div>';
   };
   /* 所有行都是「自动汇总 ＋ 手动追加 ＝ 合计」；
@@ -683,7 +689,7 @@ function statPanelHtml() {
     return '<div class="srow b' + (m ? ' on' : '') + '">'
       + '<i>' + cn + '</i><span class="auto">手填</span>'
       + '<input type="number" step="any" value="' + esc(man(k)) + '" placeholder="自己填" '
-      + 'oninput="setManual(\'' + k + '\',this.value)">'
+      + 'oninput="setManualSys(\'' + k + '\',this.value)">'
       + '<b>' + m + (u === '%' ? '%' : '') + '</b></div>';
   };
   /* 没能计入的节点：如实列出来，并说明原因 */
@@ -714,8 +720,8 @@ function statPanelHtml() {
     + (other ? '<span class="tag">' + other + ' 个属于引擎暂未实现的机制</span>' : '')
     + '</div>'
     + '<div class="hint" style="margin-bottom:6px">只列<b>本系统</b>的加点（引擎里每个系统的加点就只作用于它自己的武器/载机）。'
-    +   '每行都是 <b>自动汇总</b>（所点节点当前等级的数值）<b>＋手动追加</b>，右边是合计。'
-    +   '（手动追加的输入值目前仍是【整船一套】，正在改成按系统分别存。）</div>'
+    +   '每行都是 <b>本系统自动汇总</b>（该系统所点节点当前等级的数值）<b>＋本系统手动追加</b>，右边是合计。'
+    +   '（手填值也按系统分开存：换了系统就是另一套。）</div>'
     + '<div class="sgrid">' + GROUP_A.map(rowA).join('') + '</div>'
     + '<div class="sgrid" style="margin-top:6px">' + GROUP_B.map(rowA2).join('') + '</div>'
     + '<div class="sgrid" style="margin-top:6px">' + GROUP_H.map(rowA).join('') + '</div>'
@@ -723,7 +729,16 @@ function statPanelHtml() {
     + un.join('')
     + '</div>';
 }
+/* 手填（按系统）：键 = S<系统id>_<属性> */
+function setManualSys(k, v) {
+  const sid = (ship.systems[sysIdx] || {}).sysId;
+  const key = 'S' + sid + '_' + k;
+  const f = parseFloat(v);
+  if (v === '' || isNaN(f)) delete manual[key]; else manual[key] = f;
+  persist(); render();
+}
 function setManual(k, v) {
+
   const f = parseFloat(v);
   if (v === '' || isNaN(f)) delete manual[k]; else manual[k] = f;
   persist();
