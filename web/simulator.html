@@ -3935,6 +3935,9 @@
         const bs = battleState;
         bs.time += dt;
         updateEscortStatus(bs);
+        /* ★ 2026-09-27 生存时间累积：游戏战报每行都有「生存时间占比」，引擎原来没这个量。
+           逐 tick 给还活着的单位累加 _aliveSec（战报里按 statRowOf 归并成"每个型号一行"）。 */
+        [...bs.allyShips, ...bs.enemyShips].forEach(s => { if (s.alive) s._aliveSec = (s._aliveSec || 0) + dt; });
 
         // Process each alive ship's weapons
         [...bs.allyShips, ...bs.enemyShips].forEach(ship => {
@@ -4914,31 +4917,83 @@
         }).join('');
     }
 
+    /* ★ 2026-09-27 战报改成【游戏「行动统计」的格式】（138 张战报截图逐张 OCR 出来的版式）：
+         · 双方【并排】两张表，每张 5 列：对舰伤害 / 对空伤害 / 维修量 / 生存时间占比
+         · 【每个型号一行】—— 载机也独立成行（星云追逐者-脉冲型、维塔斯-B010 …），
+           母舰行只含母舰自身武器（游戏就是这么分的）
+         · 每组顶部一行「总计」，和游戏一致
+       数据来自引擎的 stat 账本（bs.stat.ally/enemy.per，按 statRowOf 归并）+ _aliveSec。 */
+    function _statTable(side, bs, duration) {
+        const bucket = (bs.stat && bs.stat[side]) || null;
+        const per = (bucket && bucket.per) || {};
+        const units = (side === 'ally' ? bs.allyShips : bs.enemyShips) || [];
+        const rows = {};
+        units.forEach(u => {
+            const k = statRowOf(u);
+            const r = rows[k] || (rows[k] = { name: k, n: 0, alive: 0, hp: 0, maxHp: 0 });
+            r.n++;
+            r.alive += (u._aliveSec || 0);
+            r.hp += Math.max(0, u.hp); r.maxHp += (u.maxHp || 0);
+        });
+        Object.keys(per).forEach(k => { if (!rows[k]) rows[k] = { name: k, n: 0, alive: 0, hp: 0, maxHp: 0 }; });
+        const list = Object.values(rows).map(r => {
+            const p2 = per[r.name] || {};
+            return Object.assign(r, {
+                antiShip: p2.antiShip || 0, antiAir: p2.antiAir || 0, repair: p2.repair || 0,
+                life: (r.n && duration > 0) ? (r.alive / (r.n * duration)) : 0
+            });
+        }).filter(r => r.antiShip || r.antiAir || r.repair || r.n)
+          .sort((a, b) => (b.antiShip + b.antiAir) - (a.antiShip + a.antiAir));
+        const tot = list.reduce((a, r) => ({ antiShip: a.antiShip + r.antiShip, antiAir: a.antiAir + r.antiAir, repair: a.repair + r.repair }), { antiShip: 0, antiAir: 0, repair: 0 });
+        const allAlive = units.reduce((a, u) => a + (u._aliveSec || 0), 0);
+        const lifeAll = units.length ? allAlive / (units.length * duration) : 0;
+        const col = side === 'ally' ? 'var(--accent-blue)' : 'var(--accent-red)';
+        const w = v => v >= 10000 ? (v / 10000).toFixed(1) + '万' : (v > 0 ? Math.round(v).toLocaleString() : '0');
+        let h = `<div style="flex:1;min-width:0;">
+            <div style="font-weight:700;color:${col};padding:4px 0;border-bottom:2px solid ${col};">
+              ${side === 'ally' ? '🔵 我方' : '🔴 敌方'} <span style="color:var(--text-secondary);font-weight:400;font-size:11px;">（${units.length} 个单位）</span></div>
+            <table style="width:100%;border-collapse:collapse;font-size:11px;">
+              <tr style="color:var(--text-secondary);"><th style="text-align:left;padding:3px 4px;">舰种</th>
+                <th style="text-align:right;">对舰伤害</th><th style="text-align:right;">对空伤害</th>
+                <th style="text-align:right;">维修量</th><th style="text-align:right;">生存时间占比</th></tr>
+              <tr style="border-top:1px solid rgba(45,74,111,.6);font-weight:700;background:rgba(255,255,255,.03);">
+                <td style="text-align:left;padding:3px 4px;">总计</td>
+                <td style="text-align:right;">${w(tot.antiShip)}</td>
+                <td style="text-align:right;">${w(tot.antiAir)}</td>
+                <td style="text-align:right;">${w(tot.repair)}</td>
+                <td style="text-align:right;">${Math.round(lifeAll * 100)}%</td></tr>`;
+        list.forEach(r => {
+            const air = r.name && r.name.length && r.name === r.name;   // 占位，保持结构
+            h += `<tr style="border-top:1px solid rgba(45,74,111,.2);">
+                <td style="text-align:left;padding:3px 4px;">${r.name}${r.n ? ' <span style="color:var(--text-muted)">×' + r.n + '</span>' : ''}</td>
+                <td style="text-align:right;" class="${r.antiShip > 0 ? 'stat-pos' : ''}">${r.antiShip > 0 ? w(r.antiShip) : '0'}</td>
+                <td style="text-align:right;" class="${r.antiAir > 0 ? 'stat-pos' : ''}">${r.antiAir > 0 ? w(r.antiAir) : '0'}</td>
+                <td style="text-align:right;" class="${r.repair > 0 ? 'stat-pos' : ''}">${r.repair > 0 ? w(r.repair) : '0'}</td>
+                <td style="text-align:right;">${Math.round(r.life * 100)}%</td></tr>`;
+        });
+        return h + '</table></div>';
+    }
+
     function generateBattleReport() {
         const bs = battleState;
         if(!bs) return;
-        const duration = bs.time;
-        let html = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-            <div><b style="color:var(--accent-blue);">🔵 我方</b>
-                <div>总伤害: ${formatNumber(bs.enemyShips.reduce((s,sh)=>s+(sh.maxHp-Math.max(0,sh.hp)),0))}</div>
-                <div>存活舰船: ${bs.allyShips.filter(s=>s.alive).length}/${bs.allyShips.length}</div>
-                <div>战斗时长: ${duration.toFixed(1)}秒</div>
-            </div>
-            <div><b style="color:var(--accent-red);">🔴 敌方</b>
-                <div>总伤害: ${formatNumber(bs.allyShips.reduce((s,sh)=>s+(sh.maxHp-Math.max(0,sh.hp)),0))}</div>
-                <div>存活舰船: ${bs.enemyShips.filter(s=>s.alive).length}/${bs.enemyShips.length}</div>
-            </div>
-        </div>`;
+        const duration = bs.time || 1;
+        const aliveA = bs.allyShips.filter(s => s.alive).length, aliveB = bs.enemyShips.filter(s => s.alive).length;
+        let html = `<div style="font-weight:700;font-size:13px;margin-bottom:6px;">📊 行动统计
+            <span style="color:var(--text-secondary);font-weight:400;font-size:11px;">
+            ｜ 战斗时长 ${duration.toFixed(1)} 秒 ｜ 存活 我方 ${aliveA}/${bs.allyShips.length} · 敌方 ${aliveB}/${bs.enemyShips.length}
+            ｜ ${!bs.ended ? '未结束' : (aliveB === 0 && aliveA > 0 ? '<b style="color:var(--accent-blue)">我方胜利</b>' : (aliveA === 0 && aliveB > 0 ? '<b style="color:var(--accent-red)">敌方胜利</b>' : '两败俱伤'))}</span></div>
+        <div style="display:flex;gap:14px;">`
+            + _statTable('ally', bs, duration) + _statTable('enemy', bs, duration) + `</div>`;
 
         /* ★★ 战报里写明【引擎真正查到的加点来源】——用户 2026-09-26 反复遇到"选了方案没生效"。
-           不再去读配置（配置里有 ≠ 开战时用上了），而是直接统计【参战实例】上留下的 _apSrc
-           （createShipInstance 里逐船查 apOf 记下来的），所以这一行不会说谎。
-           放战报而不是战斗日志：日志只显示最后 20 条，会被刷掉。 */
+           不去读配置（配置里有 ≠ 开战时用上了），而是直接统计【参战实例】上留下的 _apSrc
+           （createShipInstance 里逐船查 apOf 记下来的），所以这一行不会说谎。 */
         try {
             const _grp = [['我方护航', bs.allyEscort], ['我方被护航', bs.allyEscorted],
                           ['敌方护航', bs.enemyEscort], ['敌方被护航', bs.enemyEscorted]];
             const rows = _grp.map(([nm, arr]) => {
-                const a = (arr || []).filter(s => s && s.position !== 'aircraft');   // 载机跟母舰同一套，不重复列
+                const a = (arr || []).filter(s => s && s.position !== 'aircraft');
                 if (!a.length) return '';
                 const cnt = {};
                 a.forEach(s => { const k = s._apSrc || '?'; cnt[k] = (cnt[k] || 0) + 1; });
@@ -4952,16 +5007,6 @@
             if (rows) html += '<div style="margin-top:12px;padding:8px;border:1px solid rgba(45,74,111,.5);border-radius:6px;">'
                             + '<b style="color:var(--gold)">⚙ 本场实际采用的加点（引擎逐船查到的来源）</b>' + rows + '</div>';
         } catch (e) { }
-        // Per-ship stats
-        html += '<div style="margin-top:12px;"><b>各舰船详情:</b></div>';
-        [...bs.allyShips, ...bs.enemyShips].forEach(s=>{
-            const hpLost = s.maxHp - Math.max(0, s.hp);
-            const survivalPct = s.maxHp>0 ? Math.round(Math.max(0,s.hp)/s.maxHp*100) : 0;
-            html += `<div style="font-size:11px;padding:4px;border-bottom:1px solid rgba(45,74,111,0.2);">
-                ${getShipIcon(s.type)} ${s.name||s.id} | ${s.alive?'✅存活':'💀击毁'} |
-                生存:${survivalPct}% | 损失HP:${formatNumber(hpLost)}
-            </div>`;
-        });
 
         $('battleReportContent').innerHTML = html;
         openModal('battleReportModal');
