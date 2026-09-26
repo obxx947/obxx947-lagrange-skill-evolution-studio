@@ -3293,6 +3293,17 @@
     //  BATTLE ENGINE
     // ============================================================
     function prepareBattle() {
+        /* ★ 开战时在战报里写明【每个舰队实际用哪套加点】——用户 2026-09-26 反复遇到
+           "选了方案没生效"，这一行让"到底用没用"一眼可见，不用再猜。 */
+        try {
+            const _nk = { 'ally-escort': '我方护航', 'ally-escorted': '我方被护航', 'enemy-escort': '敌方护航', 'enemy-escorted': '敌方被护航', 'bomb-fleet': '轰炸编队' };
+            Object.keys(_nk).forEach(ft => {
+                const f = fleetData[ft]; if (!f) return;
+                const n = [].concat(f.main || [], f.reinforcement || []).length;
+                if (!n) return;
+                addBattleLog('info', '⚙ ' + _nk[ft] + ' 加点 = ' + (f.apSet ? ('「' + f.apSet + '」') : '默认(加点页当前那套)') + ' · ' + n + ' 条');
+            });
+        } catch (e) { }
         // Collect ships from all fleets
         const allyEscort=[], allyEscorted=[], enemyEscort=[], enemyEscorted=[];
         const allyShips=[], enemyShips=[];
