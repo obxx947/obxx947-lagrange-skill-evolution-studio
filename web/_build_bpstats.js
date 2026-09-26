@@ -101,6 +101,8 @@ const RULES = [
   [/拦截/, 'interceptRate'],
   [/冷却时间下降|冷却时间减少|冷却时间降低|冷却缩减|武器冷却/, 'cooldownReduction'],
   [/锁定|选择目标时间/, 'lockReduction'],
+  /* ★ 防御向必须排在通用「暴击」规则【前面】——crit 被引擎当攻击方暴击率用，方向会反（用户 2026-09-25） */
+  [/受到(?:敌方)?暴击伤害(?:下降|降低|减少)/, 'critDmgDown'],
   [/暴击/, 'crit'],
   [/物理伤害抵抗|物理抵抗|物理护甲/, 'physResist'],
   [/能量伤害抵抗|能量抵抗|能量抗性|护盾值/, 'energyResist'],
@@ -158,7 +160,7 @@ const GROUPS = {
   hangarModule: ['hangarModuleDmg', 'hangarModuleHit', 'hangarModuleEvasion', 'hangarModuleLock',
                  'hangarModuleCd', 'hangarModuleFlight', 'hangarModuleCritRate', 'hangarModuleCritDmg'],
   /* 其它（不进自动汇总，但也不算未实现） */
-  misc: ['siege', 'repairEff', 'repairArmor', 'sysHp', 'weaponDuration'],
+  misc: ['siege', 'repairEff', 'repairArmor', 'sysHp', 'weaponDuration', 'critDmgDown'],
   /* 非战斗：星系/航行/运营 —— 不统计进战斗分母 */
   noncombat: ['speed', 'fleetOps'],
   /* 手填覆盖位（玩家在加点页手动追加） */

@@ -38,7 +38,18 @@ Object.keys(sm).forEach(cdn => {
   Object.entries(sm[cdn].systems || {}).forEach(([sid, rec]) => {
     const sc = rec.scope; if (!(sc === null || sc === undefined || sc === 'none')) return;
     const sys = b.systems.find(y => String(y.sysId) === String(sid)); if (!sys) return;
-    const nW = (sys.nodes || []).filter(x => { const c = st.nodes[x.id]; return c && c.addable && WSTAT.has(c.stat); }).length;
+    /* 真正的"武器系统"判定：节点说明里说的是【武器】；
+       排除两类误判（用户 2026-09-25）：
+         · "系统内【控制作业】冷却时间下降" —— 登陆作业，不是武器
+         · "【受到】暴击伤害下降 / 受到系统伤害降低" —— 防御属性 */
+    const wNodes = (sys.nodes || []).filter(x => {
+      const c = st.nodes[x.id]; if (!c || !c.addable || !WSTAT.has(c.stat)) return false;
+      const d = String(x.baseDesc || '');
+      if (/控制作业|登陆作业|采集|建造/.test(d)) return false;
+      if (/受到[^，。；]{0,6}(暴击)?伤害(下降|降低|减少)/.test(d)) return false;
+      return true;
+    });
+    const nW = wNodes.length;
     if (!nW) return;                                     // 纯电子/装甲/动力 → 本来就该舰船级
     // 选最像的模块
     let best = null, bs = -1;
