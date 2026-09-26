@@ -3670,7 +3670,13 @@
                 /* ★ 系统独立血量（用户 2026-09-24 填：超主力所有系统 25500）：
                    船级 s.sysHp → 每个系统自带 hp。有血量时系统伤害是【累计】打满才毁；
                    没写 sysHp 的船沿用旧的"效率骰子命中即毁"（见 executeShot）。 */
-                const _sysHp = (s.sysHp > 0) ? s.sysHp : 0;
+                /* ★★★ 2026-09-26：原来只有 18 艘超主力有 sysHp=25500，其余船 _sysHp=0 →
+                   → 系统走"效率骰子命中即毁"分支，且【每艘船被自动补的"指挥系统"连 hp 都没给】
+                   → 一次命中就毁、扣 5% 船血、修好再毁……对游戏战报实测：
+                   整场双方各只击毁 1~2 个系统，而模拟器 A 队击毁 82 个、殉爆 135 万（占 B 有效血量 25%），
+                   直接把战斗从 579 秒打到 327 秒。
+                   现在：没写 sysHp 的船也给 25500（和用户给超主力的一致）→ 一律走"累计打满才毁"。 */
+                const _sysHp = (s.sysHp > 0) ? s.sysHp : 25500;
                 s.subSystems.push({
                     name: sysName, type: sysType, key: key,
                     hp: _sysHp, maxHp: _sysHp,
@@ -3683,7 +3689,10 @@
            【没有"指挥系统"】，但加点树里有「中排指挥系统」，而这三艘的旗舰机制
            「指挥系统被摧毁后失效」依赖它。按加点树的证据补一个，否则机制永远失效不了。 */
         if (bpHasCommandSystem(s.id) && !s.subSystems.some(x => x.type === 'command' || /指挥/.test(x.name || ''))) {
-            s.subSystems.push({ name: '指挥系统', type: 'command', key: '_cmd', destroyed: false, repairTimer: 0, repairCount: 0, maxRepairs: 3, permanentDestroyed: false });
+            /* ★ 这个补的指挥系统必须带上血量 —— 原来没有 hp/maxHp → 一击即毁（见上面注释） */
+            const _cmdhp = (s.sysHp > 0) ? s.sysHp : 25500;
+            s.subSystems.push({ name: '指挥系统', type: 'command', key: '_cmd', hp: _cmdhp, maxHp: _cmdhp,
+                                destroyed: false, repairTimer: 0, repairCount: 0, maxRepairs: 3, permanentDestroyed: false });
         }
         return s;
     }

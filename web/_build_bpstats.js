@@ -425,9 +425,19 @@ bp.forEach(r => r.systems.forEach(y => y.nodes.forEach(n => {
     rec.addable = false; rec.isMechanic = true;
   } else if (s === 'burst') {
     const lv1 = (n.levelValue || [])[1] || [];
+    /* ★★★ 参数必须按【占位符在说明里出现的顺序】取（2026-09-26 修，原先写死了顺序）：
+       说明「每{P}秒时，缩短系统主武器{101}%的打击和冷却时间，持续{T}秒，冷却{C}秒。」
+       对应 levelValue = [P, 101, T, C] = [80, 60, 15, 10]
+       → 正确：每 80 秒爆发、缩 60%、持续 15 秒、冷却 10 秒
+       原来读成 cut=80 dur=60 cd=15 every=10（每10秒爆发、持续60秒）→ 周期爆发卡在常开、
+       冷却被砍 5 倍，21 个节点的武器输出高 5~8 倍（星云追逐者等）。 */
+    const order = [];
+    String(desc).replace(/\{([^}]+)\}/g, function (m, k) { order.push(k); return m; });
+    const valOf = function (key) { const i = order.indexOf(key); return i >= 0 ? num(lv1[i]) : null; };
+    const cutKey = order.filter(function (k) { return k !== 'P' && k !== 'T' && k !== 'C'; })[0] || null;
     rec.mechanic = {
-      kind: 'burst', cut: num(lv1[0]), dur: num(lv1[1]), cd: num(lv1[2]),
-      every: (desc.match(/每\s*\{?[^}\s]{1,6}\}?\s*秒时/) ? num(lv1[3]) : null), text: desc.slice(0, 40)
+      kind: 'burst', cut: valOf(cutKey), dur: valOf('T'), cd: valOf('C'), every: valOf('P'),
+      text: desc.slice(0, 40)
     };
     rec.addable = false; rec.isMechanic = true;
   } else if (s === 'critPair') {
