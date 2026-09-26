@@ -208,6 +208,10 @@ const SIBLING = [
 ];
 function extraStats(d, primary) {
   if (!d || !primary) return [];
+  /* ⚠️ 只在【整句只有一个 {数值位}】时才按"同值"处理。
+     反例：「主武器冷却时间减少{101}%，飞行时间减少{201}%」—— 两个机制、两个不同的数，
+     按同值写会把其中一个写错。这类（含 2 个以上 {} 位）交给"多参数节点"那条路，这里不碰。 */
+  if ((d.match(/\{[^}]+\}/g) || []).length > 1) return [];
   const out = [];
   for (const [re, map] of SIBLING) {
     if (!re.test(d)) continue;
