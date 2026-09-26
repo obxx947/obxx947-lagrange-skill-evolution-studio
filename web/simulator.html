@@ -4157,7 +4157,7 @@
                             /* ★★ 「武器分散打击」的候选池原来只看 alive —— 会把对舰武器分散到【载机】上，
                                绕过前面所有对空规则（非对空武器不打载机）。实测 A 的载机因此死得太早
                                （A 队对空只有面板的 20%，而游戏是 50%）。这里补上同样的两条限制。 */
-                            let pool = enemies.filter(e => targetable(e) && (e.position !== 'aircraft' || aaCanTarget(w, e)));
+                            let pool = enemies.filter(e => targetable(e) && (e.position !== 'aircraft' || aaCanTarget(w, e, ship)));
                             if(!pool.length) pool = enemies.filter(e => e.alive && e.hp > 0);
                             if(pool.length) tgt = pool[Math.floor(Math.random() * pool.length)];
                         }
@@ -4243,7 +4243,7 @@
             const _t00 = (weapon.targets && weapon.targets[0] && weapon.targets[0].types) || [];
             const _aaPrim0 = _t00.some(x => _aw0.test(String(x)));
             const canAttack = _canAll.filter(e => e.position !== 'aircraft'
-                || (_aaPrim0 && aaCanTarget(weapon, e)));
+                || (_aaPrim0 && aaCanTarget(weapon, e, ship)));
             if(canAttack.length===0) return null;
             /* ★ 舰队级机制 cutInSub（切入作战）：舰队不是作战对象的主目标时
                   （即本舰在【被护航舰队】里），优先选血量最低的 N 个目标 */
@@ -4289,7 +4289,7 @@
         const _aaPrim = ((targets[0] && targets[0].types) || []).some(x => _aw.test(String(x)));
         for(const tg of targets) {
             const match = aliveEnemies.filter(e=>targetable(e) && tg.types.some(t=>matchesType(e,t))
-                && (e.position !== 'aircraft' || (_aaPrim && aaCanTarget(weapon, e))));
+                && (e.position !== 'aircraft' || (_aaPrim && aaCanTarget(weapon, e, ship))));
             if(match.length>0) {
                 const splitCount = Math.max(1, Math.round(match.length / 2.5));
                 return match[Math.floor(Math.random()*Math.min(match.length, splitCount))];
@@ -4301,7 +4301,7 @@
            把火力打到载机上：实测它们的对空 39.3万/33.7万，而游戏里分别是 2150/3.3万。 */
         const _airW = /战机|护航艇|载机|无人机|登陆舰/;
         const _seqAir = ((targets[0] && targets[0].types) || []).some(x => _airW.test(String(x)));
-        let _al = aliveEnemies.filter(e => targetable(e) && (e.position !== 'aircraft' || (_seqAir && aaCanTarget(weapon, e))));
+        let _al = aliveEnemies.filter(e => targetable(e) && (e.position !== 'aircraft' || (_seqAir && aaCanTarget(weapon, e, ship))));
         if(!_al.length) _al = aliveEnemies.filter(e=>targetable(e));
         if(!_al.length) return null;
         return _al[Math.floor(Math.random()*_al.length)];
@@ -4356,11 +4356,21 @@
         return (ac.weaponStates || []).some(ws => ws.currentTarget && ws.currentTarget.alive
             && ws.currentTarget.position !== 'aircraft');
     }
-    function aaCanTarget(w, ac) {
+    /* ★★★ 2026-09-26 按知识库实现【反击防空的开火条件】（原来只实现了"能打谁"，没实现"何时开火"）：
+         「反击防空：小范围防空机制，在【受到舰载机攻击时触发】，可攻击以【自身或同排友方舰船】
+           为目标的敌方空中单位」
+       主动防空（全库仅 6 门）才是"可先手打击、任何载机都能打"。
+       少了这条 → 反击/区域防空炮全程无脑开火，A 队对空打到面板的 110%（游戏只有 45%）。 */
+    function aaCanTarget(w, ac, self) {
         const t = String((w && w.antiAirType) || '');
-        if (t.indexOf('active') >= 0) return true;                 // 主动防空：任何载机
-        if (t.indexOf('counter') >= 0 || t.indexOf('area') >= 0 || t.indexOf('passive') >= 0)
-            return acIsAttacking(ac);                              // 反击/区域：只打正在攻击的
+        if (t.indexOf('active') >= 0) return true;                 // 主动防空：任何载机、先手可打
+        if (t.indexOf('counter') >= 0 || t.indexOf('area') >= 0 || t.indexOf('passive') >= 0) {
+            const tg = ac && ac.currentTarget;
+            if (!tg || !tg.alive) return false;                    // 这架载机没有在打人 → 不触发
+            if (tg.position === 'aircraft') return false;          // 它在打载机，不是打舰船
+            if (!self) return true;
+            return tg === self || (tg.position === self.position); // 自身 或 同排友方
+        }
         return true;                                               // 没标类型：按调用方已做的序列判定
     }
     /* ★ 标定常数（2026-09-26）：实测双方总伤害都比游戏低约 15%~30%（A -16%、B -29%），
