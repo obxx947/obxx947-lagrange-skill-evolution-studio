@@ -152,6 +152,8 @@ async function RUN(planSideIdx) {
         A对舰: Math.round(st.ally.antiShip || 0), A对空: Math.round(st.ally.antiAir || 0),
         B对舰: Math.round(st.enemy.antiShip || 0), B对空: Math.round(st.enemy.antiAir || 0),
         A维修: Math.round(st.ally.repair || 0), B维修: Math.round(st.enemy.repair || 0),
+        A载机对舰: Math.round(st.ally.byAirShip || 0), A载机对空: Math.round(st.ally.byAirAir || 0),
+        B载机对舰: Math.round(st.enemy.byAirShip || 0), B载机对空: Math.round(st.enemy.byAirAir || 0),
         A系统伤害: Math.round(st.ally.sysDmg || 0), A击毁系统: st.ally.sysKill || 0, A殉爆: Math.round(st.ally.blastHp || 0),
         B系统伤害: Math.round(st.enemy.sysDmg || 0), B击毁系统: st.enemy.sysKill || 0, B殉爆: Math.round(st.enemy.blastHp || 0)
       });

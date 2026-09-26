@@ -4255,14 +4255,22 @@
         // Follow attack sequence (攻击序列) for projectile weapons
         const targets = weapon.targets || [];
         for(const tg of targets) {
-            const match = aliveEnemies.filter(e=>tg.types.some(t=>matchesType(e,t)));
+            const match = aliveEnemies.filter(e=>targetable(e) && tg.types.some(t=>matchesType(e,t)));
             if(match.length>0) {
                 const splitCount = Math.max(1, Math.round(match.length / 2.5));
                 return match[Math.floor(Math.random()*Math.min(match.length, splitCount))];
             }
         }
 
-        return aliveEnemies[Math.floor(Math.random()*aliveEnemies.length)];
+        /* ★★ 攻击序列里【没有载机类】的武器（纯对舰/对空炮）不要在兜底里挑载机 ——
+           原来这条兜底对投射武器也包含载机，导致太阳鲸/猎兵那些"轰炸机+攻击脉冲炮艇"
+           把火力打到载机上：实测它们的对空 39.3万/33.7万，而游戏里分别是 2150/3.3万。 */
+        const _airW = /战机|护航艇|载机|无人机|登陆舰/;
+        const _seqAir = targets.some(tg => (tg.types||[]).some(x => _airW.test(String(x))));
+        let _al = aliveEnemies.filter(e => targetable(e) && (_seqAir || e.position !== 'aircraft'));
+        if(!_al.length) _al = aliveEnemies.filter(e=>targetable(e));
+        if(!_al.length) return null;
+        return _al[Math.floor(Math.random()*_al.length)];
     }
 
     // Direct fire weapon target selection (直射武器必须逐排攻击)
@@ -4272,12 +4280,12 @@
            原实现"返回第一个有人的排"→ 只要敌方还有任何舰船，直射武器就【永远选不到载机】，
            而防空炮几乎都是直射 → 防空炮一发都打不到载机（实测：B 队对空只有自身面板的 3.5%，
            游戏里是 59%）。载机是飞行的，任何排都能打，所以这里把它并进候选池。 */
-        const air = enemies.filter(e => e.alive && e.position === 'aircraft');
+        const air = enemies.filter(e => targetable(e) && e.position === 'aircraft');
         for(let i=0; i<rowOrder.length; i++) {
-            const rowEnemies = enemies.filter(e=>e.position===rowOrder[i] && e.alive);
+            const rowEnemies = enemies.filter(e=>e.position===rowOrder[i] && targetable(e));
             if(rowEnemies.length > 0) return rowEnemies.concat(air);
         }
-        return enemies.filter(e=>e.alive);
+        return enemies.filter(e=>targetable(e));
     }
 
     /* creditTo（可选）：战报里把这次攻击记在谁头上。
@@ -4290,12 +4298,27 @@
     /* ★★ 每轮总发数：优先用按【游戏面板】标定的 shotsPerCycle（见 _patch_shots.js），否则退回原始字段。
        背景：面板 = 单发 × 安装数 × 攻击轮次 × 每轮次数 × 60 ÷ (持续+冷却) × 命中率；
        名字里带 (×N) 的 184 门武器过去安装数没乘 → 输出差 2~5.6 倍（A 队输出偏低的主因）。 */
+    /* ★★★ 2026-09-26 按《战斗机制》原文实现【往复打击】：
+       「①在载机舱内锁敌出舱 → ②按去程时间飞去攻击 → ③按返程时间返回
+         → ④在机库内等待冷却并锁定新目标（【此阶段不会被防空武器锁定】）→ ⑤冷却锁定完成后再次出舱」
+       近似：这架载机的所有武器都还在冷却中 = 它在机库；只要有一门可用 = 已出舱。
+       —— 少了这条，载机全程可被防空打，实测 A 队对空达成自身面板 96%（游戏只 25%）。 */
+    function acInHangar(s) {
+        if (!s || s.position !== 'aircraft') return false;
+        if (s.flightMode !== 'reciprocating') return false;
+        const ws = s.weaponStates || [];
+        if (!ws.length) return false;
+        return !ws.some(x => (x.cooldownRemaining || 0) <= 0);
+    }
+    function targetable(s) { return !!s && s.alive && !acInHangar(s); }
     function shotsOf(w) {
         if (!w) return 1;
         if (w.shotsPerCycle > 0) return w.shotsPerCycle;
         return (w.ammo || 1) * (w.attacks || 1) * (w.mounts || 1);
     }
-    function newStatBucket() { return { antiShip: 0, antiAir: 0, repair: 0, sysDmg: 0, sysKill: 0, blastHp: 0, per: {} }; }
+    /* byAirShip/byAirAir = 由【载机】打出来的对舰/对空（用来判断游戏战报那一列到底含不含载机输出） */
+    function newStatBucket() { return { antiShip: 0, antiAir: 0, repair: 0, sysDmg: 0, sysKill: 0, blastHp: 0,
+                                        byAirShip: 0, byAirAir: 0, per: {} }; }
     /* 按舰种记账：游戏战报是【每个型号一行】，所以这里也按名字归并，好逐行对 */
     /* 战报口径：载机的输出归到母舰那一行（游戏战报就是这么显示的） */
     function statRowOf(ship) {
@@ -4532,7 +4555,8 @@
         { const _st = dmgStatOf(bs, CR.side);
           if (_st) { const _isAir = (target.position === 'aircraft');
             if (_isAir) _st.antiAir += dmg; else _st.antiShip += dmg;
-            const _p = statPer(_st, statRowOf(CR)); if (_p) { if (_isAir) _p.antiAir += dmg; else _p.antiShip += dmg; } } }
+            const _p = statPer(_st, statRowOf(CR)); if (_p) { if (_isAir) _p.antiAir += dmg; else _p.antiShip += dmg; }
+            if (CR.position === 'aircraft') { if (_isAir) _st.byAirAir = (_st.byAirAir||0) + dmg; else _st.byAirShip = (_st.byAirShip||0) + dmg; } } }
         if(target.hp <= 0) {
             target.hp = 0;
             target.alive = false;
