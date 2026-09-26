@@ -934,6 +934,34 @@
         return typeOrName;
     }
 
+    /* ★★ 2026-09-27 载机「挨打暗序列」（知识库《战斗机制·三》+ 诺玛空战课实录）：
+         · 轰炸机挨打优先级最高（上来就死）；但【维塔斯B】是轰炸机里的特例，死得比攻击机还晚
+         · 【维塔斯A】在这套序列里是替维塔斯B 挡刀的 —— 别的轰炸机死完 → 死维A → 才轮到维B
+         · 死完轰炸机 → 死攻击机（林鸮/米斯特拉）→ 才轮到战斗机/拦截机这些防空机
+         · 护航艇走另一套：星云追逐者（持续输出）往往第一个挨打，其余随机分摊
+         · 【海氏追随者】是"披着战机外壳的护航艇"（独立式、永不回机库）→ 别的战机回机库后
+           场上只剩它 → 这就是它常年第一死的原因。这一条已由 acInHangar（机库内不可锁定）覆盖，
+           不必再给优先级。
+       返回 0-6，越小越先挨打。 */
+    function airHitPriority(e) {
+        const n = String((e && e.name) || '');
+        if (/维塔斯\s*-?\s*B0?10/i.test(n)) return 4;      // 维B：轰炸机里最后
+        if (/维塔斯\s*A0?21/i.test(n)) return 2;            // 维A：替维B 挡刀
+        if (/轰炸机/.test(n)) return 1;                      // 一般轰炸机
+        if (/攻击机|强击机/.test(n)) return 3;               // 攻击机
+        if (e && e.type === 'corvette') return 6;            // 护航艇
+        return 5;                                            // 战斗机 / 拦截机
+    }
+    /* 在候选里按暗序列取「最该挨打」的那一档，再按 ÷2.5 分伤随机 */
+    function pickByAirOrder(list) {
+        if (!list || !list.length) return null;
+        let best = Infinity;
+        list.forEach(e => { const p = airHitPriority(e); if (p < best) best = p; });
+        const top = list.filter(e => airHitPriority(e) === best);
+        const sc = Math.max(1, Math.round(top.length / 2.5));
+        return top[Math.floor(Math.random() * Math.min(top.length, sc))];
+    }
+
     function matchesType(ship, typeStr) {
         // Check English type
         if(ship.type === typeStr) return true;
@@ -4260,6 +4288,7 @@
             for(const tg of targets) {
                 const match = canAttack.filter(e=>tg.types.some(t=>matchesType(e,t)));
                 if(match.length>0) {
+                    if (match.every(e => e.position === 'aircraft')) return pickByAirOrder(match);
                     const splitCount = Math.max(1, Math.round(match.length / 2.5));
                     return match[Math.floor(Math.random()*Math.min(match.length, splitCount))];
                 }
@@ -4278,6 +4307,7 @@
             if(!_aaPrimary) {
                 const noAir = canAttack.filter(e => e.position !== 'aircraft');
                 if(noAir.length) return noAir[Math.floor(Math.random()*noAir.length)];
+                return pickByAirOrder(canAttack);
             }
             return canAttack[Math.floor(Math.random()*canAttack.length)];
         }
@@ -4291,6 +4321,7 @@
             const match = aliveEnemies.filter(e=>targetable(e) && tg.types.some(t=>matchesType(e,t))
                 && (e.position !== 'aircraft' || (_aaPrim && aaCanTarget(weapon, e, ship))));
             if(match.length>0) {
+                if (match.every(e => e.position === 'aircraft')) return pickByAirOrder(match);
                 const splitCount = Math.max(1, Math.round(match.length / 2.5));
                 return match[Math.floor(Math.random()*Math.min(match.length, splitCount))];
             }
