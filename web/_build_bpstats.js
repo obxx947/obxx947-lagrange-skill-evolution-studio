@@ -469,6 +469,12 @@ bp.forEach(r => r.systems.forEach(y => y.nodes.forEach(n => {
       if (cond) { rec.cond = cond; rec.condMeta = detectCondMeta(desc); condCnt++; }
       /* ★ 多机制补充：说明里写了多个机制、且共用同一个 {数值} 时，全部生效 */
       if (rec && rec.stat && rec.addable !== false) {
+        /* ⚠️ 2026-09-25：试过"用 KEY 正则自动解出所有属性 + 各取自己的 {位}"，
+           结果 KEY 的正则太松（cooldownReduction / hangarCd / hangarModuleCd 共用同一套模式），
+           3722 个节点被塞进多个属性且同值 —— 严重过度应用，已回退。
+           现在只保留【单槽位按同值补兄弟】这条（151 个，已在 users 处核对过原文）。
+           真·双槽位/双机制的那 14 个，等下一轮按句式表逐条配 KEY，
+           不做"泛化自动解析"。 */
         const _e = extraStats(String(n.baseDesc || ''), rec.stat);
         if (_e.length) rec.stats = [rec.stat].concat(_e);
       }
@@ -511,6 +517,12 @@ bp.forEach(r => r.systems.forEach(y => y.nodes.forEach(n => {
   }
   /* ★ 多机制补充：说明里写了多个机制、且共用同一个 {数值} 时，全部生效 */
       if (rec && rec.stat && rec.addable !== false) {
+        /* ⚠️ 2026-09-25：试过"用 KEY 正则自动解出所有属性 + 各取自己的 {位}"，
+           结果 KEY 的正则太松（cooldownReduction / hangarCd / hangarModuleCd 共用同一套模式），
+           3722 个节点被塞进多个属性且同值 —— 严重过度应用，已回退。
+           现在只保留【单槽位按同值补兄弟】这条（151 个，已在 users 处核对过原文）。
+           真·双槽位/双机制的那 14 个，等下一轮按句式表逐条配 KEY，
+           不做"泛化自动解析"。 */
         const _e = extraStats(String(n.baseDesc || ''), rec.stat);
         if (_e.length) rec.stats = [rec.stat].concat(_e);
       }
