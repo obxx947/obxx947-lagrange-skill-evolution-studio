@@ -1756,8 +1756,9 @@
         fleet.apSet = name || null;
         const all = [].concat(fleet.main || [], fleet.reinforcement || []);
         all.forEach(e => { if(name) e.apSet = name; else delete e.apSet; });
+        try { saveStore(); } catch (e) { }                 // ★ 持久化：原来没存 → 刷新就丢
         refreshFleetViews();
-        showToast(name ? ('本舰队总体加点 = 「' + name + '」（' + all.length + ' 条已套用）') : '本舰队改回「默认总体加点」');
+        showToast(name ? ('本舰队总体加点 = 「' + name + '」（' + all.length + ' 条已套用，开战时生效）') : '本舰队改回「默认总体加点」');
     }
     /* 去「舰船加点」页配这艘船的方案（带上官方编号，直接跳到那艘船） */
     function apGoAddpoint(shipId){
@@ -3301,6 +3302,10 @@
             const collect = (ft, side, isEscort, dest) => {
                 const fleet = fleetData[ft]; if(!fleet) return;
                 [...fleet.main, ...fleet.reinforcement].forEach(shipEntry => {
+                    /* ★★ 开战这一刻按【舰队级】选的总体加点方案给条目打标（用户 2026-09-26：
+                       四个方案的战斗时长几乎一样 → 说明"舰队下拉选的方案"根本没到条目上）。
+                       舰队级优先；没选舰队级才用条目自己的。 */
+                    if (fleet.apSet) shipEntry.apSet = fleet.apSet;
                     for(let i=0; i<shipEntry.count; i++) dest.push(createShipInstance(shipEntry, side, isEscort, !isEscort));
                 });
             };
@@ -3323,6 +3328,9 @@
                 const isEscorted = ft.includes('escorted');
                 const flagshipId = fleet.flagship;
                 [...fleet.main, ...fleet.reinforcement].forEach(shipEntry => {
+                    /* ★★ 同 collect：开战这一刻按【舰队级】选的总体加点方案给条目打标。
+                       否则"舰队下拉选了方案"不会生效（用户 2026-09-26 实测四个方案时长几乎一样）。 */
+                    if (fleet.apSet) shipEntry.apSet = fleet.apSet;
                     for(let i=0; i<shipEntry.count; i++) {
                         const inst = createShipInstance(shipEntry, side, isEscort, isEscorted);
                         inst.instId = 'si'+(++instSeq);      // 单位唯一 id（母舰被毁时用它找到自己的载机）
