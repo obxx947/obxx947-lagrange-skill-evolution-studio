@@ -48,7 +48,14 @@ db.forEach(s => Object.keys(s.modules || {}).filter(k => !k.startsWith('_')).for
     const base = baseAir ? pAA : pAS;
     const other = baseAir ? pAS : pAA;
 
-    const cyc = (w.cooldown || 0) + (w.atkDuration || 0);
+    /* ★★ 2026-09-26：周期必须把【往复载机的去程+返程】也算进去！
+       知识库《战斗机制》：「②按去程飞去攻击 → ③按返程返回 → ④机库内等冷却锁定 → ⑤再出舱」
+       —— 飞行与冷却是【串行】的，所以真实周期 = 冷却 + 攻击持续 + 去程 + 返程。
+       引擎运行时就是这么加的（flightCycleSec）；标定时漏了它
+       → 引擎的实际周期比标定用的长 → 载机打不到面板值（这就是"补上正确去/回程后时长反而变差"的原因）。 */
+    const _fly = (s.position === 'aircraft' && s.flightMode === 'reciprocating')
+        ? ((s.departSec || 0) + (s.returnSec || 0)) : 0;
+    const cyc = (w.cooldown || 0) + (w.atkDuration || 0) + _fly;
     if (!(base > 0) || !(w.singleDmg > 0) || !(cyc > 0)) { skip++; return; }
 
     /* ① 每轮总发数 = 面板 × 周期 ÷ (单发 × 60 × 引擎会掷的命中率)
@@ -71,10 +78,13 @@ db.forEach(s => Object.keys(s.modules || {}).filter(k => !k.startsWith('_')).for
       }
       if (h == null) h = 0.6;
     }
-    const need = Math.round(base * cyc / (w.singleDmg * 60 * h));
+    /* ★★ 不取整！取整会把"补命中"的零头丢掉 —— 例如乌拉诺斯轨道炮需 1.18 发，
+       四舍五入成 1 发 → 引擎按 1 发打 → 实际只有面板的 85%（系统性偏低 15%）。
+       保留小数后，引擎的 shotsRemaining 会自然摊平（有的轮次多打一发），平均值就等于面板。 */
+    const need = Math.round((base * cyc / (w.singleDmg * 60 * h)) * 1000) / 1000;
     if (need >= 1) {
       const natural = (w.ammo || 1) * (w.attacks || 1) * (w.mounts || 1);
-      if (need !== natural) {
+      if (Math.abs(need - natural) > 0.005) {
         chShots++;
         if (log.length < 12) log.push('  ' + String(s.name).slice(0, 11).padEnd(13) + String(w.name).slice(0, 24).padEnd(26)
           + '单发' + String(w.singleDmg).padEnd(6) + '周期' + String(Math.round(cyc)).padEnd(4)
