@@ -309,6 +309,36 @@ function slotsOf(ship){ return FleetCheck.slotsOf(ship); }
    方案 = 加点页「💾 保存方案」存的那条（lagrange_addpoint_builds，按舰船分）。
    不选 = 用加点页当前那套；选了 = 开战时用那条方案。
    因为是【按条目】存的，所以同一艘船放多条配置、或放到不同舰队，可以各用各的方案。 */
+/* ★ 舰队级【总体加点方案】下拉（用户 2026-09-25：配队里选的是总体方案，不是单船方案）
+   选中后把这个 set 名写到【本舰队每条船】的 apSet 上。
+   —— 模拟器那边是每个舰队方框各一个，配队这边是每个舰队 Tab 各一个，逻辑一致。 */
+function fleetSets(){
+    try{ return JSON.parse(localStorage.getItem('lagrange_addpoint_sets')||'[]')||[]; }catch(e){ return []; }
+}
+function setStatTxt(dp){
+    const ids=Object.keys(dp||{}); let pts=0;
+    ids.forEach(k=>{ pts+=Object.keys((dp[k]||{}).lv||{}).filter(x=>(dp[k].lv[x]||0)>0).length; });
+    return ids.length+' 艘 / '+pts+' 点';
+}
+function fleetApSetSelect(){
+    const af=(typeof activeFleet==='function')?activeFleet():null; if(!af) return '';
+    const sets=fleetSets(); const cur=af.apSet||'';
+    let opts='<option value="">默认（加点页当前那套）</option>';
+    sets.forEach(x=>{ opts+='<option value="'+esc(x.name)+'"'+(cur===x.name?' selected':'')+'>'+esc(x.name)+'（'+setStatTxt(x.addpoints)+'）</option>'; });
+    if(!sets.length) opts+='<option value="">（还没有总体加点方案，点这里去存）</option>';
+    return '<select class="btn gold" style="flex:0 0 auto;padding:3px 6px;font-size:0.62rem;max-width:230px"'
+         + ' title="这个舰队用哪一套总体加点（在舰船加点页点「💾 存总体加点方案」）"'
+         + ' onclick="event.stopPropagation()"'
+         + ' onchange="setFleetApSet(this.value)">'+opts+'</select>';
+}
+function setFleetApSet(name){
+    if(name==='' && !fleetSets().length){ location.href='addpoint.html'; return; }
+    const af=activeFleet(); if(!af) return;
+    af.apSet=name||null;
+    [].concat(af.main||[],af.reinforce||[]).forEach(e=>{ if(name) e.apSet=name; else delete e.apSet; });
+    toast(name?('本舰队总体加点 = 「'+name+'」'):'本舰队改回「默认」');
+    renderAll();
+}
 let BPMAP=null;                       // data/blueprint_map.json：slug → {cdnId,...}
 async function bpMapLoad(){
     if(BPMAP) return BPMAP;
@@ -540,7 +570,11 @@ function renderAll(){ renderTabs(); renderLists(); renderFlagship(); renderStats
 function renderTabs(){
     const f=cur.fleets, box=document.getElementById('fleetTabs');
     box.innerHTML=f.map((x,i)=>`<div class="ftab ${i===cur.active?'on':''}" onclick="switchFleet(${i})">${esc(x.name)} <span class="x" onclick="event.stopPropagation();delFleet(${i})">✕</span></div>`).join('')
-        + `<button class="btn" onclick="addFleet()">＋</button>`;
+        + `<button class="btn" onclick="addFleet()">＋</button>`
+        + `<span style="margin-left:auto;display:flex;align-items:center;gap:6px">`
+        + `<span style="font-size:0.62rem;color:var(--t3)">总体加点</span>`
+        + fleetApSetSelect()
+        + `</span>`;
     const af=activeFleet();
     document.getElementById('swAdd').checked=!!af.addPoint;
     document.getElementById('swStitch').checked=!!af.stitch;
@@ -584,7 +618,6 @@ function renderLists(){
                 <button class="pos ${esc(pos)}" style="cursor:pointer;background:none" title="点击切换站位" onclick="cyclePos('${sec}',${i})">${esc(pos)}</button>
                 ${showMods?`<button class="btn gold" style="flex:0 0 auto;padding:4px 8px" onclick="openMods('${sec}',${i})">${modStr?esc(modStr):'模块'}</button>`:''}
                 ${showMods?`<button class="btn" style="flex:0 0 auto;padding:4px 8px" onclick="addConfig('${sec}',${i})" title="再配一套不同的模块组合（服役上限仍按该舰合计）">⧉</button>`:''}
-                ${apBuildSelect(s, sec, i)}
                 <div class="qty ${over?'over':''}">
                     <button onclick="chQty('${sec}',${i},-1)">−</button>
                     <span>${s.qty}</span>
@@ -942,7 +975,7 @@ function renderMine(){
 /* ================= 联动：模拟器 / AI ================= */
 function exportFleet(){
     const af=activeFleet();
-    const dump=arr=>arr.map(s=>({id:s.id,name:s.name,pos:s.pos||'',qty:s.qty,mods:s.mods||{},apBuild:s.apBuild||'',
+    const dump=arr=>arr.map(s=>({id:s.id,name:s.name,pos:s.pos||'',qty:s.qty,mods:s.mods||{},apBuild:s.apBuild||'',apSet:s.apSet||af.apSet||'',
         air:(s.air||[]).map(a=>({id:a.id,name:a.name,kind:a.kind,slot:a.slot||'',qty:a.qty}))}));
     return { name:cur.name||'未命名方案', desc:cur.desc||'',
         main:dump(af.main), reinforcement:dump(af.reinforce), flagship:flagshipShipId() };
