@@ -671,7 +671,6 @@
             <div style="display:flex;gap:8px;margin-bottom:12px;">
                 <button class="category-btn active" onclick="switchBattleMode('escort')" id="battleModeEscort">🛡️ 护航战斗</button>
                 <button class="category-btn" onclick="switchBattleMode('bomb')" id="battleModeBomb">💣 轰炸战斗</button>
-                <span id='activeSetBarWrap' style='display:inline-flex;align-items:center;gap:4px;margin-left:6px'></span>
             </div>
             <div id="bombConfig" style="display:none;margin-bottom:12px;padding:10px;background:var(--bg-secondary);border-radius:8px;border:1px solid var(--border-color);">
                 <span style="font-size:12px;color:var(--text-secondary);">💣 轰炸距离(吉米): </span>
@@ -4622,7 +4621,10 @@
             const rows = Object.keys(_nk).map(ft => {
                 const f = (typeof fleetData !== 'undefined') ? fleetData[ft] : null; if (!f) return '';
                 const n = [].concat(f.main || [], f.reinforcement || []).length; if (!n) return '';
-                const _s2 = f.apSet || activeSet();
+                /* 舰队级没选时，看【条目自己带的 apSet】（比如从配队页带过来的）——
+                   这才是开战时真正生效的那个 */
+                const _entrySet = [].concat(f.main || [], f.reinforcement || []).map(e => e.apSet).filter(Boolean)[0] || '';
+                const _s2 = f.apSet || _entrySet;
                 return '<div style="font-size:11px;padding:2px 0;">· ' + _nk[ft] + '：<b style="color:' + (_s2 ? 'var(--accent-green)' : 'var(--text-secondary)') + '">'
                      + (_s2 ? ('「' + _s2 + '」' + (f.apSet ? '' : '（全局）')) : '默认（加点页当前那套）') + '</b> <span style="color:var(--text-muted)">' + n + ' 条</span></div>';
             }).join('');
@@ -4728,9 +4730,6 @@
         }, {passive: true});
     }
 
-    document.addEventListener('DOMContentLoaded', function () {
-        try { const w = document.getElementById('activeSetBarWrap'); if (w) w.innerHTML = activeSetBar(); } catch (e) { }
-    });
     document.addEventListener('DOMContentLoaded', init);
     // 预先加载加点数据（含 slug→编号 映射），否则强化弹窗里列不出"已保存的加点方案"
     setTimeout(async () => {
