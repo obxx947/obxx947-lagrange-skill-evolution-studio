@@ -78,13 +78,15 @@ db.forEach(s => Object.keys(s.modules || {}).filter(k => !k.startsWith('_')).for
       }
       if (h == null) h = 0.6;
     }
-    /* ★★ 不取整！取整会把"补命中"的零头丢掉 —— 例如乌拉诺斯轨道炮需 1.18 发，
-       四舍五入成 1 发 → 引擎按 1 发打 → 实际只有面板的 85%（系统性偏低 15%）。
-       保留小数后，引擎的 shotsRemaining 会自然摊平（有的轮次多打一发），平均值就等于面板。 */
-    const need = Math.round((base * cyc / (w.singleDmg * 60 * h)) * 1000) / 1000;
+    /* ⚠️ 用四舍五入，不要保留小数：引擎每轮装填是 `shotsRemaining = totalShots`（重置而非累加），
+       1.176 发实际只会打 1 发、小数部分【不会跨轮累加】—— 我先前以为会"自然摊平"，是错的
+       （那样会引入不一致的开火节奏，实测把 battle_mechanics 的稳态周期断言打成 6/1、5/2 抖动）。
+       已知代价：需 1.18 发的武器会少打一点（约 -15%），需 2.35 发的会多打（+25%），
+       两者方向相反、在舰队层面基本抵消。 */
+    const need = Math.round(base * cyc / (w.singleDmg * 60 * h));
     if (need >= 1) {
       const natural = (w.ammo || 1) * (w.attacks || 1) * (w.mounts || 1);
-      if (Math.abs(need - natural) > 0.005) {
+      if (need !== natural) {
         chShots++;
         if (log.length < 12) log.push('  ' + String(s.name).slice(0, 11).padEnd(13) + String(w.name).slice(0, 24).padEnd(26)
           + '单发' + String(w.singleDmg).padEnd(6) + '周期' + String(Math.round(cyc)).padEnd(4)
