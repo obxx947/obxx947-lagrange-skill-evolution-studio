@@ -2510,7 +2510,7 @@
         const shipB = BLANK();                      // 舰船级
         const byModule = {};                        // 模块级：{ 'M_M1': {...} }
         const conds = [];                           // ★ 条件触发：不立刻加，交给战斗中求值
-        let counted = 0, skipped = 0, other = 0;
+        let counted = 0, skipped = 0, other = 0, skippedTree = false;   // skippedTree=这艘船加点树没加载，有节点被迫跳过
         const sysMap = (BP_SYSMAP && BP_SYSMAP[ap.cdnId]) ? BP_SYSMAP[ap.cdnId].systems : null;
         const nodeSys = {};                         // 节点 → 所属系统
         if(BP_TREE && BP_TREE[ap.cdnId]) {
@@ -2542,13 +2542,25 @@
             const tgt = bucketFor(nodeSys[nid]);
             /* 「本舰船机库内…」说的是【整艘船所有载机】，不管这个系统在映射表里对到哪个模块，
                都必须走舰船级 —— 否则会被那个模块的桶吃掉，只有该模块的载机吃到（v4 踩过的坑）。 */
-            const shipTgt = (k) => HANGAR_SHIP.has(k) ? shipB : tgt;
+            /* ★★ 安全网：万一这艘船的加点树【还没加载】（fetch 慢/失败/刚存进 storage），
+               nodeSys 是空的 → 谁都不知道这个节点属于哪个系统。此时**宁可这条先不计**，
+               也不能把"本系统武器"的加成当成整船加成扩散出去（用户明确要求过：
+               本系统的加点不该集成到其它系统）。返回 null → 调用处跳过。 */
+            const _treeMissing = !(BP_TREE && BP_TREE[ap.cdnId]);
+            const shipTgt = (k) => {
+                if (HANGAR_SHIP.has(k)) return shipB;
+                if (_treeMissing && MODULE_CONSUMED.has(alias(k))) return null;
+                return tgt;
+            };
+            if(_treeMissing) skippedTree = true;
             if(st.statMap) {                          // 一条说明同时写多个属性
                 let any = false;
                 Object.keys(st.statMap).forEach(k0 => {
                     const k = alias(k0);
                     const v = st.statMap[k0][L];
-                    if(typeof v === 'number'){ shipTgt(k)[k] = (shipTgt(k)[k]||0) + v; any = true; }
+                    if (typeof v !== 'number') return;
+                    const t1 = shipTgt(k); if (!t1) return;
+                    t1[k] = (t1[k] || 0) + v; any = true;
                 });
                 if(any) counted++; else skipped++;
                 return;
@@ -2582,6 +2594,7 @@
                     counted++; return;
                 }
                 const tt = shipTgt(k);
+                if(!tt) { skipped++; return; }           // 树没加载的模块级属性 → 先不计（见 shipTgt 的安全网）
                 tt[k] = (tt[k]||0) + v; counted++;      // ★ 必须累加：一个系统里可能有好几个同类节点
                 /* ★★ 多机制（st.stats）：一句话里写了两个机制的，两边吃【同一个值】。
                    例：太阳鲸「载机/无人机飞行时间和主武器冷却时间减少{101}%」
@@ -2592,6 +2605,7 @@
                     if (kk2 === k) return;
                     if (AP_A.indexOf(kk2) < 0 && AP_B.indexOf(kk2) < 0 && AP_H.indexOf(kk2) < 0) return;
                     const t2 = shipTgt(kk2);
+                    if (!t2) return;
                     t2[kk2] = (t2[kk2] || 0) + v;
                 });
             } else other++;
@@ -2616,7 +2630,7 @@
         Object.keys(byModule).forEach(sk => Object.keys(byModule[sk]).forEach(k => sumM[k] += byModule[sk][k]));
         return {
             ship: shipB, byModule: byModule, total: sumM, conds: conds,
-            _counted: counted, _skipped: skipped, _other: other,
+            _counted: counted, _skipped: skipped, _other: other, _skippedTree: skippedTree,
             _used: Object.keys(ap.lv).filter(k => ap.lv[k] > 0).length,
             _systems: Object.keys(byModule).length
         };
@@ -4809,7 +4823,18 @@
             await loadBlueprintData();
             // 预载"加点配置涉及的那些船"的加点树（机制解析需要；船级数值不依赖它）
             const store = apStore();
-            for(const cdn of Object.keys(store)) { try { await loadBpTree(cdn); } catch(e) {} }
+            /* ★★ 还要把【所有总体加点方案】里涉及的船一起预载。
+               不加这一步会踩这个坑：选了某套方案时，方案里有、而当前 store 里没有的船，
+               它的加点树没加载 → buildAddPointBonus 里 nodeSys 为空 → 不知道该节点属于哪个系统
+               → 武器系统的加点会被当成"舰船级"整船生效（"本系统"的不再只作用本系统）。
+               2026-09-26 查「选了方案没生效」时发现这条链路。 */
+            const cdnSet = new Set(Object.keys(store));
+            try {
+                (JSON.parse(localStorage.getItem('lagrange_addpoint_sets') || '[]') || []).forEach(st0 => {
+                    Object.keys((st0 && st0.addpoints) || {}).forEach(cdn => cdnSet.add(cdn));
+                });
+            } catch (e) { }
+            for(const cdn of cdnSet) { try { await loadBpTree(cdn); } catch(e) {} }
         } catch(e) {}
     }, 500);
 
@@ -4858,7 +4883,10 @@
                     // slot 缺失/失效 → 按机型落到第一个还有余量的载机位
                     if(!sl){
                         var kind=(t.aircraftType||t.type)==='corvette'?'corvette':'fighter';
-                        sl=(e.simSlots||[]).find(function(x){ return x.kind===kind && usedIn(x.key)<x.cap; });
+                        /* ★ 也要认 allow==='ALL'（那一栏同时收战机和护航艇）——
+                           只看 kind 会让护航艇在这个兜底里找不到位、直接被丢掉 */
+                        var _fits=function(x){ return x.allow==='ALL' || x.kind===kind; };
+                        sl=(e.simSlots||[]).find(function(x){ return _fits(x) && usedIn(x.key)<x.cap; });
                     }
                     if(!sl) return;                                   // 没有载机位 → 不塞进去（与配队页口径一致）
                     var entry=JSON.parse(JSON.stringify(t));
