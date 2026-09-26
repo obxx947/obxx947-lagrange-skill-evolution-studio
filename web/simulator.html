@@ -4242,6 +4242,13 @@
                     return match[Math.floor(Math.random()*Math.min(match.length, splitCount))];
                 }
             }
+            /* ★ 纯对舰炮（攻击序列里没有任何载机类）别把火力浪费在载机上 —— 只从舰船里挑 */
+            const _airWords = /战机|护航艇|载机|无人机|登陆舰/;
+            const _seqHasAir = targets.some(tg => (tg.types||[]).some(x => _airWords.test(String(x))));
+            if(!_seqHasAir) {
+                const noAir = canAttack.filter(e => e.position !== 'aircraft');
+                if(noAir.length) return noAir[Math.floor(Math.random()*noAir.length)];
+            }
             return canAttack[Math.floor(Math.random()*canAttack.length)];
         }
 
@@ -4260,16 +4267,15 @@
 
     // Direct fire weapon target selection (直射武器必须逐排攻击)
     function getDirectFireTargets(attacker, enemies) {
-        const attackerRow = attacker.position || '中排';
         const rowOrder = ['前排','中排','后排'];
-        const attackerIdx = rowOrder.indexOf(attackerRow);
-
-        // Find which enemy rows are visible
+        /* ★★★ 2026-09-26 修：载机的 position 是 'aircraft'，不在这三排里 ——
+           原实现"返回第一个有人的排"→ 只要敌方还有任何舰船，直射武器就【永远选不到载机】，
+           而防空炮几乎都是直射 → 防空炮一发都打不到载机（实测：B 队对空只有自身面板的 3.5%，
+           游戏里是 59%）。载机是飞行的，任何排都能打，所以这里把它并进候选池。 */
+        const air = enemies.filter(e => e.alive && e.position === 'aircraft');
         for(let i=0; i<rowOrder.length; i++) {
             const rowEnemies = enemies.filter(e=>e.position===rowOrder[i] && e.alive);
-            if(rowEnemies.length > 0) {
-                return rowEnemies;
-            }
+            if(rowEnemies.length > 0) return rowEnemies.concat(air);
         }
         return enemies.filter(e=>e.alive);
     }
