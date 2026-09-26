@@ -39,7 +39,14 @@ db.forEach(s => Object.keys(s.modules || {}).filter(k => !k.startsWith('_')).for
     const d = w.dpm || {};
     const pAS = Math.max(d.antiShip || 0, d.siege || 0);
     const pAA = d.antiAir || 0;
-    const baseAir = pAA >= pAS;                     // 基准取较大的那个面板
+    /* ★★ 2026-09-26：基准该取哪个面板，先看【攻击序列首项】——
+       全库 46 门防空武器的面板被记在了 antiShip 里（序列首项是"舰载机"、对空却是 0），
+       例如 永恒风暴「防空导弹阵列」、雷火之星「HM-4x60B中程防空导弹阵列」、
+       大帝「CP-3x220型三联装防空脉冲」—— 拿 antiShip 当基准会把发数标错。 */
+    const _AIRW = /战机|护航艇|载机|无人机|登陆舰/;
+    const _t0 = ((w.targets || [])[0] || {}).types || [];
+    const _seqFirstAir = _t0.some(x => _AIRW.test(String(x)));
+    const baseAir = _seqFirstAir || pAA >= pAS;      // 序列首项是载机类 → 就是打空的武器
     const base = baseAir ? pAA : pAS;
     const other = baseAir ? pAS : pAA;
     const cyc = (w.cooldown || 0) + (w.atkDuration || 0);
