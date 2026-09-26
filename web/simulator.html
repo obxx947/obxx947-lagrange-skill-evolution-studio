@@ -671,6 +671,7 @@
             <div style="display:flex;gap:8px;margin-bottom:12px;">
                 <button class="category-btn active" onclick="switchBattleMode('escort')" id="battleModeEscort">🛡️ 护航战斗</button>
                 <button class="category-btn" onclick="switchBattleMode('bomb')" id="battleModeBomb">💣 轰炸战斗</button>
+                <span id='activeSetBarWrap' style='display:inline-flex;align-items:center;gap:4px;margin-left:6px'></span>
             </div>
             <div id="bombConfig" style="display:none;margin-bottom:12px;padding:10px;background:var(--bg-secondary);border-radius:8px;border:1px solid var(--border-color);">
                 <span style="font-size:12px;color:var(--text-secondary);">💣 轰炸距离(吉米): </span>
@@ -1759,6 +1760,25 @@
         try { saveStore(); } catch (e) { }                 // ★ 持久化：原来没存 → 刷新就丢
         refreshFleetViews();
         showToast(name ? ('本舰队总体加点 = 「' + name + '」（' + all.length + ' 条已套用，开战时生效）') : '本舰队改回「默认总体加点」');
+    }
+    /* ★★ 全局「当前使用哪套总体加点」（用户 2026-09-26：只要选一次，所有舰队都生效）
+       优先级：舰队级 apSet > 全局 __ACTIVE_SET__ > 默认（加点页当前那套） */
+    const ACTIVE_SET_KEY = 'lagrange_active_set';
+    function activeSet() { try { return localStorage.getItem(ACTIVE_SET_KEY) || ''; } catch (e) { return ''; } }
+    function setActiveSet(name) {
+        try { if (name) localStorage.setItem(ACTIVE_SET_KEY, name); else localStorage.removeItem(ACTIVE_SET_KEY); } catch (e) { }
+        refreshFleetViews();
+        showToast(name ? ('全局总体加点 = 「' + name + '」（所有舰队开战都按它算）') : '全局改回「默认（加点页当前那套）」');
+    }
+    /* 顶部工具条里的全局总体加点下拉 */
+    function activeSetBar() {
+        let sets = [];
+        try { sets = JSON.parse(localStorage.getItem('lagrange_addpoint_sets') || '[]') || []; } catch (e) { }
+        const cur = activeSet();
+        let opts = '<option value="">总体加点:默认</option>';
+        sets.forEach(x => { opts += '<option value="' + apEsc(x.name) + '"' + (cur === x.name ? ' selected' : '') + '>总体加点:' + apEsc(x.name) + '</option>'; });
+        if (!sets.length) opts += '<option value="__go">（还没有总体加点方案，点这里去存）</option>';
+        return '<select class="btn btn-sm" style="font-size:10px;max-width:210px" title="全局总体加点：选一次，所有舰队开战都按它算（在舰船加点页点「💾 存总体加点方案」）" onchange="setActiveSet(this.value)">' + opts + '</select>';
     }
     /* 去「舰船加点」页配这艘船的方案（带上官方编号，直接跳到那艘船） */
     function apGoAddpoint(shipId){
@@ -3316,7 +3336,7 @@
                     /* ★★ 开战这一刻按【舰队级】选的总体加点方案给条目打标（用户 2026-09-26：
                        四个方案的战斗时长几乎一样 → 说明"舰队下拉选的方案"根本没到条目上）。
                        舰队级优先；没选舰队级才用条目自己的。 */
-                    if (fleet.apSet) shipEntry.apSet = fleet.apSet;
+                    const _set = fleet.apSet || activeSet(); if (_set) shipEntry.apSet = _set;
                     for(let i=0; i<shipEntry.count; i++) dest.push(createShipInstance(shipEntry, side, isEscort, !isEscort));
                 });
             };
@@ -3341,7 +3361,7 @@
                 [...fleet.main, ...fleet.reinforcement].forEach(shipEntry => {
                     /* ★★ 同 collect：开战这一刻按【舰队级】选的总体加点方案给条目打标。
                        否则"舰队下拉选了方案"不会生效（用户 2026-09-26 实测四个方案时长几乎一样）。 */
-                    if (fleet.apSet) shipEntry.apSet = fleet.apSet;
+                    const _set = fleet.apSet || activeSet(); if (_set) shipEntry.apSet = _set;
                     for(let i=0; i<shipEntry.count; i++) {
                         const inst = createShipInstance(shipEntry, side, isEscort, isEscorted);
                         inst.instId = 'si'+(++instSeq);      // 单位唯一 id（母舰被毁时用它找到自己的载机）
@@ -4602,8 +4622,9 @@
             const rows = Object.keys(_nk).map(ft => {
                 const f = (typeof fleetData !== 'undefined') ? fleetData[ft] : null; if (!f) return '';
                 const n = [].concat(f.main || [], f.reinforcement || []).length; if (!n) return '';
-                return '<div style="font-size:11px;padding:2px 0;">· ' + _nk[ft] + '：<b style="color:' + (f.apSet ? 'var(--accent-green)' : 'var(--text-secondary)') + '">'
-                     + (f.apSet ? ('「' + f.apSet + '」') : '默认（加点页当前那套）') + '</b> <span style="color:var(--text-muted)">' + n + ' 条</span></div>';
+                const _s2 = f.apSet || activeSet();
+                return '<div style="font-size:11px;padding:2px 0;">· ' + _nk[ft] + '：<b style="color:' + (_s2 ? 'var(--accent-green)' : 'var(--text-secondary)') + '">'
+                     + (_s2 ? ('「' + _s2 + '」' + (f.apSet ? '' : '（全局）')) : '默认（加点页当前那套）') + '</b> <span style="color:var(--text-muted)">' + n + ' 条</span></div>';
             }).join('');
             if (rows) html += '<div style="margin-top:12px;padding:8px;border:1px solid rgba(45,74,111,.5);border-radius:6px;">'
                             + '<b style="color:var(--gold)">⚙ 本场各舰队使用的加点方案</b>' + rows + '</div>';
@@ -4707,6 +4728,9 @@
         }, {passive: true});
     }
 
+    document.addEventListener('DOMContentLoaded', function () {
+        try { const w = document.getElementById('activeSetBarWrap'); if (w) w.innerHTML = activeSetBar(); } catch (e) { }
+    });
     document.addEventListener('DOMContentLoaded', init);
     // 预先加载加点数据（含 slug→编号 映射），否则强化弹窗里列不出"已保存的加点方案"
     setTimeout(async () => {
