@@ -1756,29 +1756,15 @@
         fleet.apSet = name || null;
         const all = [].concat(fleet.main || [], fleet.reinforcement || []);
         all.forEach(e => { if(name) e.apSet = name; else delete e.apSet; });
-        try { saveStore(); } catch (e) { }                 // ★ 持久化：原来没存 → 刷新就丢
+        try { saveFleetsToStorage(); } catch (e) { }       // ★ 持久化：原来调的是本页不存在的 saveStore() → 静默失败
         refreshFleetViews();
         showToast(name ? ('本舰队总体加点 = 「' + name + '」（' + all.length + ' 条已套用，开战时生效）') : '本舰队改回「默认总体加点」');
     }
-    /* ★★ 全局「当前使用哪套总体加点」（用户 2026-09-26：只要选一次，所有舰队都生效）
-       优先级：舰队级 apSet > 全局 __ACTIVE_SET__ > 默认（加点页当前那套） */
-    const ACTIVE_SET_KEY = 'lagrange_active_set';
-    function activeSet() { try { return localStorage.getItem(ACTIVE_SET_KEY) || ''; } catch (e) { return ''; } }
-    function setActiveSet(name) {
-        try { if (name) localStorage.setItem(ACTIVE_SET_KEY, name); else localStorage.removeItem(ACTIVE_SET_KEY); } catch (e) { }
-        refreshFleetViews();
-        showToast(name ? ('全局总体加点 = 「' + name + '」（所有舰队开战都按它算）') : '全局改回「默认（加点页当前那套）」');
-    }
-    /* 顶部工具条里的全局总体加点下拉 */
-    function activeSetBar() {
-        let sets = [];
-        try { sets = JSON.parse(localStorage.getItem('lagrange_addpoint_sets') || '[]') || []; } catch (e) { }
-        const cur = activeSet();
-        let opts = '<option value="">总体加点:默认</option>';
-        sets.forEach(x => { opts += '<option value="' + apEsc(x.name) + '"' + (cur === x.name ? ' selected' : '') + '>总体加点:' + apEsc(x.name) + '</option>'; });
-        if (!sets.length) opts += '<option value="__go">（还没有总体加点方案，点这里去存）</option>';
-        return '<select class="btn btn-sm" style="font-size:10px;max-width:210px" title="全局总体加点：选一次，所有舰队开战都按它算（在舰船加点页点「💾 存总体加点方案」）" onchange="setActiveSet(this.value)">' + opts + '</select>';
-    }
+    /* ★★ 已删除「全局当前使用哪套总体加点」(lagrange_active_set) ——
+       用户 2026-09-26 明确要求：战斗模拟不要再跑那个全局总体加点方案，
+       只认【本舰队方框右侧下拉选的】和【战舰配队页随配队带过来的】那一套。
+       保留那个全局键还有个隐患：它会覆盖配队带过来的方案（fleet.apSet 为空时被它顶上）。
+       注意：这里**不要**再把 activeSet() 加回来。 */
     /* 去「舰船加点」页配这艘船的方案（带上官方编号，直接跳到那艘船） */
     function apGoAddpoint(shipId){
         const cdn = (typeof BP_MAP !== 'undefined' && BP_MAP && BP_MAP[shipId]) ? BP_MAP[shipId].cdnId : shipId;
@@ -3335,7 +3321,7 @@
                     /* ★★ 开战这一刻按【舰队级】选的总体加点方案给条目打标（用户 2026-09-26：
                        四个方案的战斗时长几乎一样 → 说明"舰队下拉选的方案"根本没到条目上）。
                        舰队级优先；没选舰队级才用条目自己的。 */
-                    const _set = fleet.apSet || activeSet(); if (_set) shipEntry.apSet = _set;
+                    const _set = fleet.apSet; if (_set) shipEntry.apSet = _set;
                     for(let i=0; i<shipEntry.count; i++) dest.push(createShipInstance(shipEntry, side, isEscort, !isEscort));
                 });
             };
@@ -3360,7 +3346,7 @@
                 [...fleet.main, ...fleet.reinforcement].forEach(shipEntry => {
                     /* ★★ 同 collect：开战这一刻按【舰队级】选的总体加点方案给条目打标。
                        否则"舰队下拉选了方案"不会生效（用户 2026-09-26 实测四个方案时长几乎一样）。 */
-                    const _set = fleet.apSet || activeSet(); if (_set) shipEntry.apSet = _set;
+                    const _set = fleet.apSet; if (_set) shipEntry.apSet = _set;
                     for(let i=0; i<shipEntry.count; i++) {
                         const inst = createShipInstance(shipEntry, side, isEscort, isEscorted);
                         inst.instId = 'si'+(++instSeq);      // 单位唯一 id（母舰被毁时用它找到自己的载机）
@@ -3480,6 +3466,16 @@
         s.apBuild = shipEntry.apBuild || null;
         /* ★ 整套方案名（舰队级）：这条船用哪一整套加点。空 = 用单船方案/默认。 */
         s.apSet = shipEntry.apSet || null;
+        /* ★★ 加点来源留痕（开战时每条船记一笔"我最后用的是哪套"）。
+           用户 2026-09-26 反复遇到"选了方案没生效"，光看配置看不出到底用没用；
+           这个是【引擎真正查到的那个来源】，战报直接按它统计 —— 骗不了人。 */
+        try {
+            const _ap = (typeof apOf === 'function') ? apOf(s.id, s.apBuild, s.apSet) : null;
+            s._apSrc = !_ap ? '无加点'
+                     : _ap._fromSet   ? ('总体方案「' + _ap._fromSet + '」')
+                     : _ap._fromBuild ? ('单船方案「' + _ap._fromBuild + '」')
+                     : '加点页当前那套';
+        } catch (e) { s._apSrc = '?'; }
         /* ★ 伪装舰种（如 FSV830 用模块伪装成驱逐舰）：船级 disguiseAs，
            或【所选模块变体】上自带 disguiseAs（disguiseModule 非空时只在该模块被选中才生效） */
         s.disguiseAs = shipEntry.disguiseAs || null;
@@ -3789,13 +3785,18 @@
         battleRunning = false; battlePaused = false;
         if(battleTimer) clearTimeout(battleTimer);
         battleState = null; battleLogs = []; instSeq = 0;
-        $('battleTimeDisplay').textContent = '时间: 0.0s';
-        $('battleStatus').textContent = '就绪';
-        $('battleLog').innerHTML = '';
-        $('battleAllyShips').innerHTML = '<div style="color:var(--text-muted);text-align:center;">点击"开始战斗"</div>';
-        $('battleEnemyShips').innerHTML = '<div style="color:var(--text-muted);text-align:center;">点击"开始战斗"</div>';
-        $('allyTotalHp').style.width = '100%'; $('allyTotalHp').className = 'hp-bar-fill high';
-        $('enemyTotalHp').style.width = '100%'; $('enemyTotalHp').className = 'hp-bar-fill high';
+        /* ⚠️ 这里原来写的是 battleAllyShips / battleEnemyShips / allyTotalHp / enemyTotalHp —— 这 4 个 id
+           在改版后已经不存在（现在是 battleShips0..3 / allyTotalHpText / enemyTotalHpText），
+           $() 拿到 null → 赋 innerHTML 直接抛异常 → 「🔄 重置」和「配队同步」只做了一半就中断。
+           现在改成当前 UI 的 id，并且逐个判空（缺元素不再让整页崩）。 */
+        const setEl = (id, fn) => { const el = $(id); if (el) { try { fn(el); } catch(e){} } };
+        setEl('battleTimeDisplay', el => el.textContent = '时间: 0.0s');
+        setEl('battleStatus', el => el.textContent = '就绪');
+        setEl('battleLog', el => el.innerHTML = '');
+        ['battleShips0','battleShips1','battleShips2','battleShips3'].forEach(id =>
+            setEl(id, el => el.innerHTML = '<div style="color:var(--text-muted);text-align:center;">点击"开始战斗"</div>'));
+        setEl('allyTotalHpText', el => el.textContent = '0 / 0');
+        setEl('enemyTotalHpText', el => el.textContent = '0 / 0');
     }
 
     function runBattleLoop() {
@@ -4614,22 +4615,27 @@
             </div>
         </div>`;
 
-        /* ★ 战报里写明【每个舰队实际用的加点方案】——用户 2026-09-26：
-           加在战斗日志里会被后面几十条刷掉（日志只显示最后 20 条），所以放战报保底。 */
+        /* ★★ 战报里写明【引擎真正查到的加点来源】——用户 2026-09-26 反复遇到"选了方案没生效"。
+           不再去读配置（配置里有 ≠ 开战时用上了），而是直接统计【参战实例】上留下的 _apSrc
+           （createShipInstance 里逐船查 apOf 记下来的），所以这一行不会说谎。
+           放战报而不是战斗日志：日志只显示最后 20 条，会被刷掉。 */
         try {
-            const _nk = { 'ally-escort': '我方护航', 'ally-escorted': '我方被护航', 'enemy-escort': '敌方护航', 'enemy-escorted': '敌方被护航' };
-            const rows = Object.keys(_nk).map(ft => {
-                const f = (typeof fleetData !== 'undefined') ? fleetData[ft] : null; if (!f) return '';
-                const n = [].concat(f.main || [], f.reinforcement || []).length; if (!n) return '';
-                /* 舰队级没选时，看【条目自己带的 apSet】（比如从配队页带过来的）——
-                   这才是开战时真正生效的那个 */
-                const _entrySet = [].concat(f.main || [], f.reinforcement || []).map(e => e.apSet).filter(Boolean)[0] || '';
-                const _s2 = f.apSet || _entrySet;
-                return '<div style="font-size:11px;padding:2px 0;">· ' + _nk[ft] + '：<b style="color:' + (_s2 ? 'var(--accent-green)' : 'var(--text-secondary)') + '">'
-                     + (_s2 ? ('「' + _s2 + '」' + (f.apSet ? '' : '（全局）')) : '默认（加点页当前那套）') + '</b> <span style="color:var(--text-muted)">' + n + ' 条</span></div>';
+            const _grp = [['我方护航', bs.allyEscort], ['我方被护航', bs.allyEscorted],
+                          ['敌方护航', bs.enemyEscort], ['敌方被护航', bs.enemyEscorted]];
+            const rows = _grp.map(([nm, arr]) => {
+                const a = (arr || []).filter(s => s && s.position !== 'aircraft');   // 载机跟母舰同一套，不重复列
+                if (!a.length) return '';
+                const cnt = {};
+                a.forEach(s => { const k = s._apSrc || '?'; cnt[k] = (cnt[k] || 0) + 1; });
+                const keys = Object.keys(cnt);
+                const txt = keys.map(k => (cnt[k] > 1 ? k + '×' + cnt[k] : k)).join(' + ');
+                const hasPlan = keys.some(k => /方案/.test(k));
+                return '<div style="font-size:11px;padding:2px 0;">· ' + nm + '：<b style="color:'
+                     + (hasPlan ? 'var(--accent-green)' : 'var(--text-secondary)') + '">' + txt + '</b>'
+                     + '<span style="color:var(--text-muted)"> （' + a.length + ' 艘）</span></div>';
             }).join('');
             if (rows) html += '<div style="margin-top:12px;padding:8px;border:1px solid rgba(45,74,111,.5);border-radius:6px;">'
-                            + '<b style="color:var(--gold)">⚙ 本场各舰队使用的加点方案</b>' + rows + '</div>';
+                            + '<b style="color:var(--gold)">⚙ 本场实际采用的加点（引擎逐船查到的来源）</b>' + rows + '</div>';
         } catch (e) { }
         // Per-ship stats
         html += '<div style="margin-top:12px;"><b>各舰船详情:</b></div>';
@@ -4768,6 +4774,12 @@
                 e.count=s.qty||1; e.selectedModules={};
                 if(s.mods) Object.keys(s.mods).forEach(function(k){ e.selectedModules[k]=s.mods[k]; });
                 if(s.pos) e.position=s.pos;                      // 站位（影响直射/分排）
+                /* ★★ 加点方案名必须原样带过来 —— 这是「选了总体加点方案没生效」的真因之一：
+                   配队页 exportFleet 明明导出了 apSet/apBuild，这里却从 SHIP_DATABASE 重建条目时
+                   把这两个字段整段丢掉 → 开战时条目上没有方案名 → apOf 落到「加点页当前那套」
+                   → 表现就是「四个方案时长几乎一样」。 */
+                if(s.apSet) e.apSet=s.apSet;
+                if(s.apBuild) e.apBuild=s.apBuild;
                 recalcAircraftSlots(e);                          // 先算载机位，再挂载机
                 // 载机：模拟器要求「完整舰船对象 + count + slot」
                 e.aircraft=[];
