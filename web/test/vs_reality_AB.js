@@ -192,7 +192,7 @@ async function RUN(planSideIdx) {
     const ok = pc == null ? '' : (Math.abs(pc) < 10 ? ' ✅' : (Math.abs(pc) < 25 ? ' ⚠️' : ' ❌'));
     console.log('  ' + name.padEnd(18) + String(s).padEnd(12) + String(Math.round(g)).padEnd(12) + f(pc) + ok);
   };
-  console.log('\n===== 与游戏战报对比（列：模拟 / 游戏3场中位 / 差值） =====');
+  console.log('\n===== 与游戏战报对比（列：模拟N次均值 / 游戏3场平均值 / 差值） =====');
   console.log('  指标                模拟        游戏        差值');
   /* ⚠️ 顶部那两个数（695/620）是【人口=指挥值】，不是结构值 —— 不能当血量靶子比。
      结构值的真值来自你那张「结构值变动」曲线图：A ≈425万、B ≈550万。 */

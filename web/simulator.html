@@ -4154,7 +4154,11 @@
                         // 「武器分散打击」：每发换一个目标（在原候选里分散）
                         let tgt = ws.currentTarget;
                         if(mtN > 1) {
-                            const pool = enemies.filter(e => e.alive && e.hp > 0);
+                            /* ★★ 「武器分散打击」的候选池原来只看 alive —— 会把对舰武器分散到【载机】上，
+                               绕过前面所有对空规则（非对空武器不打载机）。实测 A 的载机因此死得太早
+                               （A 队对空只有面板的 20%，而游戏是 50%）。这里补上同样的两条限制。 */
+                            let pool = enemies.filter(e => targetable(e) && (e.position !== 'aircraft' || aaCanTarget(w, e)));
+                            if(!pool.length) pool = enemies.filter(e => e.alive && e.hp > 0);
                             if(pool.length) tgt = pool[Math.floor(Math.random() * pool.length)];
                         }
                         executeShot(ship, tgt, w, ws, bs);
