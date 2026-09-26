@@ -1734,7 +1734,12 @@
     function apEsc(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
     /* ★ 舰队级「整套加点方案」下拉（用户 2026-09-25）：
        选中后把 set 名写到【本舰队每条船条目】的 apSet 上 —— 所以 4 个舰队各选各的、互不影响。
-       「默认」= 用加点页当前那整套（lagrange_addpoint）。 */
+       「默认」= 用加点页当前那整套（lagrange_addpoint）。
+       ⚠️⚠️ 下面 onchange 里的 fid 必须写成 [转义引号 + 闭合引号] 再拼接（即 \' 后面紧跟一个 '）。
+       原来这里少写了一个闭合引号 → 生成的是 simSetFleetApSet(' + fid + ', this.value)，
+       fid 变成字符串里的【字面量】→ fleetData[" + fid + "] 是 undefined → 函数第一行就 return：
+       【选了方案什么都不发生、而且不报任何错】。用户 2026-09-26 报的"选了没生效"就是这个。
+       改这种内联事件时，改完务必打开页面看一眼 getAttribute('onchange') 的实际内容。 */
     function fleetApSetSelect(fid){
         if (typeof fleetData === 'undefined') return '';
         fid = fid || currentFleetType;
@@ -1748,7 +1753,7 @@
         return '<select class="btn btn-sm" style="font-size:10px;max-width:190px"'
              + ' title="这个舰队用哪一套总体加点（在舰船加点页点「💾 存总体加点方案」）"'
              + ' onclick="event.stopPropagation()"'
-             + ' onchange="event.stopPropagation();simSetFleetApSet(\' + fid + \', this.value)">' + opts + '</select>';
+             + ' onchange="event.stopPropagation();simSetFleetApSet(\'' + fid + '\', this.value)">' + opts + '</select>';
     }
     function simSetFleetApSet(fid, name){
         if (name === '__go') { location.href = 'addpoint.html'; return; }
