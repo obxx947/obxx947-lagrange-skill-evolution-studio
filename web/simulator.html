@@ -4230,7 +4230,15 @@
 
         // Check direct fire limitation (直射武器必须先清前排)
         if(weapon.weaponType === 'direct') {
-            const canAttack = getDirectFireTargets(ship, aliveEnemies);
+            const _canAll = getDirectFireTargets(ship, aliveEnemies);
+            if(_canAll.length===0) return null;
+            /* ★★★ 对空武器判据（见下方 _aaPrimary 注释）：非对空武器从候选里【剔除载机】，
+               否则序列 [驱逐舰/护卫舰 → 护航艇 → 战机] 会在舰船打完后自动转去挑护航艇
+               （星云追逐者的脉冲炮就是这么打了 41 万对空的，游戏里只有 2150）。 */
+            const _aw0 = /战机|护航艇|载机|无人机|登陆舰/;
+            const _t00 = (weapon.targets && weapon.targets[0] && weapon.targets[0].types) || [];
+            const _aaPrim0 = _t00.some(x => _aw0.test(String(x)));
+            const canAttack = _aaPrim0 ? _canAll : _canAll.filter(e => e.position !== 'aircraft');
             if(canAttack.length===0) return null;
             /* ★ 舰队级机制 cutInSub（切入作战）：舰队不是作战对象的主目标时
                   （即本舰在【被护航舰队】里），优先选血量最低的 N 个目标 */
@@ -4251,10 +4259,18 @@
                     return match[Math.floor(Math.random()*Math.min(match.length, splitCount))];
                 }
             }
-            /* ★ 纯对舰炮（攻击序列里没有任何载机类）别把火力浪费在载机上 —— 只从舰船里挑 */
+            /* ★★★ 按知识库《战斗机制·四、防空机制》：对空武器是【独立分类】（主动防空 / 被动防空），
+               不是"任何武器都能打空"。判据用【攻击序列的第一项】：
+                 · 序列 [舰载机/战机/护航艇…] 开头 = 对空武器 → 可以打载机
+                 · 序列 [驱逐舰/护卫舰…] 开头 = 对舰武器 → 不打载机（即使序列后面列了载机类）
+               依据：游戏战报里 太阳鲸（带维塔斯B010/A021、BR050、刺鳐、星云、索姆河）对空只有 2150，
+               而 猎兵（带 CV-T800 主动防空艇）有 3.3 万、枪骑兵（区域防空驱逐舰）有对空输出。
+               原来按"序列里任何位置有载机类"判 → 星云追逐者的脉冲炮（序列首项是驱逐舰/护卫舰）
+               打了 41 万对空，把 A 队对空整体抬到 76 万（游戏 21 万）。 */
             const _airWords = /战机|护航艇|载机|无人机|登陆舰/;
-            const _seqHasAir = targets.some(tg => (tg.types||[]).some(x => _airWords.test(String(x))));
-            if(!_seqHasAir) {
+            const _t0 = (targets[0] && targets[0].types) || [];
+            const _aaPrimary = _t0.some(x => _airWords.test(String(x)));
+            if(!_aaPrimary) {
                 const noAir = canAttack.filter(e => e.position !== 'aircraft');
                 if(noAir.length) return noAir[Math.floor(Math.random()*noAir.length)];
             }
@@ -4263,8 +4279,12 @@
 
         // Follow attack sequence (攻击序列) for projectile weapons
         const targets = weapon.targets || [];
+        /* ★ 同上：只有【对空武器】（序列首项是载机类）才允许把载机当目标 */
+        const _aw = /战机|护航艇|载机|无人机|登陆舰/;
+        const _aaPrim = ((targets[0] && targets[0].types) || []).some(x => _aw.test(String(x)));
         for(const tg of targets) {
-            const match = aliveEnemies.filter(e=>targetable(e) && tg.types.some(t=>matchesType(e,t)));
+            const match = aliveEnemies.filter(e=>targetable(e) && tg.types.some(t=>matchesType(e,t))
+                && (_aaPrim || e.position !== 'aircraft'));
             if(match.length>0) {
                 const splitCount = Math.max(1, Math.round(match.length / 2.5));
                 return match[Math.floor(Math.random()*Math.min(match.length, splitCount))];
@@ -4275,7 +4295,7 @@
            原来这条兜底对投射武器也包含载机，导致太阳鲸/猎兵那些"轰炸机+攻击脉冲炮艇"
            把火力打到载机上：实测它们的对空 39.3万/33.7万，而游戏里分别是 2150/3.3万。 */
         const _airW = /战机|护航艇|载机|无人机|登陆舰/;
-        const _seqAir = targets.some(tg => (tg.types||[]).some(x => _airW.test(String(x))));
+        const _seqAir = ((targets[0] && targets[0].types) || []).some(x => _airW.test(String(x)));
         let _al = aliveEnemies.filter(e => targetable(e) && (_seqAir || e.position !== 'aircraft'));
         if(!_al.length) _al = aliveEnemies.filter(e=>targetable(e));
         if(!_al.length) return null;
