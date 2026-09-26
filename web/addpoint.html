@@ -623,7 +623,15 @@ function liveBarHtml() {
     const 次数 = (w0.ammo || 1) * (w0.attacks || 1) * (w0.mounts || 1);
     const 冷却 = Math.round(((w0.cooldown || 0) * (1 - Math.min(95, O.cooldownReduction || 0) / 100)) * 100) / 100;
     const 锁定 = Math.round(((w0.lockTime || 0) * (1 - Math.min(95, O.lockReduction || 0) / 100)) * 100) / 100;
+    /* ★ 每分钟面板对舰/对空伤害（预估）＝ 面板DPM × 加点倍率
+       倍率 = (1+单发加成%) ÷ (1−冷却减免%)  —— 单发和冷却都直接线性影响每分钟输出 */
+    const _mul = (1 + (O.singleDmg || 0) / 100) / Math.max(0.05, 1 - Math.min(95, O.cooldownReduction || 0) / 100);
+    const d0 = w0.dpm || {};
+    const 对舰 = Math.round((d0.antiShip || 0) * _mul);
+    const 对空 = Math.round((d0.antiAir || 0) * _mul);
     h += '<span class="seg"><span class="k">' + esc(w0.name || '本系统武器') + '</span>'
+       + lv1('w_dpm_ship', 对舰, '/分', '对舰', true)
+       + lv1('w_dpm_air', 对空, '/分', '对空', true)
        + lv1('w_single', 单发, '', '单发', true)
        + lv1('w_times', 次数, ' 发', '攻击次数', true)
        + lv1('w_cooldown', 冷却, 's', '冷却', true)
