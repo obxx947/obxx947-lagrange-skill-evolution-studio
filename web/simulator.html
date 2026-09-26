@@ -4359,6 +4359,11 @@
             return acIsAttacking(ac);                              // 反击/区域：只打正在攻击的
         return true;                                               // 没标类型：按调用方已做的序列判定
     }
+    /* ★ 标定常数（2026-09-26）：实测双方总伤害都比游戏低约 15%~30%（A -16%、B -29%），
+       而"时长"只偏长 ~10% —— 三个指标同向，说明是【整体输出偏低】而不是分布错。
+       成因推测：按面板反推发数时用的命中率系数，比引擎实际掷出的平均命中略高 → 发数偏小。
+       数值由 A/B 两队的实测标定得出；要回退把 1.25 改回 1 即可。 */
+    const SHOTS_CALIB = 1.25;
     function shotsOf(w) {
         if (!w) return 1;
         if (w.shotsPerCycle > 0) return w.shotsPerCycle;
