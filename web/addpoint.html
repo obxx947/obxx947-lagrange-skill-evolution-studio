@@ -462,6 +462,13 @@ function computeStats() {
     else if (st.multi <= 1) v = st.perLevel ? st.perLevel[L] : null;
     if (typeof v !== 'number') { skipped++; skippedList.push({ node: n, stat: st.stat }); return; }
     out[st.stat] += v; counted++;
+    /* ★ 多机制（st.stats）：同句里的其它机制吃同一个值（见 simulator 里同名注释） */
+    (st.stats || []).forEach(k2 => {
+      if (k2 === st.stat) return;
+      if (GROUP_M.indexOf(k2) >= 0) return;
+      if (!IN(k2)) return;
+      out[k2] = (out[k2] || 0) + v;
+    });
   }); });
   return { out, counted, skipped, other, pureRef, decoded, modOnly, mech, cond, skippedList, pureRefList, condList };
 }
@@ -496,6 +503,12 @@ function sysBreakdownHtml() {
       const v = (st.perLevel && st.perLevel[L] != null) ? st.perLevel[L] : (st.perLevel ? st.perLevel[st.perLevel.length - 1] : 0);
       if (typeof v !== 'number' || !v) return;
       agg[st.stat] = (agg[st.stat] || 0) + v; any++;
+      /* ★ 多机制：兄弟项同值（跟上面同源） */
+      (st.stats || []).forEach(k2 => {
+        if (k2 === st.stat) return;
+        if (!GROUP_A.some(g => g[0] === k2) && !GROUP_B.some(g => g[0] === k2) && !GROUP_H.some(g => g[0] === k2)) return;
+        if (typeof v === 'number') agg[k2] = (agg[k2] || 0) + v;
+      });
     });
     if (!any) return;
     const parts = Object.keys(agg).map(k => (STATS.labels[k] || k) + ' +' + (Math.round(agg[k] * 100) / 100));

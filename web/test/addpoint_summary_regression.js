@@ -114,6 +114,8 @@ const check = (n, ok, d) => { if (ok) { pass++; console.log('PASS ' + n + (d ? (
   check('[13] 加点/手填里没暴击时「暴击率」不显示', R4.没暴击时不显示 === true);
   check('[13] 手加暴击 25% 后「暴击率」出现且显示 25', R4.手加暴击后出现 === true);
   check('[13] 手填结构值能强制覆盖', R4.手填结构值生效 === true);
+
+  /* ============ ⑤ 多机制节点：两边吃同一个值 ============ */
   await b.close();
   console.log('\n==== ' + pass + ' 通过 / ' + fail + ' 失败 ====');
   process.exit(fail ? 1 : 0);

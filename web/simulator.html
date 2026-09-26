@@ -2516,6 +2516,17 @@
                 }
                 const tt = shipTgt(k);
                 tt[k] = (tt[k]||0) + v; counted++;      // ★ 必须累加：一个系统里可能有好几个同类节点
+                /* ★★ 多机制（st.stats）：一句话里写了两个机制的，两边吃【同一个值】。
+                   例：太阳鲸「载机/无人机飞行时间和主武器冷却时间减少{101}%」
+                   —— 原来 classify() 首个匹配就返回，只拿到飞行时间，冷却被整块丢掉。
+                   用户 2026-09-25 核对原文确认两边是同一个数。 */
+                (st.stats || []).forEach(k2 => {
+                    const kk2 = alias(k2);
+                    if (kk2 === k) return;
+                    if (AP_A.indexOf(kk2) < 0 && AP_B.indexOf(kk2) < 0 && AP_H.indexOf(kk2) < 0) return;
+                    const t2 = shipTgt(kk2);
+                    t2[kk2] = (t2[kk2] || 0) + v;
+                });
             } else other++;
         });
         /* 手填（加点页的「+追加」与旧的 4 个手填位）：一律算舰船级，叠加到自动汇总之上 */
