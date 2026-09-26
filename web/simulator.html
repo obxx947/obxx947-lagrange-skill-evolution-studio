@@ -4396,7 +4396,13 @@
         const t = String((w && w.antiAirType) || '');
         if (t.indexOf('active') >= 0) return true;                 // 主动防空：任何载机、先手可打
         if (t.indexOf('counter') >= 0 || t.indexOf('area') >= 0 || t.indexOf('passive') >= 0) {
-            const tg = ac && ac.currentTarget;
+            /* ★★ 2026-09-27 修真 bug：原来读 `ac.currentTarget`，但引擎里
+               currentTarget 只存在每门武器的 weaponStates[i].currentTarget 上，
+               舰船/载机对象上【从来没赋值过】→ tg 恒为 undefined
+               → 反击/区域防空武器全部返回 false → 【整个反击防空失效】
+               （实测：天枢 8304 炮、矛 7120 炮、猎兵 9690 炮全打在舰船上，一炮没打载机） */
+            let tg = (ac.weaponStates || []).map(x => x.currentTarget)
+                       .find(t => t && t.alive && t.hp > 0 && t.position !== 'aircraft') || null;
             if (!tg || !tg.alive) return false;                    // 这架载机没有在打人 → 不触发
             if (tg.position === 'aircraft') return false;          // 它在打载机，不是打舰船
             /* ★ 2026-09-27【回退】先前把「同排」限制放开（改成只要载机在打我方任何舰船就触发）。
@@ -4408,7 +4414,7 @@
                扩展为「自身未被攻击时，可对攻击同排友舰的舰载机进行打击」（卡利莱恩/灼热/普鲁图斯三艘官方点名加强）。
                实测：收紧时 天枢（中排）/矛（前排）的反击防空一炮不开（游戏里分别 10.0万/6.7万）；
                放宽到「只要那架敌机在打我方任一舰船」后两侧对空都向常。 */
-            return true;
+            return tg === self || (tg.position === self.position); // 自身 或 同排友方（官方 2026/01/07 改版口径）
         }
         return true;                                               // 没标类型：按调用方已做的序列判定
     }
