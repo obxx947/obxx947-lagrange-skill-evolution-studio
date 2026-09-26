@@ -4238,7 +4238,8 @@
             const _aw0 = /战机|护航艇|载机|无人机|登陆舰/;
             const _t00 = (weapon.targets && weapon.targets[0] && weapon.targets[0].types) || [];
             const _aaPrim0 = _t00.some(x => _aw0.test(String(x)));
-            const canAttack = _aaPrim0 ? _canAll : _canAll.filter(e => e.position !== 'aircraft');
+            const canAttack = _canAll.filter(e => e.position !== 'aircraft'
+                || (_aaPrim0 && aaCanTarget(weapon, e)));
             if(canAttack.length===0) return null;
             /* ★ 舰队级机制 cutInSub（切入作战）：舰队不是作战对象的主目标时
                   （即本舰在【被护航舰队】里），优先选血量最低的 N 个目标 */
@@ -4284,7 +4285,7 @@
         const _aaPrim = ((targets[0] && targets[0].types) || []).some(x => _aw.test(String(x)));
         for(const tg of targets) {
             const match = aliveEnemies.filter(e=>targetable(e) && tg.types.some(t=>matchesType(e,t))
-                && (_aaPrim || e.position !== 'aircraft'));
+                && (e.position !== 'aircraft' || (_aaPrim && aaCanTarget(weapon, e))));
             if(match.length>0) {
                 const splitCount = Math.max(1, Math.round(match.length / 2.5));
                 return match[Math.floor(Math.random()*Math.min(match.length, splitCount))];
@@ -4296,7 +4297,7 @@
            把火力打到载机上：实测它们的对空 39.3万/33.7万，而游戏里分别是 2150/3.3万。 */
         const _airW = /战机|护航艇|载机|无人机|登陆舰/;
         const _seqAir = ((targets[0] && targets[0].types) || []).some(x => _airW.test(String(x)));
-        let _al = aliveEnemies.filter(e => targetable(e) && (_seqAir || e.position !== 'aircraft'));
+        let _al = aliveEnemies.filter(e => targetable(e) && (e.position !== 'aircraft' || (_seqAir && aaCanTarget(weapon, e))));
         if(!_al.length) _al = aliveEnemies.filter(e=>targetable(e));
         if(!_al.length) return null;
         return _al[Math.floor(Math.random()*_al.length)];
@@ -4340,6 +4341,24 @@
         return !ws.some(x => (x.cooldownRemaining || 0) <= 0);
     }
     function targetable(s) { return !!s && s.alive && !acInHangar(s); }
+    /* ★★★ 2026-09-26 按知识库《战斗机制·四、防空机制》实现防空三类的【触发条件】：
+         · 主动防空 active（全库 6 门）：可先手打击 → 任何载机都能打
+         · 反击防空 counter（156 门）：【在受到舰载机攻击时触发】→ 只能打【正在攻击我方】的载机
+         · 区域防空 area（34 门）：可打击【以同排友方舰船为目标】的载机 → 同上（近似同排为全场）
+       依据：游戏战报里 太阳鲸（带星云，其脉冲炮 antiAirType=counter）对空只有 2150，
+       而模拟器里它主动索敌打了 41 万 —— 因为原来完全没实现这个触发条件。 */
+    function acIsAttacking(ac) {
+        if (!ac || ac.position !== 'aircraft') return false;
+        return (ac.weaponStates || []).some(ws => ws.currentTarget && ws.currentTarget.alive
+            && ws.currentTarget.position !== 'aircraft');
+    }
+    function aaCanTarget(w, ac) {
+        const t = String((w && w.antiAirType) || '');
+        if (t.indexOf('active') >= 0) return true;                 // 主动防空：任何载机
+        if (t.indexOf('counter') >= 0 || t.indexOf('area') >= 0 || t.indexOf('passive') >= 0)
+            return acIsAttacking(ac);                              // 反击/区域：只打正在攻击的
+        return true;                                               // 没标类型：按调用方已做的序列判定
+    }
     function shotsOf(w) {
         if (!w) return 1;
         if (w.shotsPerCycle > 0) return w.shotsPerCycle;
@@ -4582,7 +4601,11 @@
         target.hp -= dmg;
         /* 战报口径：按【被打的目标是不是载机】分对舰/对空 */
         { const _st = dmgStatOf(bs, CR.side);
-          if (_st) { const _isAir = (target.position === 'aircraft');
+          /* ★ 游戏战报把「战机」和「护航艇」分成两类（战损统计里就是两行），
+             而"对空伤害"那一列实测只反映战机 —— 护航艇（corvette）算在"对舰"里。
+             依据：太阳鲸（带星云，脉冲炮序列 [驱逐/护卫 → 护航艇 → 战机]、antiAirType=counter）
+             对空只有 2150，而模拟器把打护航艇的伤害也记成对空 → 41 万。 */
+          if (_st) { const _isAir = (target.position === 'aircraft' && target.type !== 'corvette');
             if (_isAir) _st.antiAir += dmg; else _st.antiShip += dmg;
             const _p = statPer(_st, statRowOf(CR)); if (_p) { if (_isAir) _p.antiAir += dmg; else _p.antiShip += dmg; }
             if (CR.position === 'aircraft') { if (_isAir) _st.byAirAir = (_st.byAirAir||0) + dmg; else _st.byAirShip = (_st.byAirShip||0) + dmg; } } }
