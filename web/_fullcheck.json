@@ -1,0 +1,20 @@
+{
+ "ships": 187,
+ "noMatch": [],
+ "hpDiff": [
+  [
+   "猎兵级-重型载机巡洋舰",
+   1120,
+   76190,
+   "liebing-carrier"
+  ],
+  [
+   "卡利莱恩级-重炮护卫舰（重炮型B-TE版）",
+   10475,
+   9392,
+   "kalilaien-B"
+  ]
+ ],
+ "missingWeapon": [],
+ "ok": 187
+}
