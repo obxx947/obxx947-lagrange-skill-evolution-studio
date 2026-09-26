@@ -2664,7 +2664,7 @@
     /* 该舰的舰队机制（只保留生效的） */
     function fleetMechsOf(s) {
         const out = [];
-        const ap = (typeof apOf === 'function') ? apOf(s.id) : null;
+        const ap = (typeof apOf === 'function') ? apOf(s.id, s.apBuild, s.apSet) : null;
         if (!ap || !BP_STATS) return out;
         Object.keys(ap.lv).forEach(nid => {
             const L = ap.lv[nid]; if (!L || L <= 0) return;
@@ -2753,7 +2753,7 @@
            → 维修量×2、装甲消耗也×2。它 stat 归到 repairArmor，但"60秒"只写在说明里，
            所以这里按节点 id 特判一次（全库只此一个节点是这个机制）。 */
         (() => {
-            const ap = apOf(s.id, s.apBuild);
+            const ap = apOf(s.id, s.apBuild, s.apSet);
             if (ap && ap.lv && ap.lv['808010503'] > 0) s.repairDoubleAt = 60;
         })();
         if(!b) return;
@@ -2825,7 +2825,7 @@
         const fms = fleetMechsOf(s);
         if (fms.length) s.fleetMechs = fms;
         // 机制类：优先打击 / 协同指挥 / 三种打击 / 掩护 / 周期爆发
-        const mech = resolveAddPointMechanics(s.id);
+        const mech = resolveAddPointMechanics(s.id, s.apBuild, s.apSet);
         if(mech) {
             if(mech.targetPriority) s.targetPriority = mech.targetPriority;
             if(mech.company) s.company = mech.company;
@@ -2862,8 +2862,11 @@
     }
 
     /* 把"机制类加点"从配置里解析出来（协同指挥/三种打击/掩护/周期爆发/优先打击/公司） */
-    function resolveAddPointMechanics(slug) {
-        const ap = apOf(slug);
+    /* ★ 必须带 buildName/setName —— 否则【策略/机制类】加点永远读默认那套，
+       在模拟器里选方案完全没用（用户 2026-09-25 实测：方案1/方案2 都是 300 秒，
+       直接改加点变 160 秒，证明选的方案没被采用）。 */
+    function resolveAddPointMechanics(slug, buildName, setName) {
+        const ap = apOf(slug, buildName, setName);
         if(!ap || !BP_STATS) return null;
         const sysMap = (BP_SYSMAP && BP_SYSMAP[ap.cdnId]) ? BP_SYSMAP[ap.cdnId].systems : {};
         const nodeSys = {};
