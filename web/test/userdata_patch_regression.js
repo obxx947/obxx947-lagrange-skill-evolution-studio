@@ -79,7 +79,9 @@ const check = (n, ok, d) => { if (ok) { pass++; console.log('PASS ' + n + (d ? (
         for (let i = 0; i < 20 && !tgt.subSystems[0].destroyed; i++) { executeShot(atk, tgt, gun, { weapon: gun, module: { name: 'x' }, strengthen: {} }, { battleMode:'escort', time:0, allyShips:[], enemyShips:[] }); hits++; }
       } finally { Math.random = origRandom; }
       return { 打了几发才毁: hits, 剩余hp: tgt.subSystems[0].hp, 已毁: tgt.subSystems[0].destroyed,
-               单发系统伤害: Math.round(3000 * 1.5 * 1.3), 理论需要几发: Math.ceil(25500 / Math.round(3000 * 1.5 * 1.3)) };
+               /* ⚠️ 2026-09-26：调校系数由 1.3 改成 1.0（面板即真值，用户核对式里也没有调校项）
+                   → 这里跟着改成 1.0；断言本身（25500 ÷ 单发系统伤害 = 需要几发）没变 */
+               单发系统伤害: Math.round(3000 * 1.5 * 1.0), 理论需要几发: Math.ceil(25500 / Math.round(3000 * 1.5 * 1.0)) };
     })();
 
     /* ---------- ⑧ 往复作战循环时间 ---------- */
