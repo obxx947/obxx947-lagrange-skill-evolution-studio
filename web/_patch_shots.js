@@ -51,8 +51,19 @@ db.forEach(s => Object.keys(s.modules || {}).filter(k => !k.startsWith('_')).for
     const other = baseAir ? pAS : pAA;
     const cyc = (w.cooldown || 0) + (w.atkDuration || 0);
     if (!(base > 0) || !(w.singleDmg > 0) || !(cyc > 0)) { skip++; return; }
+    /* ★★★ 2026-09-26 联网查到的权威口径（B站wiki 日服公式）：
+       火力值(面板) = 单发 × 每分钟攻击次数 × 【命中率补正】× 武装数补正
+         · 命中率补正：舰船武器 = 0.15，舰载机武器 = 0.6   ← 固定系数，不是武器自带的分目标命中区间
+         · 武装数补正：1=1、2=0.8、3=0.7、4=0.6、5=0.45、6=0.3（(×N) 越高越衰减）
+       原来用"武器自己的分目标命中区间"当基准是错的（那是战斗中的逐目标命中率）。
+       注意：这意味着面板【已经含了 0.15/0.6】，所以引擎要复现面板，发数就得按它反推。 */
+    /* ★ 但 0.15 / 0.6 只适用于【防空武器】（知识库原话就是"舰载防空武器/机载防空武器"）；
+       普通武器仍用自身攻击序列里该类目标的命中区间（50~70% 这类）。 */
+    const _isAA = _seqFirstAir;
+    const _isAircraftWeapon = (s.position === 'aircraft');
     let hBase = hitOf(w, baseAir);
-    if (hBase == null) { hBase = 0.6; noHit++; }     // 没有该类命中行 → 用引擎默认区间 50~70 的中点
+    if (_isAA) hBase = _isAircraftWeapon ? 0.6 : 0.15;
+    if (hBase == null) { hBase = 0.6; noHit++; }
     const need = Math.round(base * cyc / (w.singleDmg * 60 * hBase));
     const natural = (w.ammo || 1) * (w.attacks || 1) * (w.mounts || 1);
     if (need >= 1) {
