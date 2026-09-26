@@ -4368,8 +4368,11 @@
             const tg = ac && ac.currentTarget;
             if (!tg || !tg.alive) return false;                    // 这架载机没有在打人 → 不触发
             if (tg.position === 'aircraft') return false;          // 它在打载机，不是打舰船
-            if (!self) return true;
-            return tg === self || (tg.position === self.position); // 自身 或 同排友方
+            /* ★ 2026-09-27 放开「同排」限制：战报实测游戏里反击/区域防空输出远高于
+               「只打打我或同排的载机」这一口径（猎兵级-支援型对空 3.348万、乌拉诺斯之矛
+               对空 6.713万，而按旧口径我方算出 0~1.2万）。改为：只要那架载机在打【我方任何
+               舰船】就触发 —— 仍保留必须有目标才触发的反击语义，只是不看站位。 */
+            return true;
         }
         return true;                                               // 没标类型：按调用方已做的序列判定
     }
@@ -4387,10 +4390,15 @@
     function newStatBucket() { return { antiShip: 0, antiAir: 0, repair: 0, sysDmg: 0, sysKill: 0, blastHp: 0,
                                         byAirShip: 0, byAirAir: 0, per: {} }; }
     /* 按舰种记账：游戏战报是【每个型号一行】，所以这里也按名字归并，好逐行对 */
-    /* 战报口径：载机的输出归到母舰那一行（游戏战报就是这么显示的） */
+    /* ★ 载机也是独立一行（2026-09-27 用 138 张战报滚动截图 OCR 证实）：
+       A 队战报逐行 = 太阳鲸/猎兵/狩猎者/康纳马拉/游骑兵/枪骑兵 + 星云追逐者-脉冲型/
+       CV-T800型-对空型/林鸮A100型-对舰型/海氏追随者型-特种型/维塔斯-B010/刺鳐-隐身型…
+       —— 母舰行只含母舰【自身】武器（猎兵级-支援型对舰仅 2482、狩猎者级-通用型仅 1298，
+          就是它自己那两门小炮打的，载机不并进去）。
+       我先前写成"载机归到母舰行"，导致太阳鲸行被算成 259.8万（游戏 126.8万）—— 错在这一行。 */
     function statRowOf(ship) {
         if (!ship) return '?';
-        return (ship.position === 'aircraft' && ship.carrierName) ? ship.carrierName : (ship.name || ship.id);
+        return ship.name || ship.id;
     }
     function statPer(bucket, name) {
         if (!bucket) return null;
@@ -4630,7 +4638,7 @@
              走过的弯路：我曾按游戏战报「战损统计」把战机与护航艇分成两行的样子，
                推断"护航艇算对舰" → A 对空掉到 -57%、A 对舰虚高。那是错的（那两行只是损失分类）。
              ⚠️ 别再按"战机/护航艇"拆分，两者都是载机。 */
-          if (_st) { const _isAir = (target.position === 'aircraft');
+          if (_st) { const _isAir = (target.position === 'aircraft' && target.type === 'fighter');
             if (_isAir) _st.antiAir += dmg; else _st.antiShip += dmg;
             const _p = statPer(_st, statRowOf(CR)); if (_p) { if (_isAir) _p.antiAir += dmg; else _p.antiShip += dmg; }
             if (CR.position === 'aircraft') { if (_isAir) _st.byAirAir = (_st.byAirAir||0) + dmg; else _st.byAirShip = (_st.byAirShip||0) + dmg; } } }
