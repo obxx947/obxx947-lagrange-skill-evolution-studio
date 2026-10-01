@@ -4467,11 +4467,18 @@
         if (!bucket) return null;
         const k = String(name || '?');
         return bucket.per[k] || (bucket.per[k] = { antiShip: 0, antiAir: 0, repair: 0, sysDmg: 0, sysKill: 0, blastHp: 0,
-            byTarget: {}, byWeapon: {} });
+            byTarget: {}, byWeapon: {}, byFleet: {} });
     }
     /* ★ 2026-09-27 新增（用户要求，对齐游戏「数据分析」页） */
     function statSub(row, key) { const m = row.byTarget; return m[key] || (m[key] = { s: 0, a: 0, sysDmg: 0, sysKill: 0, blast: 0 }); }
     function statSubW(row, key) { const m = row.byWeapon; return m[key] || (m[key] = { s: 0, a: 0, sysDmg: 0, sysKill: 0, blast: 0 }); }
+    /* ★★ 2026-09-27 用户要求：护航有 2 个舰队时，要能切到「在打其中某一个舰队时」的战报
+       —— 所以再加一维：按【目标所属舰队】（护航 / 被护航）拆。 */
+    function fleetTagOf(t) {
+        if (!t) return '?';
+        return (t.isEscort ? '护航队' : '被护航队');
+    }
+    function statSubF(row, key) { const m = row.byFleet; return m[key] || (m[key] = { s: 0, a: 0, sysDmg: 0, sysKill: 0, blast: 0 }); }
     function dmgStatOf(bs, side) {
         if (!bs) return null;
         if (!bs.stat) bs.stat = { ally: newStatBucket(), enemy: newStatBucket() };
@@ -4646,6 +4653,7 @@
                         _p.blastHp += pen; _p.antiShip += pen;
                         const _tr0 = statSub(_p, statRowOf(target)); _tr0.blast += pen; _tr0.s += pen;
                         const _wr0 = statSubW(_p, _wName); _wr0.blast += pen; _wr0.s += pen;
+                        const _fr0 = statSubF(_p, fleetTagOf(target)); _fr0.blast += pen; _fr0.s += pen;
                     }
                 } }   // 殉爆伤害 + 计入结构值伤害
                 addBattleLog('system', `🔧 ${target.name||target.id} 的${sys.name||label}被破坏! (-${pen}HP)`);
@@ -4671,8 +4679,8 @@
                     if (sys.maxHp > 0) {
                         const _sdm = Math.max(1, Math.round(systemDmg * (weapon.mounts || 1) / _nShots));
                         sys.hp -= _sdm;
-                        if (_sst) { _sst.sysDmg += _sdm; const _p = statPer(_sst, statRowOf(CR)); if (_p) { _p.sysDmg += _sdm; statSub(_p, statRowOf(target)).sysDmg += _sdm; statSubW(_p, _wName).sysDmg += _sdm; } }  // 战报口径：系统伤害
-                        if (sys.hp <= 0) { sys.hp = 0; sys.destroyed = true; sys.repairTimer = 0; if (_sst) { _sst.sysKill++; const _p = statPer(_sst, statRowOf(CR)); if (_p) { _p.sysKill++; statSub(_p, statRowOf(target)).sysKill++; statSubW(_p, _wName).sysKill++; } } sysHpPenalty(sys, sysName); }
+                        if (_sst) { _sst.sysDmg += _sdm; const _p = statPer(_sst, statRowOf(CR)); if (_p) { _p.sysDmg += _sdm; statSub(_p, statRowOf(target)).sysDmg += _sdm; statSubW(_p, _wName).sysDmg += _sdm; statSubF(_p, fleetTagOf(target)).sysDmg += _sdm; } }  // 战报口径：系统伤害
+                        if (sys.hp <= 0) { sys.hp = 0; sys.destroyed = true; sys.repairTimer = 0; if (_sst) { _sst.sysKill++; const _p = statPer(_sst, statRowOf(CR)); if (_p) { _p.sysKill++; statSub(_p, statRowOf(target)).sysKill++; statSubW(_p, _wName).sysKill++; statSubF(_p, fleetTagOf(target)).sysKill++; } } sysHpPenalty(sys, sysName); }
                         else addBattleLog('system', `🔧 ${target.name||target.id} 的${sys.name}受创 -${systemDmg * (weapon.mounts||1)}（剩 ${Math.max(0, Math.round(sys.hp))}/${sys.maxHp}）`);
                     } else {
                         sys.destroyed = true; sys.repairTimer = 0;
@@ -4726,6 +4734,8 @@
                 if (_isAir) _tr.a += dmg; else _tr.s += dmg;
                 const _wr = statSubW(_p, _wName);
                 if (_isAir) _wr.a += dmg; else _wr.s += dmg;
+                const _fr = statSubF(_p, fleetTagOf(target));
+                if (_isAir) _fr.a += dmg; else _fr.s += dmg;
             }
             if (CR.position === 'aircraft') { if (_isAir) _st.byAirAir = (_st.byAirAir||0) + dmg; else _st.byAirShip = (_st.byAirShip||0) + dmg; } } }
         if(target.hp <= 0) {
@@ -4982,7 +4992,9 @@
         return Object.values(rows).map(r => {
             const p2 = per[r.name] || {};
             return Object.assign(r, {
-                antiShip: p2.antiShip || 0, antiAir: p2.antiAir || 0, repair: p2.repair || 0,
+                antiShip: (REPORT_STATE.view.startsWith('F:') ? ((p2.byFleet || {})[REPORT_STATE.view.slice(2)] || {}).s || 0 : (p2.antiShip || 0)),
+                antiAir: (REPORT_STATE.view.startsWith('F:') ? ((p2.byFleet || {})[REPORT_STATE.view.slice(2)] || {}).a || 0 : (p2.antiAir || 0)),
+                repair: p2.repair || 0,
                 sysDmg: p2.sysDmg || 0, sysKill: p2.sysKill || 0, blastHp: p2.blastHp || 0,
                 byTarget: p2.byTarget || {}, byWeapon: p2.byWeapon || {},
                 life: (r.n && duration > 0) ? (r.alive / (r.n * duration)) : 0
@@ -5057,6 +5069,13 @@
         return h + '</table></td></tr>';
     }
 
+    function hasTwoFleets() {
+        const bs = battleState; if (!bs) return false;
+        const a2 = (bs.allyEscort || []).some(s => s.alive) && (bs.allyEscorted || []).some(s => s.alive);
+        const e2 = (bs.enemyEscort || []).some(s => s.alive) && (bs.enemyEscorted || []).some(s => s.alive);
+        return a2 || e2;
+    }
+
     function _reportSelect(side, key) {
         const s = REPORT_STATE.sel;
         REPORT_STATE.sel = (s && s.side === side && s.key === key) ? null : { side: side, key: key };
@@ -5095,8 +5114,10 @@
             + ' ｜ 战斗时长 ' + duration.toFixed(1) + ' 秒 ｜ 存活 我方 ' + aliveA + '/' + bs.allyShips.length + ' · 敌方 ' + aliveB + '/' + bs.enemyShips.length
             + ' ｜ ' + (!bs.ended ? '未结束' : (aliveB === 0 && aliveA > 0 ? '<b style="color:var(--accent-blue)">我方胜利</b>' : (aliveA === 0 && aliveB > 0 ? '<b style="color:var(--accent-red)">敌方胜利</b>' : '两败俱伤'))) + '</span></div>'
             + '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">'
-            + '<span style="font-size:11px;color:var(--text-secondary);">视角：</span>'
-            + tab('both', '双方') + tab('ally', '只看我方') + tab('enemy', '只看敌方')
+            + '<span style="font-size:11px;color:var(--text-secondary);">统计范围：</span>'
+            + tab('both', '全部') + tab('ally', '只看我方') + tab('enemy', '只看敌方')
+            + (hasTwoFleets() ? '<span style="font-size:11px;color:var(--text-secondary);margin-left:8px;">只看在打：</span>'
+                + tab('F:护航队', '护航队') + tab('F:被护航队', '被护航队') : '')
             + '<span style="flex:1"></span>'
             + '<button class="btn btn-sm" style="font-size:11px;" onclick="_reportSave()">💾 保存战报</button></div>'
             + '<div style="color:var(--text-muted);font-size:10.5px;margin-bottom:6px;">点任意舰船行可展开详情；详情里「结构值伤害」与「系统伤害」分列，破坏系统扣的 5% 血量已计入结构值伤害（括号里是殉爆部分）。</div>'
