@@ -824,6 +824,17 @@
         </div>
     </div>
 
+    <!-- 「数据分析」详情弹窗（按游戏那页做的，2026-10-02） -->
+    <div class="modal-overlay" id="bsdModal" style="display:none;">
+        <div class="modal" style="max-width:980px;width:96%;">
+            <div class="modal-header">
+                <span class="modal-title">｜ 数据分析</span>
+                <button class="modal-close" onclick="document.getElementById('bsdModal').style.display='none'">✕</button>
+            </div>
+            <div id="bsdBody" style="font-size:12px;background:#0d141d;"></div>
+        </div>
+    </div>
+
     <!-- Custom Ship Modal -->
     <div class="modal-overlay" id="customShipModal">
         <div class="modal" style="max-width:700px;">
@@ -4625,6 +4636,17 @@
         // +1e-6 是浮点护栏：160×(1+0.40−1.00) 在 JS 里会算成 63.99999999999998，直接 floor 会少 1 点。
         dmg = Math.max(0, Math.floor(dmg + 1e-6));
 
+        /* ★ 2026-10-02 详情页需要的逐舰数据（对齐游戏「数据分析」页）：
+           _taken=承伤量（落到这艘船身上的实际伤害）；_takenBy=谁打的 */
+        if (target) {
+            target._taken = (target._taken || 0) + dmg;
+            if (dmg > 0) {
+                const _tk = statRowOf(CR);
+                target._takenBy = target._takenBy || {};
+                target._takenBy[_tk] = (target._takenBy[_tk] || 0) + dmg;
+            }
+        }
+
         // Escort protection: escorted ships immune to damage while escort alive
         if(bs && target.isEscorted) {
             const escortAlive = target.side==='ally' ? bs.allyEscortAlive : bs.enemyEscortAlive;
@@ -4657,8 +4679,10 @@
                     }
                 } }   // 殉爆伤害 + 计入结构值伤害
                 addBattleLog('system', `🔧 ${target.name||target.id} 的${sys.name||label}被破坏! (-${pen}HP)`);
+                { (target._events = target._events || []).push({ t: (bs && bs.time) || 0, txt: (sys.name || label || '系统') + '损坏' }); }
             } else {
                 addBattleLog('system', `🔧 ${target.name||target.id} 的${sys.name||label}被破坏!`);
+                { (target._events = target._events || []).push({ t: (bs && bs.time) || 0, txt: (sys.name || label || '系统') + '损坏' }); }
             }
         };
         if(weapon.subSystemTargets && target.subSystems && target.subSystems.length > 0) {
@@ -4871,6 +4895,7 @@
 
                 if(bestTarget) {
                     const _hpBefore = bestTarget.hp;
+                    bestTarget._healed = (bestTarget._healed || 0) + actualRepair;   // 受维修量（详情页用）
                     bestTarget.hp = Math.min(bestTarget.maxHp, bestTarget.hp + actualRepair);
                     /* 战报口径：维修量只记【真的回上去的血】（顶到上限的那部分不算） */
                     { const _st = dmgStatOf(bs, ship.side); if (_st) { const _d = bestTarget.hp - _hpBefore; _st.repair += _d;
@@ -5050,7 +5075,7 @@
             const icon = sample ? _badge(sample) : '';
             const variant = (sample && sample.variant) || '';
             h += '<div style="background:' + (on ? 'rgba(255,215,0,.16)' : (i % 2 ? bgB : bgA)) + ';cursor:pointer;'
-                + 'border-bottom:1px solid rgba(255,255,255,.06);" onclick="_reportSelect(\'' + side + '\',' + JSON.stringify(r.name).replace(/"/g, '&quot;') + ')">'
+                + 'border-bottom:1px solid rgba(255,255,255,.06);" onclick="bsdOpen(\'' + side + '\',' + JSON.stringify(r.name).replace(/"/g, '&quot;') + ')">'
                 /* 第一行：图标 + 主名 + 徽章 */
                 + '<div style="display:flex;align-items:center;font-size:11.5px;padding:4px 8px 0;">'
                 + '<span style="flex:1;color:#fff;">' + (on ? '▾ ' : '') + icon + ' ' + nm.main + '</span>'
@@ -5106,6 +5131,164 @@
         const a2 = (bs.allyEscort || []).some(s => s.alive) && (bs.allyEscorted || []).some(s => s.alive);
         const e2 = (bs.enemyEscort || []).some(s => s.alive) && (bs.enemyEscorted || []).some(s => s.alive);
         return a2 || e2;
+    }
+
+    /* ============================================================
+       「数据分析」详情弹窗 —— 按游戏那个页面的版式做的（2026-10-02）
+        左栏：舰名-型号 + ΔN + 四个分析盒（当前项金框高亮）+ 逐舰事件日志
+        右栏：按目标（按武器分组 → 逐目标行）/ 按武器 / 生存时间占比分析 / 承伤分析
+       ============================================================ */
+    let SD = { side: 'ally', key: null, mode: 'target' };
+
+    function _sdUnits() {
+        const bs = battleState; if (!bs) return [];
+        const arr = (SD.side === 'ally' ? bs.allyShips : bs.enemyShips) || [];
+        return arr.filter(u => statRowOf(u) === SD.key);
+    }
+    function _sdRow() {
+        const bs = battleState; if (!bs) return null;
+        const per = ((bs.stat && bs.stat[SD.side]) || {}).per || {};
+        return per[SD.key] || null;
+    }
+    function _fmtT(sec) {
+        const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+        return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    }
+
+    function bsdOpen(side, key) {
+        SD.side = side; SD.key = key; SD.mode = 'target';
+        const m = $('bsdModal'); if (m) m.style.display = 'flex';
+        bsdRender();
+    }
+    function _sdSetMode(mode) { SD.mode = mode; bsdRender(); }
+
+    function bsdRender() {
+        const bs = battleState; if (!bs) return;
+        const el = $('bsdBody'); if (!el) return;
+        const units = _sdUnits(), row = _sdRow() || {};
+        const dur = bs.time || 1;
+        const u0 = units[0] || {};
+        const hpName = _shipCardName(SD.key);
+        const variant = u0.variant || hpName.sub;
+        const aliveN = units.filter(u => u.alive).length;
+
+        const box = (label, val, mode, cls) => '<div onclick="_sdSetMode(\'' + mode + '\')" style="cursor:pointer;margin-bottom:6px;padding:7px 9px;border:1px solid '
+            + (SD.mode === mode ? '#d9a441' : 'rgba(255,255,255,.13)') + ';border-radius:4px;background:'
+            + (SD.mode === mode ? 'rgba(217,164,65,.13)' : 'rgba(0,0,0,.32)') + ';">'
+            + '<div style="font-size:10.5px;color:' + (SD.mode === mode ? '#e6bf6a' : '#8fa0b5') + ';">' + label + '</div>'
+            + '<div style="font-size:19px;font-weight:800;color:' + (cls || '#fff') + ';line-height:1.25;">' + val + '</div></div>';
+
+        const life = (row.life != null) ? row.life : (units.length ? units.reduce((a, u) => a + (u._aliveSec || 0), 0) / (units.length * dur) : 0);
+        const evs = [];
+        units.forEach(u => (u._events || []).forEach(e => evs.push(e)));
+        evs.sort((a, b) => a.t - b.t);
+
+        let left = '<div style="width:230px;flex:none;border-right:1px solid rgba(255,255,255,.1);padding:10px;">'
+            + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">'
+            + '<span style="font-size:16px;">' + _badge(u0) + '</span>'
+            + '<b style="flex:1;font-size:13px;color:#fff;">' + hpName.main + (variant ? ' - ' + variant : '') + '</b>'
+            + '<span style="font-size:11.5px;color:#e6bf6a;">Δ' + units.length + '</span></div>'
+            + '<div style="height:54px;background:rgba(0,0,0,.35);border:1px dashed rgba(255,255,255,.12);border-radius:4px;'
+            + 'display:flex;align-items:center;justify-content:center;color:#5f7089;font-size:10.5px;margin-bottom:8px;">'
+            + (u0.type || '') + ' · 站位 ' + (u0.position || '?') + '</div>'
+            + box('对舰伤害分析', _w(row.antiShip || 0), 'target', '#ffb08a')
+            + box('对空伤害分析', _w(row.antiAir || 0), 'weapon', '#8fc6ff')
+            + box('维修分析', _w(row.repair || 0), 'repair', '#8ce0a8')
+            + box('生存时间占比分析', Math.round(life * 100) + '%', 'life', '#fff')
+            + '<div style="margin-top:8px;font-size:10.5px;color:#8fa0b5;border-top:1px solid rgba(255,255,255,.1);padding-top:6px;">'
+            + '殉爆 ' + _w(row.blastHp || 0) + ' ｜ 击毁系统 ' + (row.sysKill || 0) + ' 次'
+            + ' ｜ 存活 ' + aliveN + '/' + units.length + '</div>'
+            + (evs.length ? '<div style="margin-top:8px;max-height:180px;overflow:auto;">'
+                + '<div style="font-size:10.5px;color:#8fa0b5;margin-bottom:3px;">事件日志</div>'
+                + evs.map(e => '<div style="font-size:10.5px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,.05);">'
+                    + '<span style="color:#e6bf6a;display:inline-block;width:44px;">' + _fmtT(e.t) + '</span>'
+                    + '<span style="color:#dfe7f3;">' + e.txt + '</span></div>').join('') + '</div>' : '')
+            + '</div>';
+
+        /* 右栏 */
+        const tab = (m, t) => '<button class="btn btn-sm" style="font-size:11px;' + (SD.mode === m ? 'outline:1px solid #d9a441;' : '') + '" onclick="_sdSetMode(\'' + m + '\')">' + t + '</button>';
+        let right = '<div style="flex:1;min-width:0;padding:10px;overflow:auto;">'
+            + '<div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;">'
+            + tab('target', '按目标') + tab('weapon', '按武器') + tab('repair', '维修去向') + tab('life', '生存时间占比分析') + tab('taken', '承伤分析')
+            + '</div>';
+
+        const th = (cols) => '<tr style="color:#c6d2e2;background:rgba(255,255,255,.06);">'
+            + cols.map(c => '<th style="text-align:' + (c[1] || 'right') + ';padding:4px 6px;font-weight:600;">' + c[0] + '</th>').join('') + '</tr>';
+
+        if (SD.mode === 'target' || SD.mode === 'weapon') {
+            const map = SD.mode === 'weapon' ? (row.byWeapon || {}) : (row.byTarget || {});
+            const keys = Object.keys(map).filter(k => { const v = map[k]; return v.s || v.a || v.sysDmg || v.sysKill; })
+                .sort((a, b) => (map[b].s + map[b].a) - (map[a].s + map[a].a));
+            const total = keys.reduce((a, k) => a + map[k].s + map[k].a, 0) || 1;
+            if (SD.mode === 'target') {
+                /* 按武器分组（游戏里就是「武器名(伤害占比)」当分组标题，下面列逐目标） */
+                const groups = {};
+                Object.keys(row.byWeapon || {}).forEach(w => { groups[w] = []; });
+                right += '<table style="width:100%;border-collapse:collapse;font-size:11px;">'
+                    + th([['目标', 'left'], ['结构总伤害(殉爆)'], ['系统伤害(数量)'], ['对空伤害']]);
+                if (SD.mode === 'target') {
+                    keys.forEach(k => {
+                        const v = map[k];
+                        right += '<tr style="border-top:1px solid rgba(255,255,255,.07);">'
+                            + '<td style="text-align:left;padding:4px 6px;color:#dfe7f3;">' + k + '</td>'
+                            + '<td style="padding:4px 6px;color:#ffb08a;font-weight:600;">' + _w(v.s) + (v.blast > 0 ? ' <span style="color:#8fa0b5">(' + _w(v.blast) + ')</span>' : '') + '</td>'
+                            + '<td style="padding:4px 6px;color:#c9a6ff;">' + _w(v.sysDmg) + (v.sysKill > 0 ? ' <span style="color:#8fa0b5">(' + v.sysKill + ')</span>' : '') + '</td>'
+                            + '<td style="padding:4px 6px;color:#8fc6ff;">' + (v.a > 0 ? _w(v.a) : '0') + '</td></tr>';
+                    });
+                }
+                right += '</table>';
+            } else {
+                right += '<table style="width:100%;border-collapse:collapse;font-size:11px;">'
+                    + th([['武器', 'left'], ['结构总伤害(殉爆)'], ['系统伤害(数量)'], ['对空伤害'], ['占比']]);
+                keys.forEach(k => {
+                    const v = map[k];
+                    right += '<tr style="border-top:1px solid rgba(255,255,255,.07);">'
+                        + '<td style="text-align:left;padding:4px 6px;color:#dfe7f3;">' + k + '</td>'
+                        + '<td style="padding:4px 6px;color:#ffb08a;">' + _w(v.s) + '</td>'
+                        + '<td style="padding:4px 6px;color:#c9a6ff;">' + _w(v.sysDmg) + (v.sysKill > 0 ? ' (' + v.sysKill + ')' : '') + '</td>'
+                        + '<td style="padding:4px 6px;color:#8fc6ff;">' + (v.a > 0 ? _w(v.a) : '0') + '</td>'
+                        + '<td style="padding:4px 6px;color:#8fa0b5;">' + ((v.s + v.a) / total * 100).toFixed(0) + '%</td></tr>';
+                });
+                right += '</table>';
+            }
+        } else if (SD.mode === 'repair') {
+            const map = row.byTarget || {};
+            const keys = Object.keys(map).filter(k => map[k].s || map[k].a).sort((a, b) => (map[b].s + map[b].a) - (map[a].s + map[a].a));
+            right += '<div style="font-size:11px;color:#8fa0b5;margin-bottom:5px;">本行维修量 ' + _w(row.repair || 0) + '（按被打的舰队/舰种归并；游戏里是「目标 + 维修量」两列）</div>'
+                + '<table style="width:100%;border-collapse:collapse;font-size:11px;">' + th([['目标（维修去向参考）', 'left'], ['该目标承受伤害']]);
+            keys.forEach(k => right += '<tr style="border-top:1px solid rgba(255,255,255,.07);">'
+                + '<td style="text-align:left;padding:4px 6px;">' + k + '</td><td style="padding:4px 6px;color:#ffb08a;">' + _w(map[k].s) + '</td></tr>');
+            right += '</table>';
+        } else if (SD.mode === 'life') {
+            /* 逐架一行（游戏里 CV-T800 ×12 就是 12 行，各有自己的生存时间/承伤量） */
+            right += '<table style="width:100%;border-collapse:collapse;font-size:11px;">'
+                + th([['#', 'left'], ['型号', 'left'], ['生存时间占比'], ['生存时间'], ['承伤量'], ['受维修量']]);
+            units.forEach((u, i) => {
+                const lr = u._aliveSec ? u._aliveSec / dur : 0;
+                right += '<tr style="border-top:1px solid rgba(255,255,255,.07);">'
+                    + '<td style="text-align:left;padding:4px 6px;color:#8fa0b5;">' + (i + 1) + '</td>'
+                    + '<td style="text-align:left;padding:4px 6px;">' + (u.variant || hpName.sub || SD.key) + (u.alive ? '' : ' <span style="color:#e08a8a">💀</span>') + '</td>'
+                    + '<td style="padding:4px 6px;color:' + (lr >= .8 ? '#dfe7f3' : lr >= .3 ? '#e8c98a' : '#e08a8a') + ';">' + Math.round(lr * 100) + '%</td>'
+                    + '<td style="padding:4px 6px;">' + _fmtT(u._aliveSec || 0) + '</td>'
+                    + '<td style="padding:4px 6px;color:#ff8a6b;">' + _w(u._taken || 0) + '</td>'
+                    + '<td style="padding:4px 6px;color:#8ce0a8;">' + _w(u._healed || 0) + '</td></tr>';
+            });
+            right += '</table>';
+        } else if (SD.mode === 'taken') {
+            right += '<table style="width:100%;border-collapse:collapse;font-size:11px;">'
+                + th([['承伤来源（谁打的）', 'left'], ['伤害']]);
+            const agg = {};
+            units.forEach(u => Object.keys(u._takenBy || {}).forEach(k => { agg[k] = (agg[k] || 0) + u._takenBy[k]; }));
+            Object.keys(agg).sort((a, b) => agg[b] - agg[a]).forEach(k => {
+                right += '<tr style="border-top:1px solid rgba(255,255,255,.07);"><td style="text-align:left;padding:4px 6px;">' + k + '</td>'
+                    + '<td style="padding:4px 6px;color:#ff8a6b;">' + _w(agg[k]) + '</td></tr>';
+            });
+            right += '<tr style="border-top:1px solid rgba(255,255,255,.18);font-weight:700;">'
+                + '<td style="text-align:left;padding:5px 6px;">合计承伤</td><td style="padding:5px 6px;color:#ff8a6b;">' + _w(units.reduce((a, u) => a + (u._taken || 0), 0)) + '</td></tr></table>';
+        }
+        right += '</div>';
+
+        el.innerHTML = '<div style="display:flex;min-height:420px;max-height:82vh;">' + left + right + '</div>';
     }
 
     function _reportSelect(side, key) {
