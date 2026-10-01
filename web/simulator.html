@@ -4363,17 +4363,18 @@
 
     // Direct fire weapon target selection (直射武器必须逐排攻击)
     function getDirectFireTargets(attacker, enemies) {
-        const rowOrder = ['前排','中排','后排'];
-        /* ★★★ 2026-09-26 修：载机的 position 是 'aircraft'，不在这三排里 ——
-           原实现"返回第一个有人的排"→ 只要敌方还有任何舰船，直射武器就【永远选不到载机】，
-           而防空炮几乎都是直射 → 防空炮一发都打不到载机（实测：B 队对空只有自身面板的 3.5%，
-           游戏里是 59%）。载机是飞行的，任何排都能打，所以这里把它并进候选池。 */
-        const air = enemies.filter(e => targetable(e) && e.position === 'aircraft');
-        for(let i=0; i<rowOrder.length; i++) {
-            const rowEnemies = enemies.filter(e=>e.position===rowOrder[i] && targetable(e));
-            if(rowEnemies.length > 0) return rowEnemies.concat(air);
-        }
-        return enemies.filter(e=>targetable(e));
+        const rowOrder = ['前排', '中排', '后排'];
+        /* ★★★ 2026-10-02 修真 bug：原来返回【第一个有人的排】（加载机）——
+           等于说“只要敌方前排还有船，直射武器就只能打前排”，【把攻击序列完全盖掉】了。
+           实测后果：康纳马拉（优先目标「大型舰船」，13.7万/分）与 游骑兵（24万/分）
+           全在打敌方前排的开阳级（5.2万血的驱逐舰）—— 实测它们 6 艘在 21~43 秒内全死，
+           而游戏里它们活了 86% 时间。受伤率也对得上：43万/分的火力打前排 = 康纳马拉+游骑兵的全部输出。
+           游戏机制：直射武器受阵型阻挡，但目标是【按攻击序列选】的；序列匹配到多排时才优先前面的排。
+           改法：返回【按排排序的全部候选】（前排在前），由序列筛选决定打谁。 */
+        const all = [];
+        rowOrder.forEach(rp => enemies.forEach(e => { if (e.position === rp && targetable(e)) all.push(e); }));
+        enemies.forEach(e => { if (e.position === 'aircraft' && targetable(e)) all.push(e); });
+        return all.length ? all : enemies.filter(e => targetable(e));
     }
 
     /* creditTo（可选）：战报里把这次攻击记在谁头上。
@@ -4403,6 +4404,11 @@
        改法：护航舰队还活着时，被护航舰队不进候选池。 */
     function escortProtected(s, bs) {
         if (!s || !s.isEscorted) return false;
+        /* ★★★ 2026-10-02：护航免疫只保护【舰船】，不保护【载机】。
+           依据：《战斗机制·三》"（载机）除开局在载机舰内进行首次锁敌外，
+           其余时间可视为对方阵型内的护卫舰"——已飞离本舰队阵型；
+           另：游戏战报1 里被护航队的载机生存占比只有 43%~88%（明显承伤）。 */
+        /* ⚠️ 2026-10-02 试过「载机不受护航免疫」单独上也会崩（时长 +92.4%）——已回滚。 */
         const b = bs || (typeof battleState !== 'undefined' ? battleState : null);
         if (!b) return false;
         return s.side === 'ally' ? !!b.allyEscortAlive : !!b.enemyEscortAlive;
@@ -4498,6 +4504,8 @@
     function executeShot(attacker, target, weapon, ws, bs, creditTo) {
         const CR = creditTo || attacker;
         const _wName = String((weapon && weapon.name) || '?');   // 供 byWeapon 拆分
+        /* ★ 2026-10-02 逐单位计数（CR=实际打出伤害的那个单位）—— 供【按舰队聚合】用：
+           原来只有按舰名归并的账本，而同一舰名可能同时在护航队与被护航队里，分不开。 */
         // 掩护：目标被友军掩护时，攻击改打那个掩护舰（掩护者还活着才生效）
         if(bs && target && target.coveredBy) {
             const side = target.side === 'ally' ? bs.allyShips : bs.enemyShips;
@@ -4751,6 +4759,9 @@
              ⚠️ 别再按"战机/护航艇"拆分，两者都是载机。 */
           if (_st) { const _isAir = (target.position === 'aircraft' && target.type === 'fighter');
             if (_isAir) _st.antiAir += dmg; else _st.antiShip += dmg;
+            /* ★ 逐单位计数（供【按舰队聚合】—— 同一舰名可能跨护航/被护航队，按舰名分不开） */
+            if (_isAir) CR._dealtAir = (CR._dealtAir || 0) + dmg; else CR._dealtShip = (CR._dealtShip || 0) + dmg;
+            target._lastHitBy = CR;   // 诊断：谁打的我
             const _p = statPer(_st, statRowOf(CR));
             if (_p) {
                 if (_isAir) _p.antiAir += dmg; else _p.antiShip += dmg;
@@ -4896,6 +4907,7 @@
                 if(bestTarget) {
                     const _hpBefore = bestTarget.hp;
                     bestTarget._healed = (bestTarget._healed || 0) + actualRepair;   // 受维修量（详情页用）
+                            ship._healOut = (ship._healOut || 0) + actualRepair;   // 治出去的维修量（按舰队聚合用）
                     bestTarget.hp = Math.min(bestTarget.maxHp, bestTarget.hp + actualRepair);
                     /* 战报口径：维修量只记【真的回上去的血】（顶到上限的那部分不算） */
                     { const _st = dmgStatOf(bs, ship.side); if (_st) { const _d = bestTarget.hp - _hpBefore; _st.repair += _d;
