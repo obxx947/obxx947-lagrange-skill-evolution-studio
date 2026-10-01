@@ -47,7 +47,13 @@ const PLANB = JSON.parse(fs.readFileSync(process.argv[4], 'utf8'));
     let ge = null;
     try { generateBattleReport(); } catch (e) { ge = e.message; }
     const el = document.getElementById('battleReportContent');
-    return { err: 0, ge: ge, dur: t, len: el ? (el.innerHTML || '').length : -1, txt: el ? (el.textContent || '') : 'NO-EL' };
+    let detail = '';
+    try {
+      const rows = el ? el.querySelectorAll('tr[onclick]') : [];
+      if (rows.length) { rows[0].click(); detail = (el.textContent||''); }
+      else detail = 'NO-ROWS';
+    } catch(e) { detail = 'CLICK-ERR '+e.message; }
+    return { err: 0, ge: ge, dur: t, len: el ? (el.innerHTML || '').length : -1, txt: el ? (el.textContent || '') : 'NO-EL', clicked: (detail||'') };
   }, PLANA, PLANB);
   console.log('pageerror:', errs.length ? errs : '(无)');
   if (out.err) { console.log('prepareBattle failed'); await b.close(); return; }
