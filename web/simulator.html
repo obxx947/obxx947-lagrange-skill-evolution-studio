@@ -5003,70 +5003,102 @@
           .sort((a, b) => (b.antiShip + b.antiAir) - (a.antiShip + a.antiAir));
     }
 
+    /* ★ 2026-10-02 按游戏「行动统计」的【版式】重做（先前只对了数据、样式差很远）：
+         · 每艘船是【一张卡片行】：左边舰种图标 + 主名 + 版本/评级徽章，
+           第二行是「ΔN 型号名」+ 右侧四列数值
+         · 左栏冷色（败方）/ 右栏暖色，表头四列 + 灰底「总计」行
+         · 顶部另加双方结构值进度条 + 胜负大字（见 renderBattleReport） */
+    function _shipCardName(nm) {
+        const i = nm.indexOf('-');
+        return i > 0 ? { main: nm.slice(0, i), sub: nm.slice(i + 1) } : { main: nm, sub: '' };
+    }
+    function _badge(s) {
+        const bt = { destroyer: '🔺', frigate: '🔹', cruiser: '🚀', battlecruiser: '🛡', battleship: '🚢', aircraftcarrier: '🛫', support: '🏥', fighter: '✈️', corvette: '🛸' };
+        return bt[s.type] || '·';
+    }
+
     function _statTable(side, bs, duration) {
         const list = _rowsOf(side, bs, duration);
         const tot = list.reduce((a, r) => ({ antiShip: a.antiShip + r.antiShip, antiAir: a.antiAir + r.antiAir, repair: a.repair + r.repair }), { antiShip: 0, antiAir: 0, repair: 0 });
         const units = (side === 'ally' ? bs.allyShips : bs.enemyShips) || [];
         const allAlive = units.reduce((a, u) => a + (u._aliveSec || 0), 0);
         const lifeAll = units.length && duration ? allAlive / (units.length * duration) : 0;
-        const col = side === 'ally' ? 'var(--accent-blue)' : 'var(--accent-red)';
+        const ally = side === 'ally';
+        const head = ally ? '#5a2f28' : '#243244';
+        const headBd = ally ? '#d9714f' : '#4a7fb5';
+        const bgA = ally ? 'rgba(120,60,40,.20)' : 'rgba(40,60,90,.20)';
+        const bgB = ally ? 'rgba(120,60,40,.09)' : 'rgba(40,60,90,.09)';
         const sel = REPORT_STATE.sel;
-        let h = '<div style="flex:1;min-width:0;">'
-            + '<div style="font-weight:700;color:' + col + ';padding:4px 0;border-bottom:2px solid ' + col + ';">'
-            + (side === 'ally' ? '🔵 我方' : '🔴 敌方')
-            + ' <span style="color:var(--text-secondary);font-weight:400;font-size:11px;">（' + units.length + ' 个单位）</span></div>'
-            + '<table style="width:100%;border-collapse:collapse;font-size:11px;">'
-            + '<tr style="color:var(--text-secondary);"><th style="text-align:left;padding:3px 4px;">舰种</th>'
-            + '<th style="text-align:right;">对舰伤害</th><th style="text-align:right;">对空伤害</th>'
-            + '<th style="text-align:right;">维修量</th><th style="text-align:right;">生存时间占比</th></tr>'
-            + '<tr style="border-top:1px solid rgba(45,74,111,.6);font-weight:700;background:rgba(255,255,255,.03);">'
-            + '<td style="text-align:left;padding:3px 4px;">总计</td>'
-            + '<td style="text-align:right;">' + _w(tot.antiShip) + '</td>'
-            + '<td style="text-align:right;">' + _w(tot.antiAir) + '</td>'
-            + '<td style="text-align:right;">' + _w(tot.repair) + '</td>'
-            + '<td style="text-align:right;">' + Math.round(lifeAll * 100) + '%</td></tr>';
-        list.forEach(r => {
+        let h = '<div style="flex:1;min-width:0;border:1px solid ' + headBd + '55;border-radius:4px;overflow:hidden;">'
+            + '<div style="background:' + head + ';color:#fff;font-weight:700;padding:5px 8px;border-bottom:2px solid ' + headBd + ';">'
+            + (ally ? '🔵 我方' : '🔴 敌方')
+            + '<span style="font-weight:400;font-size:11px;color:#cbd8e8;"> · ' + units.length + ' 个单位</span></div>'
+            + '<div style="display:flex;font-size:11px;color:#c6d2e2;background:rgba(0,0,0,.3);padding:4px 8px;">'
+            + '<span style="flex:1"></span><span style="width:76px;text-align:right;">对舰伤害</span>'
+            + '<span style="width:74px;text-align:right;">对空伤害</span><span style="width:70px;text-align:right;">维修量</span>'
+            + '<span style="width:66px;text-align:right;">生存时间占比</span></div>'
+            + '<div style="display:flex;font-size:11.5px;font-weight:700;background:rgba(255,255,255,.06);padding:5px 8px;border-bottom:1px solid rgba(255,255,255,.12);">'
+            + '<span style="flex:1">总计</span>'
+            + '<span style="width:76px;text-align:right;">' + _w(tot.antiShip) + '</span>'
+            + '<span style="width:74px;text-align:right;">' + _w(tot.antiAir) + '</span>'
+            + '<span style="width:70px;text-align:right;">' + _w(tot.repair) + '</span>'
+            + '<span style="width:66px;text-align:right;">' + Math.round(lifeAll * 100) + '%</span></div>';
+        list.forEach((r, i) => {
             const on = sel && sel.side === side && sel.key === r.name;
-            h += '<tr style="border-top:1px solid rgba(45,74,111,.2);cursor:pointer;' + (on ? 'background:rgba(255,215,0,.12);' : '') + '"'
-                + ' onclick="_reportSelect(\'' + side + '\',' + JSON.stringify(r.name).replace(/"/g, '&quot;') + ')" title="点击查看详情">'
-                + '<td style="text-align:left;padding:3px 4px;">' + (on ? '▾ ' : '▸ ') + r.name
-                + (r.n ? ' <span style="color:var(--text-muted)">×' + r.n + '</span>' : '') + '</td>'
-                + '<td style="text-align:right;">' + (r.antiShip > 0 ? _w(r.antiShip) : '0') + '</td>'
-                + '<td style="text-align:right;">' + (r.antiAir > 0 ? _w(r.antiAir) : '0') + '</td>'
-                + '<td style="text-align:right;">' + (r.repair > 0 ? _w(r.repair) : '0') + '</td>'
-                + '<td style="text-align:right;">' + Math.round(r.life * 100) + '%</td></tr>';
-            if (on) h += _detailRow(side, r, 5);
+            const nm = _shipCardName(r.name);
+            const sample = units.find(u => statRowOf(u) === r.name);
+            const icon = sample ? _badge(sample) : '';
+            const variant = (sample && sample.variant) || '';
+            h += '<div style="background:' + (on ? 'rgba(255,215,0,.16)' : (i % 2 ? bgB : bgA)) + ';cursor:pointer;'
+                + 'border-bottom:1px solid rgba(255,255,255,.06);" onclick="_reportSelect(\'' + side + '\',' + JSON.stringify(r.name).replace(/"/g, '&quot;') + ')">'
+                /* 第一行：图标 + 主名 + 徽章 */
+                + '<div style="display:flex;align-items:center;font-size:11.5px;padding:4px 8px 0;">'
+                + '<span style="flex:1;color:#fff;">' + (on ? '▾ ' : '') + icon + ' ' + nm.main + '</span>'
+                + '<span style="font-size:10px;color:#9fb0c7;border:1px solid rgba(255,255,255,.18);border-radius:3px;padding:0 4px;">'
+                + (sample ? (sample.commandValue || '?') : '?') + '</span></div>'
+                /* 第二行：ΔN + 型号 + 四列数值 */
+                + '<div style="display:flex;align-items:center;font-size:11px;padding:1px 8px 5px;">'
+                + '<span style="flex:1;color:#9fb0c7;">'
+                + '<span style="display:inline-block;min-width:20px;text-align:center;background:rgba(255,255,255,.10);border-radius:3px;margin-right:5px;">Δ' + (r.n || 0) + '</span>'
+                + (variant || nm.sub) + '</span>'
+                + '<span style="width:76px;text-align:right;' + (r.antiShip > 0 ? 'color:#ffb08a;font-weight:600;' : 'color:#6b7a8c;') + '">' + (r.antiShip > 0 ? _w(r.antiShip) : '0') + '</span>'
+                + '<span style="width:74px;text-align:right;' + (r.antiAir > 0 ? 'color:#8fc6ff;font-weight:600;' : 'color:#6b7a8c;') + '">' + (r.antiAir > 0 ? _w(r.antiAir) : '0') + '</span>'
+                + '<span style="width:70px;text-align:right;' + (r.repair > 0 ? 'color:#8ce0a8;font-weight:600;' : 'color:#6b7a8c;') + '">' + (r.repair > 0 ? _w(r.repair) : '0') + '</span>'
+                + '<span style="width:66px;text-align:right;color:' + (r.life >= .8 ? '#c9d6e4' : r.life >= .3 ? '#e8c98a' : '#e08a8a') + ';">' + Math.round(r.life * 100) + '%</span></div>';
+            if (on) h += _detailRow(side, r, 1);
         });
-        return h + '</table></div>';
+        return h + '</div>';
     }
 
-    /* 详情块：结构值伤害 与 系统伤害 分开列；可在「按目标 / 按武器」之间切换 */
+    /* 详情块：结构值伤害 与 系统伤害 分开列；可在「按目标 / 按武器 / 按舰队」之间切换 */
     function _detailRow(side, r, span) {
-        const map = REPORT_STATE.mode === 'weapon' ? r.byWeapon : r.byTarget;
+        const map = REPORT_STATE.mode === 'weapon' ? r.byWeapon : (REPORT_STATE.mode === 'fleet' ? r.byFleet : r.byTarget);
         const keys = Object.keys(map).filter(k => { const v = map[k]; return (v.s || v.a || v.sysDmg || v.sysKill); })
             .sort((a, b) => ((map[b].s + map[b].a) - (map[a].s + map[a].a)));
-        let h = '<tr><td colspan="' + span + '" style="padding:6px 8px 10px 18px;background:rgba(0,0,0,.25);">'
-            + '<div style="display:flex;gap:8px;align-items:center;margin-bottom:5px;flex-wrap:wrap;">'
-            + '<b style="color:var(--gold);">📋 ' + r.name + ' 详情</b>'
-            + '<button class="btn btn-sm" style="font-size:10px;" onclick="event.stopPropagation();_reportSetMode(\'target\')">按目标' + (REPORT_STATE.mode === 'target' ? ' ✅' : '') + '</button>'
-            + '<button class="btn btn-sm" style="font-size:10px;" onclick="event.stopPropagation();_reportSetMode(\'weapon\')">按武器' + (REPORT_STATE.mode === 'weapon' ? ' ✅' : '') + '</button>'
+        const lbl = REPORT_STATE.mode === 'weapon' ? '武器' : (REPORT_STATE.mode === 'fleet' ? '舰队' : '目标');
+        let h = '<div style="padding:8px 10px 10px 20px;background:rgba(0,0,0,.4);border-left:3px solid var(--gold);">'
+            + '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap;">'
+            + '<b style="color:var(--gold);font-size:11.5px;">📋 ' + r.name + ' 详情</b>'
+            + '<button class="btn btn-sm" style="font-size:10px;' + (REPORT_STATE.mode === 'target' ? 'outline:1px solid var(--gold);' : '') + '" onclick="event.stopPropagation();_reportSetMode(\'target\')">按目标</button>'
+            + '<button class="btn btn-sm" style="font-size:10px;' + (REPORT_STATE.mode === 'weapon' ? 'outline:1px solid var(--gold);' : '') + '" onclick="event.stopPropagation();_reportSetMode(\'weapon\')">按武器</button>'
+            + '<button class="btn btn-sm" style="font-size:10px;' + (REPORT_STATE.mode === 'fleet' ? 'outline:1px solid var(--gold);' : '') + '" onclick="event.stopPropagation();_reportSetMode(\'fleet\')">按舰队</button>'
             + '<span style="color:var(--text-secondary);font-size:10px;">生存时间占比 ' + Math.round(r.life * 100) + '% ｜ 殉爆 ' + _w(r.blastHp) + ' ｜ 击毁系统 ' + r.sysKill + ' 次</span>'
             + '</div>'
-            + '<table style="width:100%;border-collapse:collapse;font-size:10.5px;background:rgba(0,0,0,.2);">'
-            + '<tr style="color:var(--text-secondary);">'
-            + '<th style="text-align:left;padding:2px 4px;">' + (REPORT_STATE.mode === 'weapon' ? '武器' : '目标') + '</th>'
-            + '<th style="text-align:right;">结构值伤害(殉爆)</th><th style="text-align:right;">系统伤害(数量)</th>'
-            + '<th style="text-align:right;">对空伤害</th></tr>';
+            + '<table style="width:100%;border-collapse:collapse;font-size:10.5px;">'
+            + '<tr style="color:#c6d2e2;background:rgba(255,255,255,.05);">'
+            + '<th style="text-align:left;padding:3px 5px;">' + lbl + '</th>'
+            + '<th style="text-align:right;padding:3px 5px;">结构值伤害(殉爆)</th><th style="text-align:right;padding:3px 5px;">系统伤害(数量)</th>'
+            + '<th style="text-align:right;padding:3px 5px;">对空伤害</th></tr>';
         if (!keys.length) h += '<tr><td colspan="4" style="padding:4px;color:var(--text-muted);">（本行没有可拆分的记录）</td></tr>';
         keys.forEach(k => {
             const v = map[k];
-            h += '<tr style="border-top:1px solid rgba(45,74,111,.15);">'
-                + '<td style="text-align:left;padding:2px 4px;">' + k + '</td>'
-                + '<td style="text-align:right;">' + _w(v.s) + (v.blast > 0 ? ' <span style="color:var(--text-muted)">(' + _w(v.blast) + ')</span>' : '') + '</td>'
-                + '<td style="text-align:right;">' + _w(v.sysDmg) + (v.sysKill > 0 ? ' <span style="color:var(--text-muted)">(' + v.sysKill + ')</span>' : '') + '</td>'
-                + '<td style="text-align:right;">' + (v.a > 0 ? _w(v.a) : '0') + '</td></tr>';
+            h += '<tr style="border-top:1px solid rgba(255,255,255,.07);">'
+                + '<td style="text-align:left;padding:3px 5px;color:#dfe7f3;">' + k + '</td>'
+                + '<td style="text-align:right;padding:3px 5px;color:#ffb08a;">' + _w(v.s) + (v.blast > 0 ? ' <span style="color:var(--text-muted)">(' + _w(v.blast) + ')</span>' : '') + '</td>'
+                + '<td style="text-align:right;padding:3px 5px;color:#c9a6ff;">' + _w(v.sysDmg) + (v.sysKill > 0 ? ' <span style="color:var(--text-muted)">(' + v.sysKill + ')</span>' : '') + '</td>'
+                + '<td style="text-align:right;padding:3px 5px;color:#8fc6ff;">' + (v.a > 0 ? _w(v.a) : '0') + '</td></tr>';
         });
-        return h + '</table></td></tr>';
+        return h + '</table></div>';
     }
 
     function hasTwoFleets() {
@@ -5109,10 +5141,34 @@
         const aliveA = bs.allyShips.filter(s => s.alive).length, aliveB = bs.enemyShips.filter(s => s.alive).length;
         const V = REPORT_STATE.view;
         const tab = (v, t) => '<button class="btn btn-sm" style="font-size:11px;' + (V === v ? 'outline:1px solid var(--gold);' : '') + '" onclick="_reportSetView(\'' + v + '\')">' + t + '</button>';
-        let html = '<div style="font-weight:700;font-size:13px;margin-bottom:6px;">📊 行动统计'
+        /* 顶部：双方结构值进度条 + 胜负大字（游戏那个版式的样子） */
+        const hpA = bs.allyShips.reduce((a, s) => a + s.maxHp, 0), hpA0 = bs.allyShips.reduce((a, s) => a + (s.maxHp - Math.max(0, s.hp)), 0);
+        const hpB = bs.enemyShips.reduce((a, s) => a + s.maxHp, 0), hpB0 = bs.enemyShips.reduce((a, s) => a + (s.maxHp - Math.max(0, s.hp)), 0);
+        const bar = (cur, max, col) => '<div style="flex:1;height:12px;background:rgba(0,0,0,.55);border-radius:6px;overflow:hidden;">'
+            + '<div style="width:' + Math.max(0, Math.min(100, cur / (max || 1) * 100)).toFixed(1) + '%;height:100%;background:' + col + ';"></div></div>';
+        const result = !bs.ended ? '未结束' : (aliveB === 0 && aliveA > 0 ? '我方胜利' : (aliveA === 0 && aliveB > 0 ? '敌方胜利' : '两败俱伤'));
+        const rCol = /我方胜利/.test(result) ? '#7fb2ff' : /敌方胜利/.test(result) ? '#ff8a6b' : '#c9d6e4';
+        let html = '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">'
+            /* 左 = 敌方（冷色） | 中 = 胜负大字 | 右 = 我方（暖色）—— 和游戏那个版式一致 */
+            + '<div style="flex:1;min-width:0;">'
+            + '  <div style="display:flex;justify-content:space-between;font-size:11px;color:#ffb08a;margin-bottom:2px;">'
+            + '    <span>🔴 敌方</span><span>' + ((hpB-hpB0)/10000).toFixed(1) + '万 / ' + (hpB/10000).toFixed(1) + '万' + '</span></div>'
+            + '  <div style="height:14px;background:rgba(0,0,0,.55);border-radius:7px;overflow:hidden;border:1px solid rgba(255,138,107,.35);">'
+            + '    <div style="width:' + Math.max(0, Math.min(100, (hpB - hpB0) / (hpB || 1) * 100)).toFixed(1) + '%;height:100%;background:linear-gradient(90deg,#ff8a6b,#d94f2b);"></div></div>'
+            + '  <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">损失 ' + ((hpB0)/10000).toFixed(1)+"万" + ' 结构值</div></div>'
+            + '<div style="text-align:center;font-weight:800;font-size:19px;letter-spacing:2.5px;color:' + rCol + ';text-shadow:0 0 16px ' + rCol + '66;white-space:nowrap;padding:0 6px;">' + result + '</div>'
+            + '<div style="flex:1;min-width:0;">'
+            + '  <div style="display:flex;justify-content:space-between;font-size:11px;color:#8fc6ff;margin-bottom:2px;">'
+            + '    <span>🔵 我方</span><span>' + ((hpA-hpA0)/10000).toFixed(1) + '万 / ' + (hpA/10000).toFixed(1) + '万' + '</span></div>'
+            + '  <div style="height:14px;background:rgba(0,0,0,.55);border-radius:7px;overflow:hidden;border:1px solid rgba(127,178,255,.35);">'
+            + '    <div style="width:' + Math.max(0, Math.min(100, (hpA - hpA0) / (hpA || 1) * 100)).toFixed(1) + '%;height:100%;background:linear-gradient(90deg,#7fb2ff,#3f6ea8);"></div></div>'
+            + '  <div style="font-size:10px;color:var(--text-muted);margin-top:2px;text-align:right;">损失 ' + ((hpA0)/10000).toFixed(1)+"万" + ' 结构值</div></div>'
+            + '</div>'
+            + '<div style="font-weight:700;font-size:13px;margin-bottom:6px;">📊 行动统计'
             + '<span style="color:var(--text-secondary);font-weight:400;font-size:11px;">'
             + ' ｜ 战斗时长 ' + duration.toFixed(1) + ' 秒 ｜ 存活 我方 ' + aliveA + '/' + bs.allyShips.length + ' · 敌方 ' + aliveB + '/' + bs.enemyShips.length
-            + ' ｜ ' + (!bs.ended ? '未结束' : (aliveB === 0 && aliveA > 0 ? '<b style="color:var(--accent-blue)">我方胜利</b>' : (aliveA === 0 && aliveB > 0 ? '<b style="color:var(--accent-red)">敌方胜利</b>' : '两败俱伤'))) + '</span></div>'
+            + '</span></div>'
+            + '</span></div>'
             + '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">'
             + '<span style="font-size:11px;color:var(--text-secondary);">统计范围：</span>'
             + tab('both', '全部') + tab('ally', '只看我方') + tab('enemy', '只看敌方')
