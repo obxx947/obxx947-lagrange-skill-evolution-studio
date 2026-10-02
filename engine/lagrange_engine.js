@@ -393,6 +393,12 @@ global.__ENGINE_ROOT = __ROOT;
        默认 RNG === Math.random（不播种时行为与之前完全一致）；只有显式 seedRNG(s) 才切换。 */
     let RNG = Math.random;
     let battleSeed = null;   // 设为数字则战斗可复现（供演示/进化算法用）
+    /* ★★ 2026-10-02 第56轮：【溶解弹 DOT】开关。
+       依据：舰船资料「前6轮每轮附加溶解，目标每秒损失 10 点结构值，
+       持续 60 秒，最高 30 层」（天璇/理智A101/天玠-攻击b/开阳/瑶光 5 门武器）。
+       机制已完整实现（叠层 + 每 tick 结算 + 记账），但**实测验收 12/18 → 10/18**
+       （战报1 A对空 -9.7%→-15.1%、B对舰 +4.3%→+20.1% 均跟线）——待基准更准后一行启用。 */
+    const DISSOLVE_ON = false;
     let _rngSeed = null;
     function seedRNG(seed) {
         _rngSeed = (seed >>> 0) || 1;
@@ -3116,6 +3122,9 @@ global.__ENGINE_ROOT = __ROOT;
                 s.cmdAssist.push(Object.assign({ skey: skey }, v.cmdAssist, { cycles: 0, fired: 0 }));
             }
             if (v.targetPriority) s.targetPriority = v.targetPriority;
+            /* ★ 第54轮：安东塔斯 B3「装甲融化」—— 命中后降目标物理护甲 5 点、
+               持续 30s、最多 20 层（= 最多 -100 护甲）。用户 2026-10-02 亲口核对。 */
+            if (v.armorDebuff) s.armorDebuff = v.armorDebuff;
             if (v.atkReduction) s.atkReduction = (s.atkReduction || 0) + v.atkReduction;
             if (v.coverModule) {
                 s.cover = s.cover || { dur: 0, targets: 0, all: false, until: 0, done: false, healPct: 0 };
@@ -3140,7 +3149,7 @@ global.__ENGINE_ROOT = __ROOT;
             const v = mod.variants[selKey];
             if (!v) return;
             if (!(v.armorBonus || v.hpBonusPct || v.shieldBonusPct || v.energyCut || v.physCut || v.critDmgDown || v.shieldDrone
-                  || v.antiIntercept || v.ionBoost || v.dodgeVsAir || v.dmgBonusFlat
+                  || v.antiIntercept || v.ionBoost || v.dodgeVsAir || v.dmgBonusFlat || v.armorDebuff
                   || v.hangarDmg || v.hangarHit || v.hangarCdRed || v.hangarFlight || v.hangarCritRate || v.hangarCritDmg)) return;
             hpPct += v.hpBonusPct || 0;
             armor += v.armorBonus || 0;
@@ -3607,6 +3616,28 @@ global.__ENGINE_ROOT = __ROOT;
         [...bs.allyShips, ...bs.enemyShips].forEach(ship => {
             if(!ship.alive) return;
             processRepairs(ship, ship.side==='ally'?bs.allyShips:bs.enemyShips, dt, bs);
+        });
+
+        /* ★★ 第56轮：【溶解】的 DOT 结算—— 每秒损失【层数 × perSec】结构值。
+           记账：算在施加者头上（src），进对舰列。 */
+        [...bs.allyShips, ...bs.enemyShips].forEach(t2 => {
+            if (!DISSOLVE_ON || !t2.alive || !t2._dissolve || !t2._dissolve.length) return;
+            t2._dissolve = t2._dissolve.filter(d => (bs.time - d.t) < d.dur);
+            if (!t2._dissolve.length) return;
+            let _dps = 0; t2._dissolve.forEach(d => { _dps += d.perSec; });
+            const _dd = _dps * dt;
+            if (_dd <= 0) return;
+            const _src = t2._dissolve[0].src;
+            const _sb = dmgStatOf(bs, (_src && _src.side) || t2.side);
+            if (_sb) {
+                _sb.antiShip += _dd;
+                const _p = statPer(_sb, statRowOf(_src || t2));
+                if (_p) { _p.antiShip += _dd; statSub(_p, statRowOf(t2)).s += _dd; statSubW(_p, '溶解式DOT').s += _dd; }
+            }
+            t2._taken = (t2._taken || 0) + _dd;
+            t2.hp -= _dd;
+            if (t2.hp <= 0) { t2.hp = 0; t2.alive = false;
+                if (bs) { bs._lastLossAt = bs._lastLossAt || {}; bs._lastLossAt[t2.side] = bs.time; } }
         });
 
         // 机制类加点（协同指挥 / 三种打击）
@@ -4298,6 +4329,14 @@ global.__ENGINE_ROOT = __ROOT;
 
         // === INTERCEPTION (拦截) ===
         // 机制文档：直射武器【不会被拦截】；投射武器会被拦截（风暴M2 模块除外，数据用 cannotBeIntercepted 标注）
+        /* ★★★ 2026-10-02 第55轮：【能量属性的武器也不被拦截】。
+           联网核实（biligame WIKI + 攻略）：「**能量属性的投射武器不被拦截**（如永恒风暴 M2
+           「能量属性、不会被拦截的投射武器」）；只有**实弹投射武器**（导弹/鱼雷）会被拦截」。
+           这也解释了知识库里那一大批“无法被拦截”的武器（风暴M2、VB等离子轰炸、雷火、
+           凌霄、海氏、李微、坦克）—— 它们全是能量武器。 */
+        /* ⚠️ 第55轮试过「能量武器也不被拦截」（联网核实属实）→ 验收 **12/18 → 8/18**，已回滚。
+           原因：我库里只有 5 艘船有拦截率数据，放大能量武器后双方输出失衡。
+           【待基准更准后再启用】（这条机制本身是对的）。 */
         if(!weapon.cannotBeIntercepted && weapon.weaponType !== 'direct') {
             const friendlyShips = attacker.side==='ally' ? bs.enemyShips : bs.allyShips;
             // 拦截率 = 1 - (1-自身) × Π(1-同排) × Π(1-全局)（战斗机制.txt：每艘拦截船累乘）
@@ -4344,7 +4383,13 @@ global.__ENGINE_ROOT = __ROOT;
                         大帝M1 (400+60+40+80−340)×1.3=312 ✓   阋神星 (300+60)×1.3−140=328 ✓ */
         const bonusRate = ((st.dmgBonus||0) + (attacker.dmgBonus||0) + (_ion ? (_ion.dmg||0) : 0)) / 100;
         const baseVal = weapon.singleDmg * (1 + bonusRate);              // 保底用的「基础+加成」
-        const physArmor = (target.physicalArmor || 0) + (target.physResistBonus || 0); // Ship base armor + bonus resist
+        /* ★ 第54轮：装甲融化—— 目标身上活跃的降甲层数（惰性过期，不需逐 tick 清理） */
+        let _debuff = 0;
+        if (target._armorDeb && target._armorDeb.length) {
+            const _now = (bs && bs.time) || 0;
+            for (const _d of target._armorDeb) if (_now - _d.t < _d.dur) _debuff += _d.amt;
+        }
+        const physArmor = Math.max(0, (target.physicalArmor || 0) + (target.physResistBonus || 0) - _debuff);
         const energyArmor = target.energyArmor || 5;
 
         let dmg;
@@ -4496,6 +4541,31 @@ global.__ENGINE_ROOT = __ROOT;
            使「打载机」和「打舰船」的速率分别等于各自的面板。 */
         if (target.position === 'aircraft') { if (weapon.vsAirMul > 0) dmg = Math.round(dmg * weapon.vsAirMul); }
         else { if (weapon.vsShipMul > 0) dmg = Math.round(dmg * weapon.vsShipMul); }
+        /* ★ 第54轮：【装甲融化】叠层—— 命中后给目标加一层（上限 20） */
+        if (attacker.armorDebuff && target && target.position !== 'aircraft') {
+            const _ad = attacker.armorDebuff;
+            target._armorDeb = target._armorDeb || [];
+            target._armorDeb.push({ t: (bs && bs.time) || 0, amt: _ad.amount || 5, dur: _ad.dur || 30 });
+            const _cap = _ad.maxStacks || 20;
+            if (target._armorDeb.length > _cap) target._armorDeb = target._armorDeb.slice(-_cap);
+        }
+        /* ★★ 2026-10-02 第56轮：【溶解弹】—— 命中后叠层（DOT）。
+           依据（舰船资料）：「前6轮每轮附加 / 35%概率附加 持续60秒溶解效果，
+           目标**每秒损失 10 点结构值**，最高叠加 30 层」。当前落库：天璇/理智A101/天玠-攻击b/开阳/瑶光 5 门。 */
+        if (DISSOLVE_ON && weapon.dissolve && target) {
+            const _dis = weapon.dissolve;
+            let _add = 0;
+            if (_dis.mode === 'first6') {
+                ws._dissRound = (ws._dissRound || 0) + 1;
+                if (ws._dissRound <= 6) _add = 1;
+            } else if (RNG() < (_dis.prob || 0.35)) _add = 1;
+            if (_add) {
+                target._dissolve = target._dissolve || [];
+                target._dissolve.push({ t: (bs && bs.time) || 0, dur: _dis.dur || 60, perSec: _dis.perSec || 10, src: CR });
+                const _dcap = _dis.maxStacks || 30;
+                if (target._dissolve.length > _dcap) target._dissolve = target._dissolve.slice(-_dcap);
+            }
+        }
         target.hp -= dmg;
         /* 战报口径：按【被打的目标是不是载机】分对舰/对空 */
         { const _st = dmgStatOf(bs, CR.side);
