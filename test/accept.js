@@ -122,7 +122,7 @@ const pctOf = (s, g) => (g === 0 ? (s === 0 ? 0 : null) : (s / g - 1) * 100);
       /* ★ 每次固定 seed → 可复现 + 降方差 */
       battleSeed = (window.__SEED0 || 2000) + i * 7919;
       FLEET_TYPES.forEach(k => { fleetData[k].main = []; fleetData[k].reinforcement = []; fleetData[k].apSet = null; });
-      fleetData['ally-escort'].main = JSON.parse(JSON.stringify(AES));
+      fleetData['ally-escort'].main = (window.__ONLY3 ? [] : JSON.parse(JSON.stringify(AES)));
       fleetData['ally-escorted'].main = JSON.parse(JSON.stringify(AED));
       fleetData['enemy-escort'].main = JSON.parse(JSON.stringify(BES));
       fleetData['enemy-escorted'].main = JSON.parse(JSON.stringify(BED));
@@ -177,6 +177,7 @@ const pctOf = (s, g) => (g === 0 ? (s === 0 ? 0 : null) : (s / g - 1) * 100);
   const p1a = J(D3 + '我方被护航能二.json'), p1b = J(D3 + '我方护航能二.json'), ap1 = J(D3 + '我方加点能二.json');
   await p.evaluate(x => localStorage.setItem('lagrange_addpoint', JSON.stringify(x)), ap1.addpoints || {});
   await p.evaluate(async ids => { for (const c of ids) { try { await loadBpTree(c); } catch (e) { } } }, Object.keys(ap1.addpoints || {}));
+  await p.evaluate(v => { window.__ONLY3 = v; }, !!process.env.ONLY3);
   const r1 = process.env.SKIP_R1 ? { err: 1 } : await RUN_PLAIN(p1a, p1b, ap1.addpoints, RUNS);
   if (process.env.SKIP_R1) console.log('(已跳过战报1，仅跑战报2)');
 
