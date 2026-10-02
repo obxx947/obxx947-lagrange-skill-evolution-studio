@@ -4160,9 +4160,16 @@
        → 所以一轮 = 去程 + 攻击持续 + 返程 + 冷却（冷却在机库内等）。
        独立作战 = 0（资料：除开局舱内首次锁敌外，其余时间就是在敌方阵型里的护卫舰，不返航）。
        数据来自用户 2026-09-24 填报的船级 departSec / returnSec。 */
-    function flightCycleSec(ship) {
+    /* 往复打击的【去程 + 返程】秒数。
+       ★★★ 2026-10-02 第14轮：这里曾经算过 st.flightTimeReduction（→ A 对空 -8.6% → -4.9%），
+       后来用旧备份恢复时丢了（回归）—— 现在重新加回。
+       依据：《战斗机制·三·2》「降低去程/返程时间：增加往复打击的频率」；
+       用户加点里 维塔斯B010 / CV-T800 均点了飞行时间 -40%。 */
+    function flightCycleSec(ship, st) {
         if (!ship || ship.flightMode !== 'reciprocating') return 0;
-        return (ship.departSec || 0) + (ship.returnSec || 0);
+        const base = (ship.departSec || 0) + (ship.returnSec || 0);
+        const cut = Math.min(90, ((st || {}).flightTimeReduction) || ship.flightTimeReduction || 0);
+        return base * (1 - cut / 100);
     }
 
     function processShipWeapons(ship, enemies, dt, bs) {
@@ -4283,7 +4290,7 @@
                 const cdPen = (ws.denseFire || 0) > 0 ? (1 + (ws.denseFire||0)/100) : 1;
                 const burst = ws.burstCut || 0;
                 // ★ 往复作战：去程 + 返程 的飞行时间算进这一轮（独立作战为 0）
-                const _flight = flightCycleSec(ship);
+                const _flight = flightCycleSec(ship, st);   // ★ 必须传 st，否则飞行时间减免不生效
                 ws.cooldownRemaining = (w.cooldown || 1) * (1 - Math.min(95, (st.cooldownReduction||0) + burst)/100) * cdPen + _flight;
                 ws.shotsRemaining = 0;
                 ws.batchesRemaining = 0;
@@ -4385,10 +4392,14 @@
                实测：天枢 M1 精密协同攻击无人艇（targets 只有战机）8331 炮里
                7719 炮打在太阳鲸/游骑兵级上；星云追逐者追击炮塔 4248 炮全打舰船。
                改为：序列里只列了载机类的武器 —— 找不到载机就【不开火】。 */
-            const onlyAirSeq = (targets.length > 0) && targets.every(tg => ((tg.types || []).length > 0)
-                && (tg.types || []).every(x => _airWords.test(String(x))));
-            if (onlyAirSeq) return null;
-            return canAttack[Math.floor(Math.random()*canAttack.length)];
+            /* ★★★ 2026-10-02 第15轮：【攻击序列全部匹配不到 → 不开火】
+               依据：战报2「行动统计」逐舰真值（OCR）——
+                  谷神星级 对舰 **1024**（我 7.7万）、开阳级 对舰 **0**（我 2.6万）、
+                  普鲁图斯之盾 **8.427万**（我 36.5万）、CAS066 **3.439万**（我 12.1万）
+                —— 它们的武器序列全是「小型舰船 / 驱逐舰·护卫舰 / 护航艇」，
+                而我方护航队 18 艘里只有 2 艘小船 → 小船一死就没目标 → 游戏里直接停火。
+                实测：只改口径 8/15，口径+本改动 9/15（本改动 +1）。 */
+            return null;
         }
 
         // Follow attack sequence (攻击序列) for projectile weapons
@@ -4411,10 +4422,9 @@
            把火力打到载机上：实测它们的对空 39.3万/33.7万，而游戏里分别是 2150/3.3万。 */
         const _airW = /战机|护航艇|载机|无人机|登陆舰/;
         const _seqAir = ((targets[0] && targets[0].types) || []).some(x => _airW.test(String(x)));
-        let _al = aliveEnemies.filter(e => targetable(e) && (e.position !== 'aircraft' || (_seqAir && aaCanTarget(weapon, e, ship))));
-        if(!_al.length) _al = aliveEnemies.filter(e=>targetable(e));
-        if(!_al.length) return null;
-        return _al[Math.floor(Math.random()*_al.length)];
+        /* ★ 2026-10-02 第15轮：同上 —— 序列全部匹配不到就不开火，
+           不再“兼底随便选一个”。原兼底会让只能打小船的武器去打大船。 */
+        return null;
     }
 
     // Direct fire weapon target selection (直射武器必须逐排攻击)
