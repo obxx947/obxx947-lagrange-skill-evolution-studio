@@ -3594,6 +3594,7 @@
         if (!s || !s.modules) return;
         let hpPct = 0, armor = 0, armorCap = 0, eCut = 0, shieldPct = 0;
         let pCut = 0, cdDown = 0, shieldDrone = null;
+        let hDmg = 0, hHit = 0, hCdRed = 0, hFlight = 0, hCr = 0, hCd = 0;   // 母舰给载机的机库加成
         const applied = [];
         Object.keys(s.modules).forEach(key => {
             if (key.startsWith('_')) return;
@@ -3602,7 +3603,8 @@
             const selKey = (s.selectedModules && s.selectedModules[key]) || Object.keys(mod.variants)[0];
             const v = mod.variants[selKey];
             if (!v) return;
-            if (!(v.armorBonus || v.hpBonusPct || v.shieldBonusPct || v.energyCut || v.physCut || v.critDmgDown || v.shieldDrone)) return;
+            if (!(v.armorBonus || v.hpBonusPct || v.shieldBonusPct || v.energyCut || v.physCut || v.critDmgDown || v.shieldDrone
+                  || v.hangarDmg || v.hangarHit || v.hangarCdRed || v.hangarFlight || v.hangarCritRate || v.hangarCritDmg)) return;
             hpPct += v.hpBonusPct || 0;
             armor += v.armorBonus || 0;
             if (v.armorCap) armorCap = Math.max(armorCap, v.armorCap);
@@ -3611,6 +3613,9 @@
             pCut += v.physCut || 0;
             cdDown += v.critDmgDown || 0;
             if (v.shieldDrone) shieldDrone = v.shieldDrone;
+            hDmg += v.hangarDmg || 0;   hHit += v.hangarHit || 0;
+            hCdRed += v.hangarCdRed || 0; hFlight += v.hangarFlight || 0;
+            hCr += v.hangarCritRate || 0; hCd += v.hangarCritDmg || 0;
             applied.push(key + '=' + selKey);
         });
         if (!applied.length) return;
@@ -3629,6 +3634,15 @@
         if (pCut) s.physCut = (s.physCut || 0) + pCut;
         if (cdDown) s.critDmgDown = (s.critDmgDown || 0) + cdDown;
         if (shieldDrone) s.shieldDrone = shieldDrone;
+        /* ★ 2026-10-02 第21轮：模块 effect 里的「母舰给载机」加成
+           —— 太阳鲸 B2（载机伤害+3%、冷却-15%）、天枢 C1（往返-20%）/B1（命中+30、暴击+30/50）/B2（命中+30），
+           写进与加点版共用的同一套 hangar*，载机实例会读到。 */
+        if (hDmg)    s.hangarDmg      = (s.hangarDmg || 0) + hDmg;
+        if (hHit)    s.hangarHit      = (s.hangarHit || 0) + hHit;
+        if (hCdRed)  s.hangarCdRed    = (s.hangarCdRed || 0) + hCdRed;
+        if (hFlight) s.hangarFlight   = (s.hangarFlight || 0) + hFlight;
+        if (hCr)     s.hangarCritRate = (s.hangarCritRate || 0) + hCr;
+        if (hCd)     s.hangarCritDmg  = (s.hangarCritDmg || 0) + hCd;
         s._modEffectApplied = applied;
     }
     function createShipInstance(shipEntry, side, isEscort, isEscorted) {
