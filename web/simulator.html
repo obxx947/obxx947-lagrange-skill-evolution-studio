@@ -922,6 +922,27 @@
     // ============================================================
     //  DATA LAYER - Complete Ship Database
     // ============================================================
+    /* ★★★ 2026-10-02 第18轮：可播种伪随机数（mulberry32）
+       为什么：同一份配队的单场时长在 347s~1143s 之间摆动（3.3 倍），
+       而进化算法（NEAT / 混沌生长）唯一的信号就是“存活时间”——
+       随机摆动会把适应度信号淹没。固定种子后“同配队 + 同种子 = 同结果”，
+       适应度变成可复现的确定量。
+       默认 RNG === Math.random（不播种时行为与之前完全一致）；只有显式 seedRNG(s) 才切换。 */
+    let RNG = Math.random;
+    let battleSeed = null;   // 设为数字则战斗可复现（供演示/进化算法用）
+    let _rngSeed = null;
+    function seedRNG(seed) {
+        _rngSeed = (seed >>> 0) || 1;
+        let a = _rngSeed;
+        RNG = function () {
+            a |= 0; a = (a + 0x6D2B79F5) | 0;
+            let t = Math.imul(a ^ (a >>> 15), 1 | a);
+            t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+    }
+    function unseedRNG() { RNG = Math.random; _rngSeed = null; }
+
     const SHIP_TYPES = {
         battleship:      { name:'战列舰', size:'large', superCapital:true, icon:'🚢' },
         aircraftcarrier: { name:'航空母舰', size:'large', superCapital:true, icon:'🛫' },
@@ -970,7 +991,7 @@
         list.forEach(e => { const p = airHitPriority(e); if (p < best) best = p; });
         const top = list.filter(e => airHitPriority(e) === best);
         const sc = Math.max(1, Math.round(top.length / 2.5));
-        return top[Math.floor(Math.random() * Math.min(top.length, sc))];
+        return top[Math.floor(RNG() * Math.min(top.length, sc))];
     }
 
     function matchesType(ship, typeStr) {
@@ -1119,8 +1140,8 @@
     function getHpBarClass(pct) {
         if(pct > 80) return 'high'; if(pct > 10) return 'medium'; return 'low';
     }
-    function randBetween(min,max) { return Math.floor(Math.random()*(max-min+1))+min; }
-    function randHit(hitMin,hitMax) { return hitMin + Math.random()*(hitMax-hitMin); }
+    function randBetween(min,max) { return Math.floor(RNG()*(max-min+1))+min; }
+    function randHit(hitMin,hitMax) { return hitMin + RNG()*(hitMax-hitMin); }
     function clamp(v,min,max) { return Math.max(min,Math.min(max,v)); }
     /* 资料《武器命中率与拦截率计算公式》：命中率存在极限值，最低 10%、最高 95%，
        不存在 0% 命中和 100% 命中。 */
@@ -2836,7 +2857,7 @@
                 oneRound += (w.singleDmg || 0) * shotsOf(w);
             });
             if (oneRound <= 0) return;
-            const tgt = subs[Math.floor(Math.random() * subs.length)];
+            const tgt = subs[Math.floor(RNG() * subs.length)];
             const d = Math.max(1, Math.round(oneRound * eff / 100));
             tgt.hp -= d;
             if (tgt.hp <= 0) { tgt.hp = 0; tgt.alive = false; }
@@ -3417,6 +3438,9 @@
     //  BATTLE ENGINE
     // ============================================================
     function prepareBattle() {
+        /* ★★ 2026-10-02 第18轮：战斗随机种子——同一 seed → 同一结果（供进化算法拿可复现适应度）
+           用法：`battleSeed = 12345;` 后调 prepareBattle()；不设则保持真随机。 */
+        if (typeof battleSeed === 'number' && isFinite(battleSeed)) seedRNG(battleSeed); else unseedRNG();
         /* ★ 开战时在战报里写明【每个舰队实际用哪套加点】——用户 2026-09-26 反复遇到
            "选了方案没生效"，这一行让"到底用没用"一眼可见，不用再猜。 */
         try {
@@ -4134,7 +4158,7 @@
                         for(let i = 0; i < n; i++) { if(!tgt.alive || tgt.hp <= 0) break; executeShot(x, tgt, ws.weapon, ws, bs, ship); }
                     });
                 });
-                if(Math.random() < 0.35) addBattleLog('info', '📣 ' + (ship.name || ship.id) + ' 协同指挥：' + cands.length + ' 艘友军对目标进行 1 轮额外打击');
+                if(RNG() < 0.35) addBattleLog('info', '📣 ' + (ship.name || ship.id) + ' 协同指挥：' + cands.length + ' 艘友军对目标进行 1 轮额外打击');
             });
         }
         // ---- ② 三种打击：时间窗 ----
@@ -4253,7 +4277,7 @@
                                （A 队对空只有面板的 20%，而游戏是 50%）。这里补上同样的两条限制。 */
                             let pool = enemies.filter(e => targetable(e) && (e.position !== 'aircraft' || aaCanTarget(w, e, ship)));
                             if(!pool.length) pool = enemies.filter(e => e.alive && e.hp > 0);
-                            if(pool.length) tgt = pool[Math.floor(Math.random() * pool.length)];
+                            if(pool.length) tgt = pool[Math.floor(RNG() * pool.length)];
                         }
                         executeShot(ship, tgt, w, ws, bs);
                         ws.shotsRemaining--;
@@ -4333,7 +4357,7 @@
             }
             if(scTargets.length>0) {
                 const splitCount = Math.max(1, Math.round(scTargets.length / 2.5));
-                return scTargets[Math.floor(Math.random()*Math.min(scTargets.length, splitCount))];
+                return scTargets[Math.floor(RNG()*Math.min(scTargets.length, splitCount))];
             }
         }
 
@@ -4357,7 +4381,7 @@
                 const n = fmCol(ci.fm, ci.lv, 0);
                 if (typeof n === 'number' && n > 0) {
                     const sorted = canAttack.slice().sort((a, b) => (a.hp / (a.maxHp || 1)) - (b.hp / (b.maxHp || 1)));
-                    return sorted[Math.floor(Math.random() * Math.min(n, sorted.length))];
+                    return sorted[Math.floor(RNG() * Math.min(n, sorted.length))];
                 }
             }
             // Follow attack sequence within visible targets
@@ -4367,7 +4391,7 @@
                 if(match.length>0) {
                     if (match.every(e => e.position === 'aircraft')) return pickByAirOrder(match);
                     const splitCount = Math.max(1, Math.round(match.length / 2.5));
-                    return match[Math.floor(Math.random()*Math.min(match.length, splitCount))];
+                    return match[Math.floor(RNG()*Math.min(match.length, splitCount))];
                 }
             }
             /* ★★★ 按知识库《战斗机制·四、防空机制》：对空武器是【独立分类】（主动防空 / 被动防空），
@@ -4383,7 +4407,7 @@
             const _aaPrimary = _t0.some(x => _airWords.test(String(x)));
             if(!_aaPrimary) {
                 const noAir = canAttack.filter(e => e.position !== 'aircraft');
-                if(noAir.length) return noAir[Math.floor(Math.random()*noAir.length)];
+                if(noAir.length) return noAir[Math.floor(RNG()*noAir.length)];
                 return pickByAirOrder(canAttack);
             }
             /* ★★ 2026-09-27 修真 bug：这里的兑底原来是 `canAttack[随机]`，
@@ -4413,7 +4437,7 @@
             if(match.length>0) {
                 if (match.every(e => e.position === 'aircraft')) return pickByAirOrder(match);
                 const splitCount = Math.max(1, Math.round(match.length / 2.5));
-                return match[Math.floor(Math.random()*Math.min(match.length, splitCount))];
+                return match[Math.floor(RNG()*Math.min(match.length, splitCount))];
             }
         }
 
@@ -4587,7 +4611,7 @@
                 hitMin = tg.hitMin; hitMax = tg.hitMax; break;
             }
         }
-        let hitRate = (hitMin + Math.random() * (hitMax - hitMin)) / 100;
+        let hitRate = (hitMin + RNG() * (hitMax - hitMin)) / 100;
         // 命中 = 基础命中 × (1 + 命中加成 − 敌方闪避 − 敌方"被命中率下降")
         // ★ 2026-09-24 拍板：「锁定效率」不加命中 —— 资料里锁定是【目标选择阶段的时间】，
         //   跟命中率无关，已挪到 processShipWeapons 的 lockRemaining（缩短锁定时间）。
@@ -4622,8 +4646,8 @@
             hitRate = clamp(hitRate + distDiff * 0.02, HIT_MIN, HIT_MAX);
         }
 
-        if(Math.random() > hitRate) {
-            if(Math.random() < 0.05) addBattleLog('info', `${CR.name||CR.id} 对 ${target.name||target.id} 未命中`);
+        if(RNG() > hitRate) {
+            if(RNG() < 0.05) addBattleLog('info', `${CR.name||CR.id} 对 ${target.name||target.id} 未命中`);
             return;
         }
 
@@ -4647,8 +4671,8 @@
             // 反拦截：本武器所属模块的「被拦截率下降」直接削总拦截概率（机制文档：最终拦截 ×(1-反拦截)）
             const ai = ((ws.strengthen || {}).antiIntercept || 0) + (attacker.antiIntercept || 0);
             const interceptProb = (1 - noIntercept) * (1 - Math.min(100, ai) / 100);
-            if(Math.random() < interceptProb) {
-                if(Math.random() < 0.1) addBattleLog('info', `${CR.name||CR.id} 攻击被拦截`);
+            if(RNG() < interceptProb) {
+                if(RNG() < 0.1) addBattleLog('info', `${CR.name||CR.id} 攻击被拦截`);
                 return;
             }
         }
@@ -4695,9 +4719,9 @@
         let critMult = 1;
         const critRate = (weapon.crit ? 0.15 : 0) + (st.critRate||0)/100;
         const critDmg = 1.5 + (st.critDmg||0)/100;
-        if(critRate > 0 && Math.random() < critRate) {
+        if(critRate > 0 && RNG() < critRate) {
             critMult = critDmg;
-            if(Math.random() < 0.1) addBattleLog('info', `💥 ${CR.name||CR.id} 暴击!`);
+            if(RNG() < 0.1) addBattleLog('info', `💥 ${CR.name||CR.id} 暴击!`);
         }
         dmg *= critMult;
         // （原「dmg *= (1 + attacker.dmgBonus)」已折进上面的加算括号，删掉避免重复计算）
@@ -4774,7 +4798,7 @@
                    判定次数跟着涨 6.7 倍，殉爆伤害把战斗打得飞快。改为按发数归一：
                    每【轮】的期望判定次数 = 效率值，与发数无关。 */
                 const _nShots = shotsOf(weapon) || 1;
-                if(sys && Math.random() < (efficiencyMap[eff]||0.2) * (1 - sdr) / _nShots) {
+                if(sys && RNG() < (efficiencyMap[eff]||0.2) * (1 - sdr) / _nShots) {
                     systemDmg = Math.round(weapon.singleDmg * 1.5 * tuningCoeff);
                     const _sst = dmgStatOf(bs, CR.side);
                     /* ★ 系统独立血量：有 hp 就【累计】打满才毁（用户 2026-09-24 给超主力 25500）；
