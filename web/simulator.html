@@ -4983,6 +4983,18 @@
         if (target.position === 'aircraft') {
             const _net = aaNetOf(attacker, bs);
             if (_net > 0) hitRate *= (1 + _net / 100);
+            /* ★ 第64轮实验：【反击防空的反击命中加成】
+               联网核实（B站Wiki防空专题 + wangyoushe 反击防空调整列表）：
+               「AM-2×100B型双联装轻型防空导弹：反击时命中率+10%」、
+               「SG-330B型近防炮：反击时命中率+15%」。
+               我库没有逐门的“反击命中”数值 → 先按全库统一 +10% 试（取两个例子里的低值）。
+               实测不达标就回滚。 */
+            /* ★ 改为【逐门查真值】：官方 2024-06-25 公告给了逐门武器的反击命中增益
+               （SG-330B +15%、AG-260/AG-260A/BG-245/BG-160/BG-220/AM-2x100B/AM-2x138B +10%、
+                 SG-1150/AP-260B/AM-3x180B/CG-1118A +5%、CG-628B/CG-1118B/AG-335B/CG-118B/BI-470B +15%），
+               已按表写进 ship_database 的 weapon.counterHit；没写值的按 0（不猜）。 */
+            const _ch = (typeof weapon.counterHit === 'number') ? weapon.counterHit : 0;
+            if (_ch > 0 && /counter/.test(String(weapon.antiAirType || ''))) hitRate *= (1 + _ch / 100);
         }
         hitRate = clamp(hitRate, HIT_MIN, HIT_MAX);
 
