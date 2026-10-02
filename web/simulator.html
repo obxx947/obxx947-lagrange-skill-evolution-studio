@@ -4537,7 +4537,17 @@
            而游戏里它们活了 86% 时间。受伤率也对得上：43万/分的火力打前排 = 康纳马拉+游骑兵的全部输出。
            游戏机制：直射武器受阵型阻挡，但目标是【按攻击序列选】的；序列匹配到多排时才优先前面的排。
            改法：返回【按排排序的全部候选】（前排在前），由序列筛选决定打谁。 */
+        /* ★★★ 2026-10-02 第40轮：【载机的直射武器 不受阵型阻挡】。
+           依据：《战斗机制·三》「（独立作战载机）锁敌时【无视阵型阻挡】」。
+           原实现把载机也按“前排优先”排序 → A 队载机全在打 B 队前排的开阳/FG300，
+           B 队中后排的 CV3000/天枢/乌拉诺斯换不到打 → 它们身上那 6 门 counter 防空武器
+           因为“没有载机在攻击自身或同排”而【整场 0 开火】（面板 1.93万/分）。
+           改法：载机直接返回全部候选（不按排排序），由它自己的攻击序列选。 */
         const all = [];
+        if (attacker && attacker.position === 'aircraft') {
+            enemies.forEach(e => { if (targetable(e)) all.push(e); });
+            return all;
+        }
         rowOrder.forEach(rp => enemies.forEach(e => { if (e.position === rp && targetable(e)) all.push(e); }));
         enemies.forEach(e => { if (e.position === 'aircraft' && targetable(e)) all.push(e); });
         return all.length ? all : enemies.filter(e => targetable(e));
