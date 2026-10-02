@@ -4170,9 +4170,9 @@
         ship.weaponStates.forEach(ws => {
             if(!ship.alive || ship.hp<=0) return;
             const modSys = ship.subSystems?.find(s=>s.name===ws.module.name);
-            if(modSys && modSys.destroyed) return;
+            if(modSys && modSys.destroyed) {
+                return; }
             const w = ws.weapon;
-
             // === FIRST SHOT: 开战第一轮攻击不需要冷却 ===
             if(ws.firstShot) {
                 ws.cooldownRemaining = 0;
@@ -4254,9 +4254,20 @@
                     ws.batchesRemaining--;
                 }
             } else if(ws.batchesRemaining > 0 && ws.shotsRemaining > 0){
-                // atkDuration = 0 → 本帧一次打完全部发数
-                for(let i=0; i<ws.shotsRemaining; i++){
-                    if(!ws.currentTarget || !ws.currentTarget.alive) break;
+                /* atkDuration = 0 → 本帧一次打完全部发数
+                   ★★★ 2026-10-02 第12轮修真 bug（按《战斗机制·一》）：
+                   原文「目标死亡处理：攻击过程中目标被击毁 → 不进入冷却，
+                   带着剩余攻击重新锁敌，打光剩余攻击后清空弹夹，重新进入冷却」。
+                   原实现直接 break → 剩余发数丢失、立刻进冷却。
+                   对空损失最大：载机血少、一轮没打完就死 → 实测发射次数只有应有的 6%
+                   （谷神星 6 艘实测 1.04 发/秒，应为 16.25 发/秒）。 */
+                let _guard = 0;
+                while(ws.shotsRemaining > 0 && _guard++ < 256){
+                    if(!ws.currentTarget || !ws.currentTarget.alive || ws.currentTarget.hp <= 0){
+                        const _t2 = findTarget(ship, enemies, w, ws);
+                        if(!_t2) break;
+                        ws.currentTarget = _t2;
+                    }
                     executeShot(ship, ws.currentTarget, w, ws, bs);
                     ws.shotsRemaining--;
                 }
