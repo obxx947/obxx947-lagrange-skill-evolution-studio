@@ -824,12 +824,17 @@
         </div>
     </div>
 
-    <!-- 「数据分析」详情弹窗（按游戏那页做的，2026-10-02） -->
-    <div class="modal-overlay" id="bsdModal" style="display:none;">
+    <!-- 「数据分析」详情弹窗（按游戏那页做的，2026-10-02）
+         ⚠️ 2026-10-02 修：原来写 style="display:none;" + bsdOpen 里 m.style.display='flex'，
+         而 CSS 把 opacity:1 挂在 .modal-overlay.active 上 → 弹窗【透明但仍全屏拦截点击】
+         （z-index 2000）→ 用户报的"战报里点了一次舰船详情后什么都点不动/开不了别的船"就是这个。
+         现在统一走 openModal/closeModal（加/去 active 类），行内 display 必须去掉否则会盖住类里的 display:flex。 -->
+    <div class="modal-overlay" id="bsdModal" onclick="if(event.target===this)closeModal('bsdModal')">
         <div class="modal" style="max-width:980px;width:96%;">
             <div class="modal-header">
                 <span class="modal-title">｜ 数据分析</span>
-                <button class="modal-close" onclick="document.getElementById('bsdModal').style.display='none'">✕</button>
+                <button class="btn btn-sm" style="margin-right:8px;" onclick="closeModal('bsdModal')">← 返回战报</button>
+                <button class="modal-close" onclick="closeModal('bsdModal')">✕</button>
             </div>
             <div id="bsdBody" style="font-size:12px;background:#0d141d;"></div>
         </div>
@@ -5610,7 +5615,12 @@
                 + '<span style="width:76px;text-align:right;' + (r.antiShip > 0 ? 'color:#ffb08a;font-weight:600;' : 'color:#6b7a8c;') + '">' + (r.antiShip > 0 ? _w(r.antiShip) : '0') + '</span>'
                 + '<span style="width:74px;text-align:right;' + (r.antiAir > 0 ? 'color:#8fc6ff;font-weight:600;' : 'color:#6b7a8c;') + '">' + (r.antiAir > 0 ? _w(r.antiAir) : '0') + '</span>'
                 + '<span style="width:70px;text-align:right;' + (r.repair > 0 ? 'color:#8ce0a8;font-weight:600;' : 'color:#6b7a8c;') + '">' + (r.repair > 0 ? _w(r.repair) : '0') + '</span>'
-                + '<span style="width:66px;text-align:right;color:' + (r.life >= .8 ? '#c9d6e4' : r.life >= .3 ? '#e8c98a' : '#e08a8a') + ';">' + Math.round(r.life * 100) + '%</span></div>';
+                + '<span style="width:66px;text-align:right;color:' + (r.life >= .8 ? '#c9d6e4' : r.life >= .3 ? '#e8c98a' : '#e08a8a') + ';">' + Math.round(r.life * 100) + '%</span></div>'
+                /* ★★ 2026-10-02 修（用户报"点了一次舰船详情后开不了别的船"）：
+                   这一行原来【没有闭合行 div】→ 每行都套进上一行里面（父子嵌套）→ 点第 N 行时
+                   事件一路冒泡，最外层（第 1 行）的 onclick 最后执行 → SD.key 永远被改回第一条船。
+                   补上 '</div>' 关闭本行；详情行作为兄弟节点跟在后面。 */
+                + '</div>';
             if (on) h += _detailRow(side, r, 1);
         });
         return h + '</div>';
@@ -5678,7 +5688,9 @@
 
     function bsdOpen(side, key) {
         SD.side = side; SD.key = key; SD.mode = 'target';
-        const m = $('bsdModal'); if (m) m.style.display = 'flex';
+        /* ★ 2026-10-02 修：必须走 openModal（加 active 类）。
+           原来只写 m.style.display='flex' → CSS 的 opacity:1 挂在 .active 上 → 弹窗透明却全屏挡点击。 */
+        openModal('bsdModal');
         bsdRender();
     }
     function _sdSetMode(mode) { SD.mode = mode; bsdRender(); }
