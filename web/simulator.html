@@ -4265,7 +4265,15 @@
             if (s.position !== '前排') return;
             const eng = (s.subSystems || []).find(x => x.type === 'engine' || /动力|引擎/.test(x.name || ''));
             if (eng && eng.destroyed) { s._evaded = true; return; }
-            if ((s.hp / (s.maxHp || 1)) <= 0.10) {
+            /* ★ 第65轮：「机动作成B」（加点节点 318030602）把撤退阈值从 10% 提到 30%；
+               没点这个节点的舰继续用官方紧急避险的 10%。 */
+            let _retreatAt = 0.10;
+            (s.fleetMechs || []).forEach(x => {
+                if (x.fm.kind !== 'retreatMid') return;
+                const q = fmValLv(x.fm, x.lv, 0);
+                if (typeof q === 'number' && q > 0) _retreatAt = Math.max(_retreatAt, q / 100);
+            });
+            if ((s.hp / (s.maxHp || 1)) <= _retreatAt) {
                 s.position = '中排';
                 s._evaded = true;
                 addBattleLog('info', '🏃 ' + (s.name || s.id) + ' 结构降至10% → 紧急避险撤至中排');
