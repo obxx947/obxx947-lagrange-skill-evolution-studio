@@ -5075,7 +5075,13 @@
                 const repB = (ship.repairBonus||0) + (((ship.weaponStates||[]).find(x=>x.weapon===w)||{}).strengthen||{}).repairBonus || 0
                            + subRepairBoost(ship, bs);          // ★ 天权防线：被多支舰队攻击时维修效果提升
                 // 超量维修：每轮携带2个装甲 → 这一轮的量也翻倍；高效回收：按死亡载机数加成
-                const repairPerSec = (repairDpm / 60) * (1 + armorBonus/100) * (1 + repB/100) * batch * recycleMul;
+                /* ★★★ 2026-10-02 第41轮：维修也有【命中率】——原来直接 `repairPerSec*dt` 全额交付，
+                   没有任何命中判定。依据：知识库《A资料》「**奶船也是有命中率的**，也就是说也有几率奶不上」。
+                   实测对照：游戏里天枢一行维修 80.9万 = 面板的 72%；我 129.2万 = 115%。
+                   取值：用该维修武器 targets 的命中区间中位（如 70~100 → 0.85），以期望值形式乘入（避免逐 tick 掷骰的方差）。 */
+                const _rTg = (w.targets || []).find(t => t && t.types && t.types.length);
+                const repairHit = _rTg ? Math.max(0.1, Math.min(0.95, ((_rTg.hitMin || 50) + (_rTg.hitMax || 70)) / 200)) : 0.85;
+                const repairPerSec = (repairDpm / 60) * (1 + armorBonus/100) * (1 + repB/100) * batch * recycleMul * repairHit;
                 const actualRepair = repairPerSec * dt;
 
                 // Find repair target following repair priority
