@@ -425,6 +425,8 @@ document.body.appendChild(mt);
 function applyMobile(){ document.body.classList.toggle('mobile-ui', window.matchMedia('(max-width:700px) and (max-aspect-ratio:1/1)').matches); }
 applyMobile(); window.addEventListener('resize',applyMobile); window.addEventListener('orientationchange',applyMobile);
 </script>
-<script src="js/changelog.js"></script>
+<!-- ★ 2026-10-02 删：`<script src="js/changelog.js">` —— 该文件早已随"更新记录"组件一起删除，
+     引用却一直留着 → 每次打开设置页都 404（被全站资源扫描 _scan404.js 抓到）；
+     本页也没有任何 Changelog 调用，属纯死引用。 -->
 </body>
 </html>

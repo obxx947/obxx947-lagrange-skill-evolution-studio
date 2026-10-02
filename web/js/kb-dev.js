@@ -400,7 +400,10 @@ const KbDev = (function(){
         return md;
     }
 
-    return {runPipeline, exportProducts, buildReportMarkdown, cleanText, chunkText, groupConflicts, getConfig};
+    /* ★ 2026-10-02 修：`download` 原来只在模块内部定义、没导出，
+       而 kb-dev.html 的「⬇ 下载」按钮写的是 `KbDev.download(name, ...)`
+       → 每点一次就报 `KbDev.download is not a function`（自动玩家实测抓到）。 */
+    return {runPipeline, exportProducts, buildReportMarkdown, cleanText, chunkText, groupConflicts, getConfig, download};
 })();
 
 window.KbDev = KbDev;

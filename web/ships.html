@@ -237,6 +237,17 @@ function openMods(id){
     document.getElementById('modModal').classList.add('show');
 }
 function closeMods(){ document.getElementById('modModal').classList.remove('show'); curModsId=''; }
+/* ★ 2026-10-02 加：Esc 关闭模块弹窗。实测（自动玩家）点开「勾选模块」后按 Esc 没反应，
+   只有"取消/保存"能关 —— 用户习惯按 Esc，补上；点遮罩空白处也关。 */
+document.addEventListener('keydown', function(e){
+    if (e.key !== 'Escape') return;
+    var m = document.getElementById('modModal');
+    if (m && m.classList.contains('show')) closeMods();
+});
+document.addEventListener('click', function(e){
+    var m = document.getElementById('modModal');
+    if (m && e.target === m) closeMods();
+});
 function saveMods(){
     const mods={};
     document.querySelectorAll('#mmBody input[type=checkbox]').forEach(cb=>{
