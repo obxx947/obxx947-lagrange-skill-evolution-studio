@@ -2944,6 +2944,9 @@
         s.atkReduction = (s.atkReduction||0) + sh.atkReduction;
         s.antiIntercept = (s.antiIntercept||0) + sh.antiIntercept;
         s.multiTarget = (s.multiTarget||0) + sh.multiTarget;
+        /* ★ 2026-10-02 第23轮「集火攻击」：武器集中打击 N 个目标
+           （与 multiTarget 相反：分伤数从 match.length/2.5 收紧到 N） */
+        s.focusTargets = (s.focusTargets||0) + (sh.focusTargets||0);
         /* 维修：效率(%) 与 一次性维修装甲(点数) 是两回事，不能混 */
         s.repairBonus = (s.repairBonus||0) + (sh.repairEff || 0) + (sh.repairBonus || 0);
         s.repairArmor = (s.repairArmor||0) + (sh.repairArmor||0);   // 一次性维修装甲（点数）
@@ -3934,7 +3937,8 @@
                             dmg: ship.hangarDmg || 0, hit: ship.hangarHit || 0,
                             evasion: ship.hangarEvasion || 0, lockRed: ship.hangarLockRed || 0,
                             cdRed: ship.hangarCdRed || 0, flight: ship.hangarFlight || 0,
-                            critRate: ship.hangarCritRate || 0, critDmg: ship.hangarCritDmg || 0
+                            critRate: ship.hangarCritRate || 0, critDmg: ship.hangarCritDmg || 0,
+                            aaResist: ship.hangarAaResist || 0   // ★ 电子掩护：同一母舰的载机都享受
                         };
                         if(ship.hangarByModule && ac.slot){
                             const mvar = String(ac.slot).split('|')[0];      // 如 'M1'
@@ -3952,6 +3956,7 @@
                         if(acc.dmg) acInst.dmgBonus = (acInst.dmgBonus||0) + acc.dmg;
                         if(acc.hit) acInst.hitBonus = (acInst.hitBonus||0) + acc.hit;
                         if(acc.evasion) acInst.evasion = (acInst.evasion||0) + acc.evasion;
+                        if(acc.aaResist) acInst.hangarAaResist = (acInst.hangarAaResist||0) + acc.aaResist;   // 电子掩护
                         acInst.hangarBonus = acc.dmg + acc.hit;              // 兼容旧字段
                         if(acc.lockRed || acc.cdRed || acc.flight){
                             (acInst.weaponStates||[]).forEach(ws => {
@@ -4392,7 +4397,8 @@
                 scTargets = aliveEnemies.filter(e => superCapTypes.includes(e.type) || e.superCapital);
             }
             if(scTargets.length>0) {
-                const splitCount = Math.max(1, Math.round(scTargets.length / 2.5));
+                const _ftN2 = ship.focusTargets || 0;
+                const splitCount = _ftN2 > 0 ? Math.max(1, Math.floor(_ftN2)) : Math.max(1, Math.round(scTargets.length / 2.5));
                 return scTargets[Math.floor(RNG()*Math.min(scTargets.length, splitCount))];
             }
         }
@@ -4426,7 +4432,9 @@
                 const match = canAttack.filter(e=>tg.types.some(t=>matchesType(e,t)));
                 if(match.length>0) {
                     if (match.every(e => e.position === 'aircraft')) return pickByAirOrder(match);
-                    const splitCount = Math.max(1, Math.round(match.length / 2.5));
+                    /* 【集火攻击】有 focusTargets 则只从 N 个目标里选 */
+                    const _ftN = ship.focusTargets || 0;
+                    const splitCount = _ftN > 0 ? Math.max(1, Math.floor(_ftN)) : Math.max(1, Math.round(match.length / 2.5));
                     return match[Math.floor(RNG()*Math.min(match.length, splitCount))];
                 }
             }
@@ -4472,7 +4480,9 @@
                 && (e.position !== 'aircraft' || (_aaPrim && aaCanTarget(weapon, e, ship))));
             if(match.length>0) {
                 if (match.every(e => e.position === 'aircraft')) return pickByAirOrder(match);
-                const splitCount = Math.max(1, Math.round(match.length / 2.5));
+                /* 【集火攻击】有 focusTargets 则只从 N 个目标里选 */
+                    const _ftN = ship.focusTargets || 0;
+                    const splitCount = _ftN > 0 ? Math.max(1, Math.floor(_ftN)) : Math.max(1, Math.round(match.length / 2.5));
                 return match[Math.floor(RNG()*Math.min(match.length, splitCount))];
             }
         }
@@ -4652,8 +4662,12 @@
         // ★ 2026-09-24 拍板：「锁定效率」不加命中 —— 资料里锁定是【目标选择阶段的时间】，
         //   跟命中率无关，已挪到 processShipWeapons 的 lockRemaining（缩短锁定时间）。
         /* ★ 佩了永恒风暴 C2（SNT-1 护盾无人机）的舰队：全队对能量武器闪避 +15% */
+        /* ★ 电子掩护 / 受防空锁定效率影响下降：只在【防空武器打载机】时生效
+           （aaLockDown 原本只赋值从未消费，hangarAaResist 也只累积）*/ 
+        const _aaRes = (((weapon.dpm || {}).antiAir || 0) > 0 && target.position === 'aircraft')
+            ? ((target.aaLockDown || 0) + (target.hangarAaResist || 0)) : 0;
         const _eV = (weapon.dmgType === 'energy') ? (target.evasionVsEnergy || 0) : 0;
-        const evasion = (target.evasion || 0) + _eV;
+        const evasion = (target.evasion || 0) + _eV + _aaRes;
         const hitBonus = (attacker.hitBonus || 0) + (((ws || {}).strengthen || {}).hitBonus || 0);  // 舰船级 + 本武器所属系统
         // ★「被XX命中率下降」是【被打的一方】让对手更难命中自己，必须减在受方（原来被当成攻方命中加成，方向反了）
         const ehd = target.enemyHitDown || 0;
@@ -4793,11 +4807,11 @@
             if(escortAlive) dmg = 0;
         }
 
-        /* ⚠️ 2026-10-02 第9~11轮：「庇护作战」实现后三次实测均恶化，已回滚。
-           松散版（目标有无还击）：时长 +30.8%→+59.4%；收紧版（作战主目标）：+30.1%→+67.5%、敌方护航对舰 +69.9%→+111.6%。
-           结论：**在时长偏高（+30%）没修好之前，任何减少伤害类机制都会把战局拖更长**。
-           库里 plutus-shield.fleetFlagship 字段保留，等时长修好后再上。 */
-
+        /* ⚠️ 2026-10-02 第24轮（第3次）实现「庇护作战」仍恶化：通过项 9→7，
+           时长 +8.5%→+19.2%、敌方护航对舰 +141.9%→+226.3%、维修 +7.2%→+57.9%（只有生存 46%→58% 改善）。
+           3 次尝试（松散版 / 收紧版 / 收紧+指挥系统未毁检查）结论一致——
+           **减伤 30% 会把战斗拉长，而我的时长本就偏长，于是实例化放大偏差**。
+           库里 plutus-shield.fleetFlagship 字段保留；等其它机制齐了、时长降到游戏水平后再启用。 */
         // === SYSTEM DAMAGE (系统伤害) ===
         // 效率占比（机制文档）：低≈20% / 中≈40% / 高≈60%
         // ⚠️ 文档「每一次【动力系统】被破坏都会扣除自身5%的血量」→ 只有动力系统(engine)扣血
