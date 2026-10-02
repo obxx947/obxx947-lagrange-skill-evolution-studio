@@ -3593,6 +3593,7 @@
     function applyModuleEffects(s) {
         if (!s || !s.modules) return;
         let hpPct = 0, armor = 0, armorCap = 0, eCut = 0, shieldPct = 0;
+        let pCut = 0, cdDown = 0, shieldDrone = null;
         const applied = [];
         Object.keys(s.modules).forEach(key => {
             if (key.startsWith('_')) return;
@@ -3601,12 +3602,15 @@
             const selKey = (s.selectedModules && s.selectedModules[key]) || Object.keys(mod.variants)[0];
             const v = mod.variants[selKey];
             if (!v) return;
-            if (!(v.armorBonus || v.hpBonusPct || v.shieldBonusPct || v.energyCut)) return;
+            if (!(v.armorBonus || v.hpBonusPct || v.shieldBonusPct || v.energyCut || v.physCut || v.critDmgDown || v.shieldDrone)) return;
             hpPct += v.hpBonusPct || 0;
             armor += v.armorBonus || 0;
             if (v.armorCap) armorCap = Math.max(armorCap, v.armorCap);
             eCut += v.energyCut || 0;
             shieldPct += v.shieldBonusPct || 0;
+            pCut += v.physCut || 0;
+            cdDown += v.critDmgDown || 0;
+            if (v.shieldDrone) shieldDrone = v.shieldDrone;
             applied.push(key + '=' + selKey);
         });
         if (!applied.length) return;
@@ -3618,6 +3622,13 @@
         }
         if (eCut) s.energyArmor = (s.energyArmor || 5) + eCut;
         if (shieldPct) s.energyArmor = (s.energyArmor || 5) * (1 + shieldPct / 100);
+        /* ★ 2026-10-02 第20轮（用户权威值）：
+           · physCut   物理伤害减免%   （永恒风暴 C3 = 15）
+           · critDmgDown 受到爆伤减免% （永恒风暴 C3 = 30）
+           · shieldDrone 护盾无人机支援：使目标对能量武器闪避+15%（永恒风暴 C2 / SNT-1） */
+        if (pCut) s.physCut = (s.physCut || 0) + pCut;
+        if (cdDown) s.critDmgDown = (s.critDmgDown || 0) + cdDown;
+        if (shieldDrone) s.shieldDrone = shieldDrone;
         s._modEffectApplied = applied;
     }
     function createShipInstance(shipEntry, side, isEscort, isEscorted) {
@@ -4064,6 +4075,17 @@
     }
 
     function updateEscortStatus(bs) {
+        /* ★★ 2026-10-02 第20轮：护盾无人机（SNT-1）的“对目标实施护盾支援”——
+           按“本舰队全体对能量武器闪避 +N%”近似（持续 30s > 冷却 15s，近似常驻）。
+           数据来源：永恒风暴 C2（用户 2026-10-02 权威值 + 无人机模块参数） */
+        [['ally', bs.allyShips], ['enemy', bs.enemyShips]].forEach(function(pair) {
+            const arr = pair[1];
+            let ev = 0;
+            arr.forEach(u => { if (u.shieldDrone && u.alive) ev = Math.max(ev, u.shieldDrone.evasionVsEnergy || 0); });
+            /* ⚠️ 2026-10-02 第20轮实测：开启后「我方被护航对舰」从 365.9万跌到 98.1万（-75%），
+               15% 闪避不该造成 -73% → 实现过度，先禁用待查（数据字段 shieldDrone 保留）。 */
+            // if (ev > 0) arr.forEach(u => { u.evasionVsEnergy = (u.evasionVsEnergy || 0) + ev; });
+        });
         bs.allyEscortAlive = bs.allyShips.some(s=>s.isEscort && s.alive && s.hp>0);
         bs.enemyEscortAlive = bs.enemyShips.some(s=>s.isEscort && s.alive && s.hp>0);
     }
@@ -4615,7 +4637,9 @@
         // 命中 = 基础命中 × (1 + 命中加成 − 敌方闪避 − 敌方"被命中率下降")
         // ★ 2026-09-24 拍板：「锁定效率」不加命中 —— 资料里锁定是【目标选择阶段的时间】，
         //   跟命中率无关，已挪到 processShipWeapons 的 lockRemaining（缩短锁定时间）。
-        const evasion = target.evasion || 0;
+        /* ★ 佩了永恒风暴 C2（SNT-1 护盾无人机）的舰队：全队对能量武器闪避 +15% */
+        const _eV = (weapon.dmgType === 'energy') ? (target.evasionVsEnergy || 0) : 0;
+        const evasion = (target.evasion || 0) + _eV;
         const hitBonus = (attacker.hitBonus || 0) + (((ws || {}).strengthen || {}).hitBonus || 0);  // 舰船级 + 本武器所属系统
         // ★「被XX命中率下降」是【被打的一方】让对手更难命中自己，必须减在受方（原来被当成攻方命中加成，方向反了）
         const ehd = target.enemyHitDown || 0;
@@ -4712,6 +4736,8 @@
             // 物理：(基础+加成) × 调校 − 护甲（★ 先乘调校再减甲，与资料算式顺序一致）
             dmg = baseVal * tuningCoeff - physArmor;
             if(dmg <= 0) dmg = baseVal * 0.1 * tuningCoeff;               // 不破防：10% 保底 × 调校
+            /* ★ 物理伤害减免%（永恒风暴 C3 = 15%）—— 在减甲之后乘算 */
+            if (target.physCut) dmg *= (1 - Math.min(90, target.physCut) / 100);
         }
 
         // Critical hit (暴击): apply strengthen critRate/critDmg
@@ -4723,6 +4749,8 @@
             critMult = critDmg;
             if(RNG() < 0.1) addBattleLog('info', `💥 ${CR.name||CR.id} 暴击!`);
         }
+        /* ★ 受到爆伤减免%（永恒风暴 C3 = 30%）—— 只削“爆伤增量”部分 */
+        if (critMult > 1 && target.critDmgDown) critMult = 1 + (critMult - 1) * (1 - Math.min(90, target.critDmgDown) / 100);
         dmg *= critMult;
         // （原「dmg *= (1 + attacker.dmgBonus)」已折进上面的加算括号，删掉避免重复计算）
 
