@@ -1737,7 +1737,7 @@
                         <span style="font-size:11px;margin-left:8px;">指挥值:${cmdVal}/500</span>
                         ${currentFleetTab==='main'?`
                         <span style="font-size:11px;margin-left:4px;">旗舰: 
-                            <select id="flagshipSelect" onchange="setShipAsFlagship(this.value)" style="font-size:10px;padding:1px 3px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border-color);border-radius:3px;">
+                            <select id="flagshipSelectInline" onchange="setShipAsFlagship(this.value)" style="font-size:10px;padding:1px 3px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border-color);border-radius:3px;">
                                 <option value="">未设置</option>
                                 ${fleet.main.map(s=>`<option value="${s.id}"${fleet.flagship===s.id?' selected':''}>${s.name}</option>`).join('')}
                             </select>
@@ -2345,6 +2345,9 @@
                         <option value="global"${intType==='global'?' selected':''}>全域</option>
                     </select></div>
             </div>
+            </div><!-- ★ 2026-10-02 补：上面第 41 行的 display:flex 容器一直没闭合 →
+                 从"引擎原本没有"开始的所有区块（第二/第三个 grid、逐武器强化、按钮）都被塞进 flex 里，
+                 会被 flex-wrap 横向挤成一排（静态审计 _static_audit.js 报 openStrengthen <div>=24 </div>=23）。 -->
             <div style="font-size:9px;color:var(--text-secondary);margin-bottom:4px;">引擎原本没有、由加点补上的（可手填）</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px;font-size:10px;">
                 ${num('命中加成','hitBonus',hitBonus)}
@@ -5421,11 +5424,16 @@
                 if(bestTarget) {
                     const _hpBefore = bestTarget.hp;
                     bestTarget._healed = (bestTarget._healed || 0) + actualRepair;   // 受维修量（详情页用）
-                            ship._healOut = (ship._healOut || 0) + actualRepair;   // 治出去的维修量（按舰队聚合用）
                     bestTarget.hp = Math.min(bestTarget.maxHp, bestTarget.hp + actualRepair);
+                    const _dGain = bestTarget.hp - _hpBefore;                        // ★ 实际回上去的血
+                    /* ★★ 2026-10-02 第63轮：`_healOut` 原来记【名义量】，账本记【实际回血】——
+                       同一个"维修量"两套口径，逐舰队聚合（验收/战报用 _healOut）会虚高。
+                       依据就是下面那行注释自己写的「只记真的回上去的血（顶到上限的不算）」。
+                       现在统一成实际回血。 */
+                    ship._healOut = (ship._healOut || 0) + _dGain;
                     /* 战报口径：维修量只记【真的回上去的血】（顶到上限的那部分不算） */
-                    { const _st = dmgStatOf(bs, ship.side); if (_st) { const _d = bestTarget.hp - _hpBefore; _st.repair += _d;
-                        const _p = statPer(_st, ship.name || ship.id); if (_p) _p.repair += _d; } }
+                    { const _st = dmgStatOf(bs, ship.side); if (_st) { _st.repair += _dGain;
+                        const _p = statPer(_st, ship.name || ship.id); if (_p) _p.repair += _dGain; } }
                 }
             }
         }
