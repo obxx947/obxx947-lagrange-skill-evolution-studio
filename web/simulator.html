@@ -3559,6 +3559,43 @@
         s.interceptType = best || 'self';
     }
 
+    /* ★★★ 2026-10-02 新增：模块 effect 里的【持续型加成】原来只存在于文本里，引擎完全读不到
+       —— 装了「附加装甲系统」这类模块等于白装。库里 44 个模块变体的 effect 带数值，
+       其中 11 条属可核对的持续型（护甲/结构%/护盾%/能量减伤），已由 `_fix_module_effects.js`
+       写成结构化字段并附原文（`_effectSrc`），这里统一应用。
+       依据（联网核对）：ST59「防卫重型装甲」= 550 基础 + 150 实弹抵抗（满配 1030）；
+       「附加装甲系统」给结构值最大 +48% —— 都是【加算的固定抵抗值】。
+       触发式（每N秒 / 概率 / N轮1次）与全队 buff（友方能量闪避+15%）不在本函数内。 */
+    function applyModuleEffects(s) {
+        if (!s || !s.modules) return;
+        let hpPct = 0, armor = 0, armorCap = 0, eCut = 0, shieldPct = 0;
+        const applied = [];
+        Object.keys(s.modules).forEach(key => {
+            if (key.startsWith('_')) return;
+            const mod = s.modules[key];
+            if (!mod || !mod.variants) return;
+            const selKey = (s.selectedModules && s.selectedModules[key]) || Object.keys(mod.variants)[0];
+            const v = mod.variants[selKey];
+            if (!v) return;
+            if (!(v.armorBonus || v.hpBonusPct || v.shieldBonusPct || v.energyCut)) return;
+            hpPct += v.hpBonusPct || 0;
+            armor += v.armorBonus || 0;
+            if (v.armorCap) armorCap = Math.max(armorCap, v.armorCap);
+            eCut += v.energyCut || 0;
+            shieldPct += v.shieldBonusPct || 0;
+            applied.push(key + '=' + selKey);
+        });
+        if (!applied.length) return;
+        if (hpPct) { s.maxHp = Math.round(s.maxHp * (1 + hpPct / 100)); s.hp = s.maxHp; }
+        if (armor) {
+            const base = s.physicalArmor || 0;
+            s.physicalArmor = armorCap ? Math.min(armorCap, base + armor) : base + armor;
+            s._armorFromModule = (s._armorFromModule || 0) + armor;
+        }
+        if (eCut) s.energyArmor = (s.energyArmor || 5) + eCut;
+        if (shieldPct) s.energyArmor = (s.energyArmor || 5) * (1 + shieldPct / 100);
+        s._modEffectApplied = applied;
+    }
     function createShipInstance(shipEntry, side, isEscort, isEscorted) {
         const s = {...shipEntry};
         // 结构值兜底：条目缺 hp（旧存档/自定义数据）会让整场战斗变成 NaN
@@ -3620,6 +3657,8 @@
         s.sysDmgReduce = shipEntry.sysDmgReduce || 0;          // 受到的子系统伤害降低 %
         s.hangarByModule = shipEntry.hangarByModule || null;   // 模块级机库（仅该模块的载机）
         // 机制：掩护 / 周期性爆发
+        /* ★ 舰船自带的【舰队级旗舰技能】（如普鲁图斯之盾「庇护作战」）*/
+        s.fleetFlagship = shipEntry.fleetFlagship || null;
         s.cover = shipEntry.cover ? Object.assign({}, shipEntry.cover, { until: 0, done: false }) : null;
         s.coveredBy = null;
         s.bursts = (shipEntry.bursts || []).map(k => Object.assign({}, k, { active: false, until: 0, readyAt: 0 }));
@@ -3630,6 +3669,12 @@
         s.maxHp = s.hp;
         // Initialize moduleGroup selection defaults
         if(!s.selectedModules) s.selectedModules = {};
+        /* ⚠️ 2026-10-02 第8轮：applyModuleEffects(s) 实测通过项 8→7
+           （我方被护航对舰 +25.3%→+15.1% 改善，但敌方护航维修 +11.2%→+16.4% 变差）
+           —— 按协议回滚。待“按舰队对舰队聚合”口径修正后再一起评估。 */
+        /* ★★ 2026-10-02 第9轮：口径改成【舰队对舰队】后重新启用。
+           （第8轮在旧口径下测得 8→7 已回滚；现在目标指标已对齐，重新评估。） */
+        applyModuleEffects(s);
         
         // Initialize weapon cooldowns - support moduleGroup
         s.weaponStates = [];
@@ -4661,6 +4706,11 @@
             if(escortAlive) dmg = 0;
         }
 
+        /* ⚠️ 2026-10-02 第9~10轮：「庇护作战」（普鲁图斯之盾旗舰技能）实现后实测恶化：
+           时长 +30.8%→+59.4%、敌方护航对舰 +48.7%→+118%（通过项 9→9）
+           —— 已按协议回滚引擎侧。库里 plutus-shield.fleetFlagship 字段保留（待重做）。
+           待重做时要解决的点：判定必须收紧到“只有非主目标那一支”才减伤，
+           否则双方互相减伤 → 互相打不动 → 战斗拖长。  */
         // === SYSTEM DAMAGE (系统伤害) ===
         // 效率占比（机制文档）：低≈20% / 中≈40% / 高≈60%
         // ⚠️ 文档「每一次【动力系统】被破坏都会扣除自身5%的血量」→ 只有动力系统(engine)扣血
@@ -4761,6 +4811,13 @@
             if (_isAir) _st.antiAir += dmg; else _st.antiShip += dmg;
             /* ★ 逐单位计数（供【按舰队聚合】—— 同一舰名可能跨护航/被护航队，按舰名分不开） */
             if (_isAir) CR._dealtAir = (CR._dealtAir || 0) + dmg; else CR._dealtShip = (CR._dealtShip || 0) + dmg;
+            /* ★ 2026-10-02 第8轮：再记一维「打给了哪支舰队」——
+               游戏「行动统计」是按【舰队对舰队】分页的，所以只有拆到这一层才能逐页对。
+               用法：accept.js 读 CR._dByTF['护航队'|被护航队'] 得到向量。 */
+            { const _tf = fleetTagOf(target); if (_tf && _tf !== '?') {
+                const _m = CR._dByTF || (CR._dByTF = {});
+                const _o = _m[_tf] || (_m[_tf] = { s: 0, a: 0 });
+                if (_isAir) _o.a += dmg; else _o.s += dmg; } }
             target._lastHitBy = CR;   // 诊断：谁打的我
             const _p = statPer(_st, statRowOf(CR));
             if (_p) {
