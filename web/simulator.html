@@ -4814,7 +4814,13 @@
         // Critical hit (暴击): apply strengthen critRate/critDmg
         // 资料：暴击直接作用于【最终单发伤害】，基础暴伤 ×(1+爆伤加成)，基准即 +50%
         let critMult = 1;
-        const critRate = (weapon.crit ? 0.15 : 0) + (st.critRate||0)/100;
+        /* ★★★ 2026-10-02 第43轮：基础暴击率。
+           原实现：只有带 `crit:true` 的 24 门（6%）才有 15% 暴击 → 全库基本无暴击。
+           依据：memory 里实测出的「游戏 A 对舰 ≈ 面板 × **1.37**；
+           加点 +20% 伤害 × 暴击 30%/150% = **1.38**」—— 说明暴击是【所有武器】的基础属性。
+           现取基础暴击率 15%（= 原来 crit:true 的值），叠加加点的 st.critRate。
+           实测输出偏低：我 面板×0.94 vs 游戏 面板×1.58。 */
+        const critRate = 0.15 + (st.critRate||0)/100;   // ★ 基础 15% + 加点
         const critDmg = 1.5 + (st.critDmg||0)/100;
         if(critRate > 0 && RNG() < critRate) {
             critMult = critDmg;
