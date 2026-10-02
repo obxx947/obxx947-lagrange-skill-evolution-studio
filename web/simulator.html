@@ -4694,6 +4694,21 @@
             const cover = side.find(x => x.instId === target.coveredBy && x.alive && x.hp > 0);
             if(cover && cover !== target) target = cover;
         }
+        /* ★★★ 2026-10-02 第46轮：【护航承伤】—— 打向被护航队的攻击，
+           改由【护航队】代它挨。
+           依据：①联网《维护公告 2024/7/31》「护航队无条件为主队承伤——
+           在护航队被消灭之前，主队不会受到任何伤害」；
+           ②战报2 页面流向：敌方护航 55.97万 + 敌方被护航 359万 全落在我方被护航(1号)身上，
+           而我方被护航有效血 ≈ 400万 与 415万 吻合 → 说明「承伤」不是“打不到”，
+           而是“打到了但由护航队挨”；
+           ③ 原来用 `dmg=0` 的做法会让武器【白打】（选到被护航队→伤害清零），
+           实测使战局从 +50.8% 拖到 +72.6%（我方护航队少挨了打、活得更久）。
+           ★ 被护航队的【载机】不转移（它们在外作战，不受队形保护）。 */
+        if (bs && target && target.isEscorted && target.position !== 'aircraft') {
+            const _own = target.side === 'ally' ? bs.allyShips : bs.enemyShips;
+            const _esc = _own.filter(x => x.isEscort && x.alive && x.hp > 0 && x.position !== 'aircraft');
+            if (_esc.length) target = _esc[Math.floor(RNG() * _esc.length)];
+        }
         // === HIT CHECK (命中判定) ===
         // 命中 = 基础命中区间 × (1 + 命中加成 - 闪避)
         const targets = weapon.targets || [];
