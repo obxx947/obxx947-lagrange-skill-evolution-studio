@@ -4681,7 +4681,9 @@
                     if (match.every(e => e.position === 'aircraft')) return pickByAirOrder(match);
                     /* 【集火攻击】有 focusTargets 则只从 N 个目标里选 */
                     const _ftN = ship.focusTargets || 0;
-                    const splitCount = _ftN > 0 ? Math.max(1, Math.floor(_ftN)) : Math.max(1, Math.round(match.length / 2.5));
+                    const /* ★ 2026-10-02 第64轮：分摊取整改【向下取整】。三源一致：B站Wiki「可选目标的 40%，向下取整」+「艦船数≤4 集火单舰、≥5 触发分摊」+舰队集火表 5/8/10/13/15→2/3/4/5/6。
+         floor(0.4n) 同时满足这三条（n=4→1、n=5→2、n=8→3、n=10→4、n=13→5、n=15→6），而 round 在 n=7/9/12 会多算一个。 */
+                    splitCount = _ftN > 0 ? Math.max(1, Math.floor(_ftN)) : Math.max(1, Math.floor(match.length / 2.5));
                     return match[Math.floor(RNG()*Math.min(match.length, splitCount))];
                 }
             }
@@ -4732,7 +4734,9 @@
                 if (match.every(e => e.position === 'aircraft')) return pickByAirOrder(match);
                 /* 【集火攻击】有 focusTargets 则只从 N 个目标里选 */
                     const _ftN = ship.focusTargets || 0;
-                    const splitCount = _ftN > 0 ? Math.max(1, Math.floor(_ftN)) : Math.max(1, Math.round(match.length / 2.5));
+                    const /* ★ 2026-10-02 第64轮：分摊取整改【向下取整】。三源一致：B站Wiki「可选目标的 40%，向下取整」+「艦船数≤4 集火单舰、≥5 触发分摊」+舰队集火表 5/8/10/13/15→2/3/4/5/6。
+         floor(0.4n) 同时满足这三条（n=4→1、n=5→2、n=8→3、n=10→4、n=13→5、n=15→6），而 round 在 n=7/9/12 会多算一个。 */
+                    splitCount = _ftN > 0 ? Math.max(1, Math.floor(_ftN)) : Math.max(1, Math.floor(match.length / 2.5));
                 return match[Math.floor(RNG()*Math.min(match.length, splitCount))];
             }
         }
