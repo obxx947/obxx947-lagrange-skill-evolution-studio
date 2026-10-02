@@ -4490,14 +4490,17 @@
                实测：天枢 M1 精密协同攻击无人艇（targets 只有战机）8331 炮里
                7719 炮打在太阳鲸/游骑兵级上；星云追逐者追击炮塔 4248 炮全打舰船。
                改为：序列里只列了载机类的武器 —— 找不到载机就【不开火】。 */
-            /* ★★★ 2026-10-02 第15轮：【攻击序列全部匹配不到 → 不开火】
-               依据：战报2「行动统计」逐舰真值（OCR）——
-                  谷神星级 对舰 **1024**（我 7.7万）、开阳级 对舰 **0**（我 2.6万）、
-                  普鲁图斯之盾 **8.427万**（我 36.5万）、CAS066 **3.439万**（我 12.1万）
-                —— 它们的武器序列全是「小型舰船 / 驱逐舰·护卫舰 / 护航艇」，
-                而我方护航队 18 艘里只有 2 艘小船 → 小船一死就没目标 → 游戏里直接停火。
-                实测：只改口径 8/15，口径+本改动 9/15（本改动 +1）。 */
-            return null;
+            /* ★★★ 2026-10-02 第49轮：【修正第15轮的过度收紧】
+               第15轮把"序列全匹配不到 → 不开火"一刀切套到所有武器，实测造成【真回归】：
+               `test/intercept_regression` 的开阳级 vs 开阳级（鱼雷序列=航母/战巡/巡洋，
+               对方是驱逐舰）→ 双方一炮不发、承受伤害 0。
+               ⇒ 攻击序列是【优先目标】，不是【唯一目标】；只有"序列里只写载机类"的
+                 对空武器才该在找不到载机时停火（那是第15轮真正要解决的场景）。 */
+            const _onlyAir1 = (targets.length > 0) && targets.every(tg => ((tg.types || []).length > 0)
+                && (tg.types || []).every(x => _airWords.test(String(x))));
+            if (_onlyAir1) return null;
+            const _fall1 = canAttack.filter(e => e.position !== 'aircraft');
+            return _fall1.length ? _fall1[Math.floor(RNG() * _fall1.length)] : null;
         }
 
         // Follow attack sequence (攻击序列) for projectile weapons
@@ -4522,9 +4525,13 @@
            把火力打到载机上：实测它们的对空 39.3万/33.7万，而游戏里分别是 2150/3.3万。 */
         const _airW = /战机|护航艇|载机|无人机|登陆舰/;
         const _seqAir = ((targets[0] && targets[0].types) || []).some(x => _airW.test(String(x)));
-        /* ★ 2026-10-02 第15轮：同上 —— 序列全部匹配不到就不开火，
-           不再“兼底随便选一个”。原兼底会让只能打小船的武器去打大船。 */
-        return null;
+        /* ★ 2026-10-02 第49轮：同直射分支 —— 只有"序列全载机类"的对空武器才停火；
+           对舰武器（序列是舰种类）序列匹配不到时【兜底打舰船】，否则会一炮不发。 */
+        const _onlyAir2 = (targets.length > 0) && targets.every(tg => ((tg.types || []).length > 0)
+            && (tg.types || []).every(x => _airW.test(String(x))));
+        if (_onlyAir2) return null;
+        const _fall2 = aliveEnemies.filter(e => targetable(e) && e.position !== 'aircraft');
+        return _fall2.length ? _fall2[Math.floor(RNG() * _fall2.length)] : null;
     }
 
     // Direct fire weapon target selection (直射武器必须逐排攻击)
