@@ -3919,6 +3919,16 @@
         s.bursts = (shipEntry.bursts || []).map(k => Object.assign({}, k, { active: false, until: 0, readyAt: 0 }));
         // ★ 加点自动生效（船级部分，必须在算 maxHp 之前）
         applyAddPointShip(s);
+        /* ★★ 第68轮：【信息伪装】加点节点 → 实例字段（必须放在 applyAddPointShip 之后，fleetMechs 那时才收齐）
+           节点原文：「开启伪装系统，在战斗开始后{T}秒内，会被敌方识别为战机」（如 207010304=120s） */
+        try {
+            (s.fleetMechs || []).forEach(x => {
+                if (x.fm.kind !== 'disguise') return;
+                s.disguiseAs = x.fm.as || '战机';
+                const q = (typeof fmValLv === 'function') ? fmValLv(x.fm, x.lv, 0) : null;
+                s.disguiseSec = (typeof q === 'number' && q > 0) ? q : 120;
+            });
+        } catch (e) { }
         // Apply HP bonus
         s.hp = Math.round(s.hp * (1 + (s.hpBonus||0)/100));
         s.maxHp = s.hp;
