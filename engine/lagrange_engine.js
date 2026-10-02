@@ -3086,10 +3086,50 @@ global.__ENGINE_ROOT = __ROOT;
        依据（联网核对）：ST59「防卫重型装甲」= 550 基础 + 150 实弹抵抗（满配 1030）；
        「附加装甲系统」给结构值最大 +48% —— 都是【加算的固定抵抗值】。
        触发式（每N秒 / 概率 / N轮1次）与全队 buff（友方能量闪避+15%）不在本函数内。 */
+    /* ★★ 2026-10-02 第53轮：【模块级机制】的实现。
+       这些机制原来只能从【加点节点】来（resolveAddPointMechanics），
+       而模块的 effect 里写了也不会生效 —— 审计里 27 条“只有文字”的模块机制就是这个原因。
+       字段（写在 module.variants[x] 上，均已附原文 _effectSrc）：
+         strike         协同攻击：{mode:'AA'|'Weak'|'Tank', dur, cd, shipWide}
+         cmdAssist      指挥：{count, every, match:'aircraft'|'sameRowCruiser'|'company'}
+         targetPriority 优先打击某类目标（'superCapital'…）
+         atkReduction   攻击持续时间 -N%
+         coverModule    掩护：{dur, targets, healPct}
+       （antiIntercept / ionBoost / dodgeVsAir / dmgBonusFlat 由 applyModuleEffects 消费）*/
+    function applyModuleMechanics(s) {
+        if (!s || !s.modules) return;
+        Object.keys(s.modules).forEach(key => {
+            if (key.startsWith('_')) return;
+            const mod = s.modules[key];
+            if (!mod || !mod.variants) return;
+            const selKey = (s.selectedModules && s.selectedModules[key]) || Object.keys(mod.variants)[0];
+            const v = mod.variants[selKey];
+            if (!v) return;
+            const skey = key + '_' + selKey;
+            if (v.strike) {
+                s.strikes = s.strikes || [];
+                s.strikes.push(Object.assign({ skey: v.strike.shipWide ? null : skey }, v.strike,
+                    { activeUntil: v.strike.dur || 0, readyAt: 0, active: true }));
+            }
+            if (v.cmdAssist) {
+                s.cmdAssist = s.cmdAssist || [];
+                s.cmdAssist.push(Object.assign({ skey: skey }, v.cmdAssist, { cycles: 0, fired: 0 }));
+            }
+            if (v.targetPriority) s.targetPriority = v.targetPriority;
+            if (v.atkReduction) s.atkReduction = (s.atkReduction || 0) + v.atkReduction;
+            if (v.coverModule) {
+                s.cover = s.cover || { dur: 0, targets: 0, all: false, until: 0, done: false, healPct: 0 };
+                s.cover.dur += v.coverModule.dur || 0;
+                s.cover.targets += v.coverModule.targets || 0;
+                if (v.coverModule.healPct) s.cover.healPct = (s.cover.healPct || 0) + v.coverModule.healPct;
+            }
+        });
+    }
     function applyModuleEffects(s) {
         if (!s || !s.modules) return;
         let hpPct = 0, armor = 0, armorCap = 0, eCut = 0, shieldPct = 0;
         let pCut = 0, cdDown = 0, shieldDrone = null;
+        let antiInt = 0, ionHit = 0, ionDmg = 0, dvAir = 0, flatDmg = 0;   // ★ 第53轮新增
         let hDmg = 0, hHit = 0, hCdRed = 0, hFlight = 0, hCr = 0, hCd = 0;   // 母舰给载机的机库加成
         const applied = [];
         Object.keys(s.modules).forEach(key => {
@@ -3100,6 +3140,7 @@ global.__ENGINE_ROOT = __ROOT;
             const v = mod.variants[selKey];
             if (!v) return;
             if (!(v.armorBonus || v.hpBonusPct || v.shieldBonusPct || v.energyCut || v.physCut || v.critDmgDown || v.shieldDrone
+                  || v.antiIntercept || v.ionBoost || v.dodgeVsAir || v.dmgBonusFlat
                   || v.hangarDmg || v.hangarHit || v.hangarCdRed || v.hangarFlight || v.hangarCritRate || v.hangarCritDmg)) return;
             hpPct += v.hpBonusPct || 0;
             armor += v.armorBonus || 0;
@@ -3109,6 +3150,10 @@ global.__ENGINE_ROOT = __ROOT;
             pCut += v.physCut || 0;
             cdDown += v.critDmgDown || 0;
             if (v.shieldDrone) shieldDrone = v.shieldDrone;
+            antiInt += v.antiIntercept || 0;
+            flatDmg += v.dmgBonusFlat || 0;
+            if (v.ionBoost) { ionHit += v.ionBoost.hit || 0; ionDmg += v.ionBoost.dmg || 0; }
+            if (v.dodgeVsAir) dvAir = Math.max(dvAir, v.dodgeVsAir);
             hDmg += v.hangarDmg || 0;   hHit += v.hangarHit || 0;
             hCdRed += v.hangarCdRed || 0; hFlight += v.hangarFlight || 0;
             hCr += v.hangarCritRate || 0; hCd += v.hangarCritDmg || 0;
@@ -3130,6 +3175,10 @@ global.__ENGINE_ROOT = __ROOT;
         if (pCut) s.physCut = (s.physCut || 0) + pCut;
         if (cdDown) s.critDmgDown = (s.critDmgDown || 0) + cdDown;
         if (shieldDrone) s.shieldDrone = shieldDrone;
+        if (antiInt) s.antiIntercept = (s.antiIntercept || 0) + antiInt;
+        if (flatDmg) s.dmgBonus = (s.dmgBonus || 0) + flatDmg;
+        if (ionHit || ionDmg) s.ionBoost = { hit: ((s.ionBoost && s.ionBoost.hit) || 0) + ionHit, dmg: ((s.ionBoost && s.ionBoost.dmg) || 0) + ionDmg };
+        if (dvAir) s.dodgeVsAir = Math.max(s.dodgeVsAir || 0, dvAir);
         /* ★ 2026-10-02 第21轮：模块 effect 里的「母舰给载机」加成
            —— 太阳鲸 B2（载机伤害+3%、冷却-15%）、天枢 C1（往返-20%）/B1（命中+30、暴击+30/50）/B2（命中+30），
            写进与加点版共用的同一套 hangar*，载机实例会读到。 */
@@ -3267,6 +3316,9 @@ global.__ENGINE_ROOT = __ROOT;
         // 拦截率合成（读 selectedModules，必须放在上面模块解析之后）
         applyAddPointWeapons(s);   // ★ 加点：逐武器（按系统）
         applyIntercept(s);
+        /* ★★ 2026-10-02 第53轮：【模块级机制】——协同攻击/指挥/优先打击/反拦截/离子强化/规避/掩护，
+          原来只能从【加点】来，模块里写了也不生效。 */
+        applyModuleMechanics(s);
         // Subsystems
         s.subSystems = [];
         if(s.modules) {
@@ -3710,7 +3762,8 @@ global.__ENGINE_ROOT = __ROOT;
     /* 该武器的所属系统是否正处于「打击」窗口内 */
     function activeStrike(attacker, ws) {
         if(!attacker.strikes || !attacker.strikes.length) return null;
-        return attacker.strikes.find(k => k.active && k.skey && k.skey === ws.strengthenKey) || null;
+        /* ★★ 2026-10-02 第53轮修真 bug：原来要求 `k.skey` 非空，而「全舰武器」类的打击（如安东塔斯 A1）skey 为 null → 永远匹配不到。 */
+        return attacker.strikes.find(k => k.active && (!k.skey || k.skey === ws.strengthenKey)) || null;
     }
 
     /* 往复作战的【一轮额外耗时】= 去程 + 返程（秒）。
@@ -4220,7 +4273,10 @@ global.__ENGINE_ROOT = __ROOT;
                 });
             }
         }
-        hitRate *= (1 + (hitBonus + subHit - evasion - ehd) / 100);
+        /* ★ 第53轮：离子强化装置（止战 G1）—— 命中+伤害，仅对名字含「离子」的武器生效 */
+        const _ion = (attacker.ionBoost && /离子/.test(_wName)) ? attacker.ionBoost : null;
+        /* ★ 第53轮：离子强化装置的命中部分 */
+        hitRate *= (1 + (hitBonus + subHit + (_ion ? (_ion.hit||0) : 0) - evasion - ehd) / 100);
         hitRate = clamp(hitRate, HIT_MIN, HIT_MAX);
 
         // Bomb distance effect
@@ -4229,6 +4285,12 @@ global.__ENGINE_ROOT = __ROOT;
             hitRate = clamp(hitRate + distDiff * 0.02, HIT_MIN, HIT_MAX);
         }
 
+        /* ★ 第53轮：永恒苍穹 M2「攻击舰载机时 60% 规避全部伤害」
+           —— 按“被载机攻击时概率完全规避”实现 */
+        if (target && target.dodgeVsAir > 0 && attacker.position === 'aircraft' && RNG() < target.dodgeVsAir / 100) {
+            if (RNG() < 0.05) addBattleLog('info', '⚡ ' + (target.name||target.id) + ' 规避了载机攻击');
+            return;
+        }
         if(RNG() > hitRate) {
             if(RNG() < 0.05) addBattleLog('info', `${CR.name||CR.id} 对 ${target.name||target.id} 未命中`);
             return;
@@ -4280,7 +4342,7 @@ global.__ENGINE_ROOT = __ROOT;
              加成率 = 武器强化「单发+%」 + 舰船级/系统级「伤害加成%」 + 策略增幅
            回代资料实测：维塔斯B 650 单发 / +55% 加成 / 70% 能抗 → 650×(1+0.55−0.70)=552 ✓
                         大帝M1 (400+60+40+80−340)×1.3=312 ✓   阋神星 (300+60)×1.3−140=328 ✓ */
-        const bonusRate = ((st.dmgBonus||0) + (attacker.dmgBonus||0)) / 100;
+        const bonusRate = ((st.dmgBonus||0) + (attacker.dmgBonus||0) + (_ion ? (_ion.dmg||0) : 0)) / 100;
         const baseVal = weapon.singleDmg * (1 + bonusRate);              // 保底用的「基础+加成」
         const physArmor = (target.physicalArmor || 0) + (target.physResistBonus || 0); // Ship base armor + bonus resist
         const energyArmor = target.energyArmor || 5;
@@ -5342,8 +5404,32 @@ function __engineRunBattle(opt) {
     FLEET_TYPES.forEach(k => { fleetData[k].main = []; fleetData[k].reinforcement = []; fleetData[k].apSet = null; });
     fleetData['ally-escort'].main = __engineBuildSide(o.A);
     fleetData['enemy-escort'].main = __engineBuildSide(o.B);
-    if (typeof o.Aescort !== 'undefined') fleetData['ally-escorted'].main = __engineBuildSide(o.Aescort);
-    if (typeof o.Bescort !== 'undefined') fleetData['enemy-escorted'].main = __engineBuildSide(o.Bescort);
+    /* ★ 4 舰队护航格式：A=我方护航队 / AEscorted=我方被护航队 / B=敌方护航队 / BEscorted=敌方被护航队
+       （兼容旧名 Aescort/Bescort） */
+    if (typeof o.AEscorted !== 'undefined' || typeof o.Aescort !== 'undefined')
+        fleetData['ally-escorted'].main = __engineBuildSide(o.AEscorted || o.Aescort);
+    if (typeof o.BEscorted !== 'undefined' || typeof o.Bescort !== 'undefined')
+        fleetData['enemy-escorted'].main = __engineBuildSide(o.BEscorted || o.Bescort);
+    /* ★ 旗舰选择：把旗舰 id 写进舰队（prepareBattle 会据此给实例打 isFlagship） */
+    fleetData['ally-escort'].flagship = o.AFlagship || null;
+    fleetData['ally-escorted'].flagship = o.AFlagship || null;
+    fleetData['enemy-escort'].flagship = o.BFlagship || null;
+    fleetData['enemy-escorted'].flagship = o.BFlagship || null;
+    /* ★ 加点方案：传对象 {cdnId:{lv:{...}}} → 自动注册成方案并挂到该舰队 */
+    if (o.AAddPoints) {
+        const sets = JSON.parse(localStorage.getItem('lagrange_addpoint_sets') || '[]').filter(x => x.name !== '__EVO_A');
+        sets.push({ name: '__EVO_A', addpoints: o.AAddPoints });
+        localStorage.setItem('lagrange_addpoint_sets', JSON.stringify(sets));
+        fleetData['ally-escort'].apSet = '__EVO_A';
+        fleetData['ally-escorted'].apSet = '__EVO_A';
+    }
+    if (o.BAddPoints) {
+        const sets = JSON.parse(localStorage.getItem('lagrange_addpoint_sets') || '[]').filter(x => x.name !== '__EVO_B');
+        sets.push({ name: '__EVO_B', addpoints: o.BAddPoints });
+        localStorage.setItem('lagrange_addpoint_sets', JSON.stringify(sets));
+        fleetData['enemy-escort'].apSet = '__EVO_B';
+        fleetData['enemy-escorted'].apSet = '__EVO_B';
+    }
     try { refreshFleetViews(); } catch (e) { }
     if (typeof o.seed === 'number') battleSeed = o.seed; else battleSeed = null;
     if (!prepareBattle()) return null;
@@ -5377,8 +5463,14 @@ function __engineOutcome(r) {
     return 'timeout';
 }
 
+/* ★ 给"生成加点方案"用的工具（进化实验要用） */
+function __cdnOf(shipId) { return (BP_MAP && BP_MAP[shipId] && BP_MAP[shipId].cdnId) || null; }
+function __treeOf(cdnId) { return BP_TREE[cdnId] || null; }
+
 module.exports = {
     init: __engineInit,
+    cdnOf: __cdnOf,
+    treeOf: __treeOf,
     loadBpTrees: __engineLoadBpTrees,
     runBattle: __engineRunBattle,
     outcome: __engineOutcome,

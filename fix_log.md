@@ -323,6 +323,74 @@
 
 ---
 
+## 第 53 轮 —— 逐项审计（加点/策略/旗舰/机制）+ 补 14 条模块机制 + ★双神经元对弈
+
+### ① 逐项审计（新工具 `_audit_impl.js` → 桌面/加点策略旗舰机制-实现审计-2026-10-02.md）
+| 维度 | 已实现 | 未实现 |
+|---|---|---|
+| **加点属性** | **4403 / 4403** | **0** ✅ |
+| 加点·条件触发节点 | 140 | 0 ✅ |
+| **策略（加点层）** | **4 / 4** | 0 ✅ |
+| 策略（模块层） | 1 → **2**（本轮补上南十字 A1） | 0 ✅ |
+| **旗舰标记 + 门槛** | ✅（`inst.isFlagship` + `flagsMechOk` 查指挥系统未被毁） | 0 ✅ |
+| 旗舰技能（舰船自带） | 1（庇护作战，**代码在但已停用**——实测恶化） | — |
+| **舰队级机制 kind** | **5 / 5**（subTargetHit·counterSub·protectFromSub·repairBoost·cutInSub） | 0 ✅ |
+| **模块机制（说明带数值）** | 18 → **32** | 45−32=13 |
+
+### ② 本轮补的 14 条模块机制（数据 + 4 处引擎钩子）
+| 舰船/模块 | 机制 | 结构化字段 |
+|---|---|---|
+| 安东塔斯 A1/A2/A3 | 协同攻击：选敌方【防空最高/结构最低/物抗最高】打 30s、冷却 90s | `strike{mode,dur,cd,shipWide}` |
+| 安东塔斯 M1/M2/M3 | 指挥 5/3/3 个【舰载机/同排巡洋舰/本公司舰船】主武器额外攻击，每 3/4 轮 1 次 | `cmdAssist{count,every,match}` |
+| 南十字 A1 | 策略优先打击超主力舰、攻击持续时间 −40% | `targetPriority` + `atkReduction` |
+| 止战 G1 | 离子炮 命中+15% 伤害+15% | `ionBoost{hit,dmg}`（引擎按武器名含「离子」生效） |
+| 天权 A1/A2 | 30% 反拦截 | `antiIntercept`（引擎已读 `attacker.antiIntercept`） |
+| 永恒苍穹 M2 | 被载机攻击时 60% 规避全部伤害 | `dodgeVsAir` |
+| 天权 M1/M2/M3 | 掩护（+装甲/+单发/被掩护者回血） | `coverModule{dur,targets,healPct}` + `dmgBonusFlat` |
+
+**引擎新增**：`applyModuleMechanics()`（把模块级的 strike/cmdAssist/targetPriority/atkReduction/coverModule 注入实例）
++ `applyModuleEffects` 消费 antiIntercept/ionBoost/dodgeVsAir/dmgBonusFlat
++ executeShot 消费 ionBoost（仅离子武器）与 dodgeVsAir（被载机攻击时）。
+**★ 同时修真 bug**：`activeStrike` 原要求 `k.skey` 非空 → **"全舰武器"类打击（skey=null）永远不触发**（如安东塔斯 A1）。
+
+**验收保持 12/18**（这些模块不在两份战报的配队里，数字逐项不变 → 无回归）；
+回归：battle_mechanics **7/0** ｜ intercept **17/0** ｜ module_in_combat **5/0**。
+
+### ③ ★★ 双神经元对弈（`demo/evolve_duel.js`，用户明确要求的形态）
+用户原话：「**两个神经元的对弈，他们可以进行配队、加点、旗舰选择，每次都得是护航的 4 个舰队**」。
+
+**基因组 = 一个神经元的全部决策**：`escort[]`（护航队）+ `escorted[]`（被护航队）+ `addpoints`（整套加点）+ `flagship`（旗舰）。
+**对局**：A(护航+被护航) vs B(护航+被护航) —— 固定 4 舰队护航格式。
+**适应度**：存活时间（我方两支全灭的时刻）+ 胜利奖励。
+**进化**：**交替进化一方、另一方当对手池**（奇数代进化 A、偶数代进化 B）。
+
+**加点怎么生成**：引擎新增 `E.cdnOf(shipId)` / `E.treeOf(cdnId)`；每艘船的蓝图树带
+`enhanceLimit`（系统点数上限）/`levelCost`（每级消耗）/`parentId`（前置需≥1级）/`priorty`（同位置二选一）/
+`maxLevel`（等级上限），`randAllocForShip()` 按这些规则随机花点数 → **生成的方案合法可用**。
+
+**实测（4 代 × 4 个体 × 2 对手，18 秒）**：
+```
+代   进化方   最优存活   平均     最优基因组
+ 1   A           742      660   XT11-missile×2 / chimera-C×4 / chimera-C / 加点 2 艘
+ 2   B           841      571   AC721-A×4+tianshu×1 / taixian-A×2 / tianshu / 加点 3 艘
+ 3   A          1235     1009
+ 4   B          1577     1483
+A 方曲线：742 → 1235 ｜ B 方曲线：841 → 1577
+```
+⇒ **双方都在变强 = 军备竞赛生效**。
+
+### ④ 引擎 API 扩充（已重新生成 `engine/lagrange_engine.js`）
+`runBattle` 新增 `AEscorted/BEscorted`（4 舰队）、`AFlagship/BFlagship`（旗舰）、
+`AAddPoints/BAddPoints`（自动注册成加点方案并挂到该舰队）；新增 `cdnOf/treeOf`。
+
+### ⑤ 打包更新
+`拉格朗日-进化实验包-2026-10-02.zip`（**189 文件 / 0.6 MB**）新增
+`demo/evolve_duel.js`（双神经元对弈）+ 审计报告 + 审计脚本；
+`README.md` 与 `给AI的交接.md` 都补了「双神经元对弈」章节（含基因组表与实测曲线）。
+**已解压验证**：冒烟 ✅、双神经元对弈 ✅。
+
+---
+
 ## 第 52 轮 —— ★★★ 抽取独立 Node 引擎 + 打包「进化实验包」
 
 ### ① 独立引擎（`engine/lagrange_engine.js`，5394 行）
