@@ -590,7 +590,7 @@
                      onmouseout="this.style.borderColor='var(--border-color)';this.style.transform='';this.style.boxShadow=''">
                     <div style="font-size:3rem;margin-bottom:12px;">⚓⚔️</div>
                     <div style="font-size:1.4rem;font-weight:700;color:var(--text-primary);margin-bottom:8px;">配队与战斗</div>
-                    <div style="color:var(--text-secondary);font-size:0.9rem;">舰队配置 → 护航战斗 → 轰炸战斗 → 战报</div>
+                    <div style="color:var(--text-secondary);font-size:0.9rem;">舰队配置 → 护航战斗 → 战报</div>
                 </div>
                 <div class="menu-card" onclick="navigateTo('page-encyclopedia')" style="background:linear-gradient(145deg,rgba(26,35,50,0.95),rgba(17,24,39,0.98));border:1px solid var(--border-color);border-radius:16px;padding:30px;cursor:pointer;text-align:center;transition:all 0.4s;"
                      onmouseover="this.style.borderColor='var(--accent-purple)';this.style.transform='translateY(-8px)';this.style.boxShadow='0 20px 40px rgba(168,85,247,0.3)'"
@@ -670,8 +670,11 @@
         <div class="page" id="page-battle">
             <div style="display:flex;gap:8px;margin-bottom:12px;">
                 <button class="category-btn active" onclick="switchBattleMode('escort')" id="battleModeEscort">🛡️ 护航战斗</button>
+                <!-- ★★★ 2026-10-03 用户要求：注释掉「轰炸战斗」模式入口
                 <button class="category-btn" onclick="switchBattleMode('bomb')" id="battleModeBomb">💣 轰炸战斗</button>
+                -->
             </div>
+            <!-- ★★★ 2026-10-03 用户要求：注释掉「轰炸战斗」配置面板（轰炸距离 + 四个舰队来源）
             <div id="bombConfig" style="display:none;margin-bottom:12px;padding:10px;background:var(--bg-secondary);border-radius:8px;border:1px solid var(--border-color);">
                 <span style="font-size:12px;color:var(--text-secondary);">💣 轰炸距离(吉米): </span>
                 <input type="range" min="5" max="30" value="15" style="width:150px;display:inline;" id="bombDistanceSlider" oninput="$('bombDistanceVal').textContent=this.value">
@@ -681,6 +684,7 @@
                 <span style="font-size:11px;">敌方护航:</span><select id="bombEEscort" class="form-input" style="width:auto;"><option value="enemy-escort">敌方护航舰队</option><option value="enemy-escorted">敌方被护航舰队</option></select>
                 <span style="font-size:11px;">敌方被护航:</span><select id="bombEEscorted" class="form-input" style="width:auto;"><option value="enemy-escorted">敌方被护航舰队</option><option value="enemy-escort">敌方护航舰队</option></select>
             </div>
+            -->
             <div class="control-panel">
                 <button class="btn btn-primary" onclick="startBattle()">▶ 开始战斗</button>
                 <button class="btn btn-sm" style="background:var(--accent-gold);" onclick="syncFleetsToBattle()">🔄 同步配队</button>
@@ -700,12 +704,14 @@
                 <div class="battle-side enemy" id="battleCol2"><div class="battle-side-title" id="battleTitle2"></div><div id="battleShips2"></div></div>
                 <div class="battle-side enemy" id="battleCol3"><div class="battle-side-title" id="battleTitle3"></div><div id="battleShips3"></div></div>
             </div>
+            <!-- ★★★ 2026-10-03 用户要求：注释掉「轰炸编队」舰载机面板
             <div style="display:none;" id="bombAircraftPanel">
                 <div class="battle-container" style="grid-template-columns:1fr 1fr;">
                     <div class="battle-side ally"><div class="battle-side-title">💣 轰炸编队(我方舰载机)</div><div id="battleBombAlly"></div></div>
                     <div class="battle-side enemy"><div class="battle-side-title">💣 轰炸编队(敌方舰载机)</div><div id="battleBombEnemy"></div></div>
                 </div>
             </div>
+            -->
             <div style="display:flex;gap:20px;margin-top:10px;">
                 <div style="flex:1;"><span style="font-size:11px;color:var(--text-muted);">🔵 我方总血量: </span><span style="color:var(--accent-cyan);" id="allyTotalHpText">0 / 0</span></div>
                 <div style="flex:1;text-align:right;"><span style="font-size:11px;color:var(--text-muted);">🔴 敌方总血量: </span><span style="color:var(--accent-red);" id="enemyTotalHpText">0 / 0</span></div>
@@ -1112,38 +1118,30 @@
     let battleSpeed = 1;
     let battleTimer = null;
     let battleLogs = [];
-    let battleMode = 'escort'; // 'escort' or 'bomb'
+    let battleMode = 'escort'; // ★★★ 2026-10-03 用户要求：轰炸战斗已注释停用 → 只剩 'escort'
 
     function switchBattleMode(mode) {
+        /* ★★★ 2026-10-03 用户要求：注释掉「轰炸战斗」——只保留护航战斗。
+           （原实现里会 toggle battleModeBomb / bombConfig / bombAircraftPanel 与 bomb 布局分支，
+             这些元素与分支已一并注释；保留会因元素不存在而报错 → 这里强制 escort。）
+           原代码存档：
+             $('battleModeBomb').classList.toggle('active', mode==='bomb');
+             $('bombConfig').style.display = mode==='bomb' ? 'block' : 'none';
+             $('bombAircraftPanel').style.display = mode==='bomb' ? 'block' : 'none';
+             if(mode==='bomb') { battleFleetGrid 两列 / battleTitle0~3 换成轰炸编队 / 隐藏 col3 }
+        */
+        if (mode !== 'escort') mode = 'escort';
         battleMode = mode;
-        $('battleModeEscort').classList.toggle('active', mode==='escort');
-        $('battleModeBomb').classList.toggle('active', mode==='bomb');
-        $('bombConfig').style.display = mode==='bomb' ? 'block' : 'none';
-        $('bombAircraftPanel').style.display = mode==='bomb' ? 'block' : 'none';
-        
-        if(mode==='bomb') {
-            $('battleFleetGrid').style.gridTemplateColumns = 'repeat(2,1fr)';
-            $('battleTitle0').textContent = '🛡️ 护航舰队';
-            $('battleTitle1').textContent = '🔮 被护航舰队';
-            $('battleTitle2').textContent = '💣 轰炸编队';
-            $('battleCol0').className = 'battle-side ally';
-            $('battleCol1').className = 'battle-side ally';
-            $('battleCol2').className = 'battle-side enemy';
-            $('battleTitle3').textContent = '';
-            // Hide col3, show col2 as bomb fleet
-            $('battleShips2').parentElement.style.display = '';
-            $('battleShips3').parentElement.style.display = 'none';
-        } else {
-            $('battleFleetGrid').style.gridTemplateColumns = 'repeat(4,1fr)';
-            $('battleTitle0').textContent = '🛡️ 我方护航';
-            $('battleTitle1').textContent = '🔮 我方被护航';
-            $('battleTitle2').textContent = '🛡️ 敌方护航';
-            $('battleTitle3').textContent = '🔮 敌方被护航';
-            $('battleCol0').className = 'battle-side ally';
-            $('battleCol1').className = 'battle-side ally';
-            $('battleCol2').className = 'battle-side enemy';
-            $('battleCol3').className = 'battle-side enemy';
-        }
+        $('battleModeEscort').classList.toggle('active', true);
+        $('battleFleetGrid').style.gridTemplateColumns = 'repeat(4,1fr)';
+        $('battleTitle0').textContent = '🛡️ 我方护航';
+        $('battleTitle1').textContent = '🔮 我方被护航';
+        $('battleTitle2').textContent = '🛡️ 敌方护航';
+        $('battleTitle3').textContent = '🔮 敌方被护航';
+        $('battleCol0').className = 'battle-side ally';
+        $('battleCol1').className = 'battle-side ally';
+        $('battleCol2').className = 'battle-side enemy';
+        $('battleCol3').className = 'battle-side enemy';
         resetBattle();
     }
     // ============================================================
@@ -1341,7 +1339,8 @@
             {id:'ally-escorted', name:'我方被护航舰队', cls:'ally escorted'},
             {id:'enemy-escort', name:'敌方护航舰队', cls:'enemy escort'},
             {id:'enemy-escorted', name:'敌方被护航舰队', cls:'enemy escorted'},
-            {id:'bomb-fleet', name:'💣 轰炸编队(舰载机)', cls:'ally bomb', isBomb:true}
+            /* ★★★ 2026-10-03 用户要求：注释停用「轰炸编队」面板
+            {id:'bomb-fleet', name:'💣 轰炸编队(舰载机)', cls:'ally bomb', isBomb:true} */
         ];
         container.innerHTML = configs.map(c => {
             const fleet = fleetData[c.id];
@@ -3603,8 +3602,8 @@
         const allyEscort=[], allyEscorted=[], enemyEscort=[], enemyEscorted=[];
         const allyShips=[], enemyShips=[];
         
-        if(battleMode==='bomb') {
-            // Bomb mode: 4 independent fleet sources + bomb fleet aircraft
+        if(false /* ★★★ 2026-10-03 用户要求：轰炸战斗已注释停用（原 if(battleMode==='bomb')） */ && battleMode==='bomb') {
+            // Bomb mode: 4 independent fleet sources + bomb fleet aircraft（★ 已停用，保留备查）
             const collect = (ft, side, isEscort, dest) => {
                 const fleet = fleetData[ft]; if(!fleet) return;
                 [...fleet.main, ...fleet.reinforcement].forEach(shipEntry => {
@@ -3682,7 +3681,7 @@
             enemyTotalHpMax: enemyShips.reduce((s,sh)=>s+sh.maxHp,0),
             allyEscortAlive: allyEscort.some(s=>s.isEscort&&s.hp>0)||allyEscort.some(s=>s.hp>0),
             enemyEscortAlive: enemyEscort.some(s=>s.isEscort&&s.hp>0)||enemyEscort.some(s=>s.hp>0),
-            bombDistance: battleMode==='bomb' ? parseInt($('bombDistanceSlider')?.value||15) : 15,
+            bombDistance: 15,   /* ★★★ 2026-10-03 轰炸战斗停用：原为 battleMode==='bomb' ? parseInt($('bombDistanceSlider')?.value||15) : 15 */
             battleMode
         };
 
@@ -4733,6 +4732,11 @@
                对方是驱逐舰）→ 双方一炮不发、承受伤害 0。
                ⇒ 攻击序列是【优先目标】，不是【唯一目标】；只有"序列里只写载机类"的
                  对空武器才该在找不到载机时停火（那是第15轮真正要解决的场景）。 */
+            /* ★★★ 2026-10-03【已试并回滚】：本日试过"取消停火 → 序列打不到一律兜底随机打舰船"，
+               实测验收 **13/18 → 8/18**（A 对空 −11%→−17.5%、B 对空 −13.5%→−36%、敌方被护航对空
+               翻正项又翻负、两个时长集体恶化）—— 按协议【回滚】，保留本条停火规则。
+               ⚠️ 用户报的「米斯特拉什么都不打」真因不是停火，而是 vsShipMul 折算四舍五入归零
+               （见 executeShot 2026-10-03 修复；米斯特拉的序列含"驱逐舰/护卫舰"、本来就会兜底打舰）。 */
             const _onlyAir1 = (targets.length > 0) && targets.every(tg => ((tg.types || []).length > 0)
                 && (tg.types || []).every(x => _airWords.test(String(x))));
             if (_onlyAir1) return null;
@@ -4764,8 +4768,8 @@
            把火力打到载机上：实测它们的对空 39.3万/33.7万，而游戏里分别是 2150/3.3万。 */
         const _airW = /战机|护航艇|载机|无人机|登陆舰/;
         const _seqAir = ((targets[0] && targets[0].types) || []).some(x => _airW.test(String(x)));
-        /* ★ 2026-10-02 第49轮：同直射分支 —— 只有"序列全载机类"的对空武器才停火；
-           对舰武器（序列是舰种类）序列匹配不到时【兜底打舰船】，否则会一炮不发。 */
+        /* ★★★ 2026-10-03【已试并回滚】：同直射分支 —— "取消停火"实测把验收从 13/18 打到 8/18，
+           已按协议回滚，保留"序列全载机类 → 找不到载机就停火"（第15轮引入、第49轮保留）。 */
         const _onlyAir2 = (targets.length > 0) && targets.every(tg => ((tg.types || []).length > 0)
             && (tg.types || []).every(x => _airW.test(String(x))));
         if (_onlyAir2) return null;
@@ -5022,7 +5026,7 @@
         hitRate = clamp(hitRate, HIT_MIN, HIT_MAX);
 
         // Bomb distance effect
-        if(bs.battleMode === 'bomb' && (attacker.size==='aircraft' || target.size==='aircraft')) {
+        if(false /* ★★★ 2026-10-03 用户要求：轰炸战斗已注释停用 */ && bs.battleMode === 'bomb' && (attacker.size==='aircraft' || target.size==='aircraft')) {
             const distDiff = (bs.bombDistance || 15) - 15;
             hitRate = clamp(hitRate + distDiff * 0.02, HIT_MIN, HIT_MAX);
         }
@@ -5256,8 +5260,12 @@
         /* ★ 打载机 / 打舰船的折算：按游戏面板标定（见 _patch_shots.js）。
            引擎已按武器自带的【分目标命中表】抽命中率，这里再补上两个面板之间的差异，
            使「打载机」和「打舰船」的速率分别等于各自的面板。 */
-        if (target.position === 'aircraft') { if (weapon.vsAirMul > 0) dmg = Math.round(dmg * weapon.vsAirMul); }
-        else { if (weapon.vsShipMul > 0) dmg = Math.round(dmg * weapon.vsShipMul); }
+        /* ★★★ 2026-10-03 修「折算归零」：原来 Math.round(dmg × mul) 会把小数伤害直接 round 成 0 ——
+           米斯特拉（单发10）打战列舰触发 10% 保底 = 1 点，再 × vsShipMul(0.104) → round = 0，
+           实测连打 81 发全部 0 伤害（用户报告「米斯特拉什么都不打」的真因）。
+           ⇒ 只要有伤害（dmg>0），折算后至少保留 1 点（打不穿 ≠ 打不动）。 */
+        if (target.position === 'aircraft') { if (dmg > 0 && weapon.vsAirMul > 0) dmg = Math.max(1, Math.round(dmg * weapon.vsAirMul)); }
+        else { if (dmg > 0 && weapon.vsShipMul > 0) dmg = Math.max(1, Math.round(dmg * weapon.vsShipMul)); }
         /* ★ 第54轮：【装甲融化】叠层—— 命中后给目标加一层（上限 20） */
         if (attacker.armorDebuff && target && target.position !== 'aircraft') {
             const _ad = attacker.armorDebuff;
@@ -5503,7 +5511,7 @@
         $('allyTotalHpText').textContent = `🔵 ${formatNumber(Math.round(allyCurHp))} / ${formatNumber(battleState.allyTotalHpMax)}`;
         $('enemyTotalHpText').textContent = `🔴 ${formatNumber(Math.round(enemyCurHp))} / ${formatNumber(battleState.enemyTotalHpMax)}`;
 
-        if(battleMode==='bomb') {
+        if(false /* ★★★ 2026-10-03 用户要求：轰炸战斗已注释停用（原 if(battleMode==='bomb')） */ && battleMode==='bomb') {
             renderSideShips('battleShips0', battleState.allyEscort||[]);
             renderSideShips('battleShips1', battleState.allyEscorted||[]);
             renderSideShips('battleShips2', battleState.enemyShips.filter(s=>s.size==='aircraft')||[]);
