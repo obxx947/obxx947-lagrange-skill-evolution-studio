@@ -5153,18 +5153,14 @@
 
         // 资料通篇按【向下取整】结算（802.75→802 / 565.5→565 / 46.8→46），不是四舍五入。
         // +1e-6 是浮点护栏：160×(1+0.40−1.00) 在 JS 里会算成 63.99999999999998，直接 floor 会少 1 点。
-        dmg = Math.max(0, Math.floor(dmg + 1e-6));
+        /* ★★★ 2026-10-03（同类问题排查）：原 `Math.max(0, …)` 会把"10% 保底"本身 <1 的伤害取整成 0 ——
+           单发 ≤9 的武器打高护甲目标：保底 0.9 → floor → 0（打中了但零伤害，与"10% 保底"原则相悖）。
+           ⇒ 只要算出来的伤害为正（>0），取整后至少保留 1 点。 */
+        dmg = dmg > 0 ? Math.max(1, Math.floor(dmg + 1e-6)) : 0;
 
-        /* ★ 2026-10-02 详情页需要的逐舰数据（对齐游戏「数据分析」页）：
-           _taken=承伤量（落到这艘船身上的实际伤害）；_takenBy=谁打的 */
-        if (target) {
-            target._taken = (target._taken || 0) + dmg;
-            if (dmg > 0) {
-                const _tk = statRowOf(CR);
-                target._takenBy = target._takenBy || {};
-                target._takenBy[_tk] = (target._takenBy[_tk] || 0) + dmg;
-            }
-        }
+        /* ★★★ 2026-10-03（同类问题排查）：_taken 记账原本在这里 —— 而在所有减伤/折算【之前】，
+           与它自己的注释（"_taken=承伤量（落到这艘船身上的实际伤害）"）矛盾：折算后可能被
+           round 到 0、被护航转移、被减伤削减，账实不符。已挪到 `target.hp -= dmg;` 前一刻。 */
 
         // Escort protection: escorted ships immune to damage while escort alive
         /* ★ 受击时间戳（供 onAttacked 条件用） */
@@ -5262,7 +5258,8 @@
             target.fleetMechs.forEach(x => {
                 if (x.fm.kind !== 'protectFromSub') return;
                 const v = fmCol(x.fm, x.lv, x.fm.multi > 1 ? 1 : 0);
-                if (typeof v === 'number' && v > 0) dmg = Math.round(dmg * (1 - Math.min(90, v) / 100));
+                /* ★ 2026-10-03（同类问题排查）：Math.round 会把小数伤害 round 成 0 → 至少保留 1 点 */
+                if (typeof v === 'number' && v > 0) dmg = Math.max(1, Math.round(dmg * (1 - Math.min(90, v) / 100)));
             });
         }
         /* ★ 打载机 / 打舰船的折算：按游戏面板标定（见 _patch_shots.js）。
@@ -5297,6 +5294,16 @@
                 target._dissolve.push({ t: (bs && bs.time) || 0, dur: _dis.dur || 60, perSec: _dis.perSec || 10, src: CR });
                 const _dcap = _dis.maxStacks || 30;
                 if (target._dissolve.length > _dcap) target._dissolve = target._dissolve.slice(-_dcap);
+            }
+        }
+        /* ★ 2026-10-02 详情页逐舰数据（对齐游戏「数据分析」页）：_taken=承伤量（实际伤害）；_takenBy=谁打的
+           ★ 2026-10-03 挪到此处：在护盾减免/护卫承伤转移/面板折算【全部结算完之后】再记账，与实扣一致。 */
+        if (target) {
+            target._taken = (target._taken || 0) + dmg;
+            if (dmg > 0) {
+                const _tk = statRowOf(CR);
+                target._takenBy = target._takenBy || {};
+                target._takenBy[_tk] = (target._takenBy[_tk] || 0) + dmg;
             }
         }
         target.hp -= dmg;
