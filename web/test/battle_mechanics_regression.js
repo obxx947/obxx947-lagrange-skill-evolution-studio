@@ -122,11 +122,15 @@ function check(n,ok,d){ if(ok){pass++;console.log('PASS '+n+(d?('  → '+d):''))
     const carriers=battleState.allyShips.filter(s=>s.id==='sun-whale');
     const airBefore=battleState.allyShips.filter(s=>s.position==='aircraft').length;
     // 手动击毁第一艘母舰（走 executeShot 的死亡分支）
+    /* ⚠️ 2026-10-03 修测试抖动：命中上限被钳到 95% → 这一炮有 5% 概率空掉（母舰没死、载机自然还在，
+       会误报 FAIL）。改为【连射直到母舰被毁】（最多 50 发）再断言。 */
     const gun={name:'x',dmgType:'physical',weaponType:'projectile',singleDmg:9999999,ammo:1,attacks:1,
                atkDuration:0,lockTime:0,cooldown:1,targets:[{types:['航空母舰'],hitMin:100,hitMax:100}]};
     const atk={name:'杀手',id:'k',type:'cruiser',size:'small',position:'中排',side:'enemy',alive:true,hp:1e9,subSystems:[],strengthen:{}};
     battleState.enemyShips.push(atk);
-    executeShot(atk, carriers[0], gun, {weapon:gun,module:{name:'x'},strengthen:{dmgBonus:0,critRate:0,critDmg:0,cooldownReduction:0,lockReduction:0}}, battleState);
+    const _ws = {weapon:gun,module:{name:'x'},strengthen:{dmgBonus:0,critRate:0,critDmg:0,cooldownReduction:0,lockReduction:0}};
+    let _tries = 0;
+    while (carriers[0].alive && _tries++ < 50) executeShot(atk, carriers[0], gun, _ws, battleState);
     const airAfter=battleState.allyShips.filter(s=>s.position==='aircraft'&&s.alive).length;
     return {carrierCount:carriers.length, airBefore, airAfter,
             carrierHasInstId:!!carriers[0].instId,
