@@ -4934,6 +4934,18 @@
         if (!bs.stat) bs.stat = { ally: newStatBucket(), enemy: newStatBucket() };
         return bs.stat[side === 'ally' ? 'ally' : 'enemy'];
     }
+    /* 子系统归类（供「攻击哪个系统」的四类键匹配）：指挥 > 动力 > 机库 > 武器（顺序即优先级）。
+       ★ 2026-10-03：游戏把"打系统"分成 主武器系统/动力系统/指挥系统/主机库系统 四类，
+       而我的子系统名是从【模块名】提取的（舰首离子炮系统 / 帝国制式动力系统 …）——
+       「主武器系统」「主机库系统」这两个键几乎匹配不到任何船（全库只有 5/1 艘的模块名里带这个词）。 */
+    function sysCatOf(s) {
+        const nm = String((s && s.name) || '');
+        if (s.type === 'command' || /指挥/.test(nm)) return '指挥系统';
+        if (s.type === 'engine'  || /动力|引擎/.test(nm)) return '动力系统';
+        if (s.type === 'hangar'  || /机库|机坞|搭载|舰载机|护航艇/.test(nm)) return '主机库系统';
+        if (/武器|炮|导弹|鱼雷|无人机|武装|发射/.test(nm)) return '主武器系统';
+        return null;
+    }
     function executeShot(attacker, target, weapon, ws, bs, creditTo) {
         const CR = creditTo || attacker;
         const _wName = String((weapon && weapon.name) || '?');   // 供 byWeapon 拆分
@@ -5212,7 +5224,15 @@
             // 「受到系统伤害降低」：按目标的减伤比例削弱定向破坏成功率
             const sdr = Math.max(0, Math.min(90, target.sysDmgReduce || 0)) / 100;
             for(const [sysName, eff] of Object.entries(weapon.subSystemTargets)) {
-                const sys = target.subSystems.find(s=>s.name.includes(sysName) && !s.permanentDestroyed);
+                /* ★★★ 2026-10-03（用户实测："挑了几个打系统伤害的武器但战报恒 0"）——修两个问题：
+                   ① 【死键】「主武器系统」「主机库系统」几乎匹配不到任何船的子系统名（名字是从模块名提取的）
+                      ⇒ 名字匹配失败时，按【系统类别】（sysCatOf）再匹配一次。
+                   ② 【已毁系统被重复计毁/重复扣 5%】原来只排除 permanentDestroyed，
+                      destroyed（待维修、25s 后复活）的系统仍能被命中 → 每命中一次又计一次击毁、又扣一次 5% 船血
+                      （实测：补射 1500 发多计 4 次击杀、多扣 4×5%=57924）。
+                      ⇒ 瞄准时跳过 destroyed；修好复活后可以再次被毁（次数受 maxRepairs 上限约束）。 */
+                const _sysMatch = (pred) => target.subSystems.find(s => pred(s) && !s.destroyed && !s.permanentDestroyed);
+                const sys = _sysMatch(s => s.name.includes(sysName)) || _sysMatch(s => sysCatOf(s) === sysName);
                 /* ★ 2026-09-26：系统破坏原本按【每一发】判定 → 每轮发数从 4 标到 27 之后，
                    判定次数跟着涨 6.7 倍，殉爆伤害把战斗打得飞快。改为按发数归一：
                    每【轮】的期望判定次数 = 效率值，与发数无关。 */
