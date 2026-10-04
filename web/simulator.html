@@ -2704,7 +2704,12 @@
             if (_m) {
                 const kk = alias(_m[2]);
                 const tt = bucketFor(_m[1]);
-                if (kk in tt) { tt[kk] += v; counted++; }
+                /* ★★★ 2026-10-04 修 bug：原 `if (kk in tt)` 会把【本系统类】键（AP_M / groups.hangarModule，
+                   如 hangarModuleDmg / hangarModuleCd…）静默丢掉 —— 因为桶是 BLANK 种子（只有 AP_A/B/H 键），
+                   而树节点路径是【直接建键】写入的（见上方 AP_M 分支），两条路径不一致。
+                   实测：用户战报加点（我方加点能二.json）里 S8010107_hangarModuleDmg=5（太阳鲸 B2 机库伤害）
+                   从未进过战斗。改为与树路径一致：AP_M / MODULE_CONSUMED 键直接建键写入。 */
+                if ((kk in tt) || AP_M.indexOf(kk) >= 0 || MODULE_CONSUMED.has(kk)) { tt[kk] = (tt[kk] || 0) + v; counted++; }
                 return;
             }
             const k = alias(k0);
