@@ -48,7 +48,10 @@ function check(n,ok,d){ if(ok){pass++;console.log('PASS '+n+(d?('  → '+d):''))
   });
   console.log('① 首轮之后的状态序列:', JSON.stringify(A.first20));
 
-  /* ② 稳态周期：冷却10 + 锁定6 → 并行后应约 10s，串联会是 16s */
+  /* ② 稳态周期：冷却10 + 锁定6 → 并行后应约 10s，串联会是 16s
+     ⚠️ 2026-10-03 修测试自身的抖动：原判据用"靶子掉血"当开火信号，而命中上限自 2026-09-24 起
+     被钳到 95% → 5 个间隔里只要有一发未命中（≈23% 概率/次运行）就会多出一个 20.2s 的假间隔而误报 FAIL。
+     改用 weaponStates[].completedCycles（每打完一轮 +1，与是否命中无关）作开火信号。 */
   const B=await p.evaluate(()=>{
     const gun={name:'测试炮',dmgType:'physical',weaponType:'projectile',singleDmg:1,ammo:1,attacks:1,
                atkDuration:0,lockTime:6,cooldown:10,targets:[{types:['战列巡洋舰'],hitMin:100,hitMax:100}]};
@@ -59,19 +62,22 @@ function check(n,ok,d){ if(ok){pass++;console.log('PASS '+n+(d?('  → '+d):''))
       shotsRemaining:0,batchesRemaining:0,totalShots:1,totalBatches:1,firstShot:true}];
     const dummy={name:'靶',id:'d2',type:'battlecruiser',size:'large',position:'中排',hp:1e12,maxHp:1e12,alive:true,energyArmor:0,physicalArmor:0,subSystems:[]};
     const bs={allyShips:[s],enemyShips:[dummy],allyEscort:[s],allyEscorted:[],enemyEscort:[dummy],enemyEscorted:[],battleMode:'escort',time:0,allyEscortAlive:true,enemyEscortAlive:true};
-    const fireTimes=[]; let lastHp=null;
+    const fireTimes=[], hitTimes=[]; let lastCycles=0, lastHp=null;
     for(let i=0;i<3000;i++){
       const t=+(i*0.1).toFixed(1);
       processShipWeapons(s,[dummy],0.1,bs);
-      if(lastHp!==null && dummy.hp!==lastHp) fireTimes.push(t);   // 靶子掉血 = 这一帧开火了
+      const c=s.weaponStates[0].completedCycles||0;
+      if(c>lastCycles) fireTimes.push(t);            // 轮次完成 = 稳定的"开火"信号（不看命中）
+      lastCycles=c;
+      if(lastHp!==null && dummy.hp!==lastHp) hitTimes.push(t);
       lastHp=dummy.hp;
       if(fireTimes.length>=6) break;
     }
     const gaps=[]; for(let i=1;i<fireTimes.length;i++) gaps.push(+(fireTimes[i]-fireTimes[i-1]).toFixed(1));
-    return {fireTimes, gaps, targetKept:s.weaponStates[0].currentTarget!==null};
+    return {fireTimes, gaps, hits:hitTimes.length, targetKept:s.weaponStates[0].currentTarget!==null};
   });
   check('② 稳态周期 ≈ 冷却10s（锁定并行，不是串行16s）', B.gaps.length>=2 && B.gaps.slice(1).every(g=>Math.abs(g-10)<0.25),
-        '开火时刻='+JSON.stringify(B.fireTimes)+' 间隔='+JSON.stringify(B.gaps));
+        '开火(轮)时刻='+JSON.stringify(B.fireTimes)+' 间隔='+JSON.stringify(B.gaps)+'（命中/轮='+B.hits+'/'+B.fireTimes.length+'）');
   check('② 攻击后保留目标（同目标不重复锁定）', B.targetKept===true, String(B.targetKept));
 
   /* ③ 直射武器不被拦截 */
