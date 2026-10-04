@@ -5222,12 +5222,20 @@
                    每【轮】的期望判定次数 = 效率值，与发数无关。 */
                 const _nShots = shotsOf(weapon) || 1;
                 if(sys && RNG() < (efficiencyMap[eff]||0.2) * (1 - sdr) / _nShots) {
-                    systemDmg = Math.round(weapon.singleDmg * 1.5 * tuningCoeff);
+                    /* ★★★ 2026-10-03 按知识库口径修正【系统伤害量级】（用户 2026-10-03 指出"小米可以打系统"）：
+                       ① 原 `systemDmg × mounts / nShots` 把每次判定压成 1 点（米斯特拉 15/161 → max(1,0)=1），
+                          与知识库战报差 3 个量级（数据03/A资料541：「米斯特拉对 066 的动力系统打了 35888」
+                          「对八条艾奥……系统伤害 44588，爆了四个系统」）。
+                       ② 概率已按「每轮期望=效率值」归一（2026-09-26 定），伤害不应再除一次发数 ——
+                          ⇒ 每次判定 = 单发系统伤害 × 挂载数；每轮期望总量 = 效率值 × 单发 × 挂载（与发数无关）。
+                       ③ 知识库《战斗机制》：「系统它没有护甲的……打系统会暴击」（系数 1.5；
+                          「米斯特拉双伤双暴击单发系统伤害=(20+4+4)×1.5×1.8=75.6 取整 75」）→ 系统伤害吃暴击。 */
+                    systemDmg = Math.round(weapon.singleDmg * 1.5 * tuningCoeff * (critMult || 1));
                     const _sst = dmgStatOf(bs, CR.side);
                     /* ★ 系统独立血量：有 hp 就【累计】打满才毁（用户 2026-09-24 给超主力 25500）；
                        没写 sysHp 的船沿用旧的"一击即毁"。 */
                     if (sys.maxHp > 0) {
-                        const _sdm = Math.max(1, Math.round(systemDmg * (weapon.mounts || 1) / _nShots));
+                        const _sdm = Math.max(1, Math.round(systemDmg * (weapon.mounts || 1)));
                         sys.hp -= _sdm;
                         if (_sst) { _sst.sysDmg += _sdm; const _p = statPer(_sst, statRowOf(CR)); if (_p) { _p.sysDmg += _sdm; statSub(_p, statRowOf(target)).sysDmg += _sdm; statSubW(_p, _wName).sysDmg += _sdm; statSubF(_p, fleetTagOf(target)).sysDmg += _sdm; } }  // 战报口径：系统伤害
                         if (sys.hp <= 0) { sys.hp = 0; sys.destroyed = true; sys.repairTimer = 0; if (_sst) { _sst.sysKill++; const _p = statPer(_sst, statRowOf(CR)); if (_p) { _p.sysKill++; statSub(_p, statRowOf(target)).sysKill++; statSubW(_p, _wName).sysKill++; statSubF(_p, fleetTagOf(target)).sysKill++; } } sysHpPenalty(sys, sysName); }
