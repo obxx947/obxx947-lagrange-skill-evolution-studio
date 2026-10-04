@@ -3847,16 +3847,8 @@
        保持 25500 —— 这是用户 2026-09-24 亲自给的超主力系统血量（18 艘超主力在数据里各自带 sysHp=25500）。
        本次标定的结论：让系统"拆得掉"要靠【判定频率】（见 SYS_JUDGE_MUL），不动血量。 */
     const SYS_HP_DEFAULT = 25500;
-    /* ★★★ 2026-10-03 系统判定频率倍率（单一可调点）——本次标定的核心：
-       背景：9-26 把概率定为「每轮期望判定次数 = 效率值」（high 0.6 / medium 0.4 / low 0.2，÷发数归一）。
-       实测（用户报「10 林鸮+10 米斯特拉打一个战列舰 摧毁系统 0 个 这几乎不可能」）：
-       该场景 600s 只打出 3456 系统伤害（林鸮 2145 + 米斯特拉 1311），对 25500 血的系统恒 0 击毁。
-       知识库锚点：「3 林鸮 五分钟才绝育（一个大盾）」「米斯特拉对 066 动力系统打了 35888」
-       → 游戏的判定频率约比"每轮期望=效率值"高一个量级。
-       标定目标：① 上述场景能拆 1~2 个系统；② 与"游戏一场双方各 1~2 个系统被毁"（9-26 实测锚点）一致；
-       ③ 验收 13/18 不降。当前值 = 11（先按"打满 25500 需要 ×10.4"推）。
-       ⚠️ 回退方法：把本值改回 1 即恢复 9-26 口径。 */
-    const SYS_JUDGE_MUL = 9;
+    /* 2026-10-03：`SYS_JUDGE_MUL`（判定频率倍率）已随【命中分流】模型重写而移除 ——
+       现在每发命中都按效率分流（SYS_SPLIT，见 executeShot），不再有概率判定。 */
     function createShipInstance(shipEntry, side, isEscort, isEscorted) {
         const s = {...shipEntry};
         // 结构值兜底：条目缺 hp（旧存档/自定义数据）会让整场战斗变成 NaN
@@ -5139,16 +5131,42 @@
         const physArmor = Math.max(0, (target.physicalArmor || 0) + (target.physResistBonus || 0) - _debuff);
         const energyArmor = target.energyArmor || 5;
 
+        /* ★★★ 2026-10-03【系统伤害重写·命中分流模型】——依据《战斗机制》§195-203 / §363-378（实测结论）：
+           原文：「系统伤害效率高中低指的是【命中分流比率】，高中低比率分别是 60%、40%、20%」
+                「打在系统上的伤害【全额生效】，打在装甲上的伤害会被抗性抵抗」
+                「如VA战机对动力系统效率高：70%-90% 的伤害打在目标系统上，10%-30% 打在舰船结构值上」
+                  （= 分流 60% × 系统攻击伤害系数 1.25~1.5 → 75%~90%，两段出自同一节的实测口径）
+                「武器进行系统攻击有伤害系数，不全是 1.5，已测得 1.25、1.5、3」
+                「可攻击系统的武器打结构有系数，不全是 0.8」（结构侧另乘系数）
+           旧实现是"概率小口啃"（每轮期望=效率值的判定 + 单发×1.5 的独立小伤）——形状错了、数值低 1~2 个量级
+           （用户实测：10 林鸮+10 米斯特拉打战列舰 系统伤害仅 3456、摧毁 0 个）。
+           新模型：每发命中都分流——
+             系统部分 =（单发+加成）×调校×暴击 × 分流比率 × 系统系数，【不吃护甲/抗性】，直接扣系统血量；
+             结构部分 = 原公式 × (1 − 分流比率) × 结构系数，照常吃护甲/抗性。
+           「仅序列内系统可被选为打击目标」：按 subSystemTargets 的键序取第一个名字/类别匹配且未毁的系统。 */
+        const SYS_SPLIT = { high: 0.6, medium: 0.4, low: 0.2 };   // 分流比率（§369 实测结论）
+        const SYS_ATK_COEF = 1.5;   // 系统攻击伤害系数（§373：逐武器 1.25/1.5/3；库里未逐门存 → 默认 1.5）
+        const STRUCT_COEF = 1.0;    // 结构侧系数（§371：不全是 0.8、有些更低 → 默认 0.8，逐门待标定）
+        let _sysSplit = null;
+        if (weapon.subSystemTargets && target.subSystems && target.subSystems.length > 0) {
+            const _sysMatch0 = (pred) => target.subSystems.find(s => pred(s) && !s.destroyed && !s.permanentDestroyed);
+            for (const [sysName, eff] of Object.entries(weapon.subSystemTargets)) {
+                const sys = _sysMatch0(s => s.name.includes(sysName)) || _sysMatch0(s => sysCatOf(s) === sysName);
+                if (sys) { _sysSplit = { sys, ratio: SYS_SPLIT[eff] || 0.2, eff }; break; }
+            }
+        }
+        const _structMul = _sysSplit ? (1 - _sysSplit.ratio) * STRUCT_COEF : 1;
+
         let dmg;
         if(weapon.dmgType === 'energy') {
             const resist = (energyArmor + (target.energyResistBonus||0)) / 100;
-            dmg = weapon.singleDmg * (1 + bonusRate - resist);            // ★ 加算（同一括号）
-            if(dmg <= 0) dmg = baseVal * 0.1;                             // ★ 10% 保底（能抗拉满也不是无敌）
+            dmg = weapon.singleDmg * _structMul * (1 + bonusRate - resist);   // ★ 加算（同一括号）+ 结构侧系数
+            if(dmg <= 0) dmg = baseVal * _structMul * 0.1;                    // ★ 10% 保底（能抗拉满也不是无敌）
             dmg *= tuningCoeff;
         } else {
             // 物理：(基础+加成) × 调校 − 护甲（★ 先乘调校再减甲，与资料算式顺序一致）
-            dmg = baseVal * tuningCoeff - physArmor;
-            if(dmg <= 0) dmg = baseVal * 0.1 * tuningCoeff;               // 不破防：10% 保底 × 调校
+            dmg = baseVal * _structMul * tuningCoeff - physArmor;
+            if(dmg <= 0) dmg = baseVal * _structMul * 0.1 * tuningCoeff;  // 不破防：10% 保底 × 调校（结构侧口径）
             /* ★ 物理伤害减免%（永恒风暴 C3 = 15%）—— 在减甲之后乘算 */
             if (target.physCut) dmg *= (1 - Math.min(90, target.physCut) / 100);
         }
@@ -5208,8 +5226,10 @@
            **减伤 30% 会把战斗拉长，而我的时长本就偏长，于是实例化放大偏差**。
            库里 plutus-shield.fleetFlagship 字段保留；等其它机制齐了、时长降到游戏水平后再启用。 */
         // === SYSTEM DAMAGE (系统伤害) ===
-        // 效率占比（机制文档）：低≈20% / 中≈40% / 高≈60%
-        // ⚠️ 文档「每一次【动力系统】被破坏都会扣除自身5%的血量」→ 只有动力系统(engine)扣血
+        // ★★★ 2026-10-03 重写为「命中分流」模型（分流比率在伤害计算前算好，见 SYS_SPLIT 说明）：
+        //   系统部分 =（单发+加成）×调校×暴击 × 分流比率(高60%/中40%/低20%) × 系统系数(默认1.5) —— 全额生效、不吃护甲
+        //   结构部分 = 原公式 × (1−分流比率) × 结构系数(0.8) —— 照常吃抗性（已在伤害分支里缩放）
+        // ⚠️ 文档「每一次【动力系统】被破坏都会扣除自身5%的血量」→ 只有动力/指挥系统扣血
         let systemDmg = 0;
         const sysHpPenalty = (sys, label) => {
             /* 玩家口述（2026-09-21）：【动力系统】和【指挥系统】被破坏各扣 5% 血量。
@@ -5239,50 +5259,25 @@
                 { (target._events = target._events || []).push({ t: (bs && bs.time) || 0, txt: (sys.name || label || '系统') + '损坏' }); }
             }
         };
-        if(weapon.subSystemTargets && target.subSystems && target.subSystems.length > 0) {
-            const efficiencyMap = {high:0.6, medium:0.4, low:0.2};
-            // 「受到系统伤害降低」：按目标的减伤比例削弱定向破坏成功率
+        /* ★★★ 2026-10-03【命中分流】应用段：系统部分【全额】扣系统血（不吃护甲/抗性）。
+           分流比率与目标系统已在 DAMAGE CALCULATION 前算好（_sysSplit），此处只做扣血/击毁/记账。 */
+        if (_sysSplit) {
+            const sys = _sysSplit.sys, sysName = sys.name;
+            const _sst = dmgStatOf(bs, CR.side);
+            /* 系统部分 =（单发+加成）×调校×暴击 × 分流比率 × 系统攻击系数（《战斗机制》§369 + §373） */
+            systemDmg = Math.max(1, Math.round(baseVal * tuningCoeff * (critMult || 1) * _sysSplit.ratio * SYS_ATK_COEF));
+            /* 「受到系统伤害降低」：对系统部分按比例削弱（旧口径保留） */
             const sdr = Math.max(0, Math.min(90, target.sysDmgReduce || 0)) / 100;
-            for(const [sysName, eff] of Object.entries(weapon.subSystemTargets)) {
-                /* ★★★ 2026-10-03（用户实测："挑了几个打系统伤害的武器但战报恒 0"）——修两个问题：
-                   ① 【死键】「主武器系统」「主机库系统」几乎匹配不到任何船的子系统名（名字是从模块名提取的）
-                      ⇒ 名字匹配失败时，按【系统类别】（sysCatOf）再匹配一次。
-                   ② 【已毁系统被重复计毁/重复扣 5%】原来只排除 permanentDestroyed，
-                      destroyed（待维修、25s 后复活）的系统仍能被命中 → 每命中一次又计一次击毁、又扣一次 5% 船血
-                      （实测：补射 1500 发多计 4 次击杀、多扣 4×5%=57924）。
-                      ⇒ 瞄准时跳过 destroyed；修好复活后可以再次被毁（次数受 maxRepairs 上限约束）。 */
-                const _sysMatch = (pred) => target.subSystems.find(s => pred(s) && !s.destroyed && !s.permanentDestroyed);
-                const sys = _sysMatch(s => s.name.includes(sysName)) || _sysMatch(s => sysCatOf(s) === sysName);
-                /* ★ 2026-09-26：系统破坏原本按【每一发】判定 → 每轮发数从 4 标到 27 之后，
-                   判定次数跟着涨 6.7 倍，殉爆伤害把战斗打得飞快。改为按发数归一：
-                   每【轮】的期望判定次数 = 效率值，与发数无关。 */
-                const _nShots = shotsOf(weapon) || 1;
-                if(sys && RNG() < (efficiencyMap[eff]||0.2) * SYS_JUDGE_MUL * (1 - sdr) / _nShots) {
-                    /* ★★★ 2026-10-03 按知识库口径修正【系统伤害量级】（用户 2026-10-03 指出"小米可以打系统"）：
-                       ① 原 `systemDmg × mounts / nShots` 把每次判定压成 1 点（米斯特拉 15/161 → max(1,0)=1），
-                          与知识库战报差 3 个量级（数据03/A资料541：「米斯特拉对 066 的动力系统打了 35888」
-                          「对八条艾奥……系统伤害 44588，爆了四个系统」）。
-                       ② 概率已按「每轮期望=效率值」归一（2026-09-26 定），伤害不应再除一次发数 ——
-                          ⇒ 每次判定 = 单发系统伤害 × 挂载数；每轮期望总量 = 效率值 × 单发 × 挂载（与发数无关）。
-                       ③ 知识库《战斗机制》：「系统它没有护甲的……打系统会暴击」（系数 1.5；
-                          「米斯特拉双伤双暴击单发系统伤害=(20+4+4)×1.5×1.8=75.6 取整 75」）→ 系统伤害吃暴击。 */
-                    systemDmg = Math.round(weapon.singleDmg * 1.5 * tuningCoeff * (critMult || 1));
-                    const _sst = dmgStatOf(bs, CR.side);
-                    /* ★ 系统独立血量：有 hp 就【累计】打满才毁（用户 2026-09-24 给超主力 25500）；
-                       没写 sysHp 的船沿用旧的"一击即毁"。 */
-                    if (sys.maxHp > 0) {
-                        const _sdm = Math.max(1, Math.round(systemDmg * (weapon.mounts || 1)));
-                        sys.hp -= _sdm;
-                        if (_sst) { _sst.sysDmg += _sdm; const _p = statPer(_sst, statRowOf(CR)); if (_p) { _p.sysDmg += _sdm; statSub(_p, statRowOf(target)).sysDmg += _sdm; statSubW(_p, _wName).sysDmg += _sdm; statSubF(_p, fleetTagOf(target)).sysDmg += _sdm; } }  // 战报口径：系统伤害
-                        if (sys.hp <= 0) { sys.hp = 0; sys.destroyed = true; sys.repairTimer = 0; if (_sst) { _sst.sysKill++; const _p = statPer(_sst, statRowOf(CR)); if (_p) { _p.sysKill++; statSub(_p, statRowOf(target)).sysKill++; statSubW(_p, _wName).sysKill++; statSubF(_p, fleetTagOf(target)).sysKill++; } } sysHpPenalty(sys, sysName); }
-                        else addBattleLog('system', `🔧 ${target.name||target.id} 的${sys.name}受创 -${systemDmg * (weapon.mounts||1)}（剩 ${Math.max(0, Math.round(sys.hp))}/${sys.maxHp}）`);
-                    } else {
-                        sys.destroyed = true; sys.repairTimer = 0;
-                        if (_sst) { _sst.sysKill++; _sst.sysDmg += systemDmg; }
-                        sysHpPenalty(sys, sysName);
-                    }
-                    break;
-                }
+            if (sdr > 0) systemDmg = Math.max(1, Math.round(systemDmg * (1 - sdr)));
+            if (sys.maxHp > 0) {
+                sys.hp -= systemDmg;
+                if (_sst) { _sst.sysDmg += systemDmg; const _p = statPer(_sst, statRowOf(CR)); if (_p) { _p.sysDmg += systemDmg; statSub(_p, statRowOf(target)).sysDmg += systemDmg; statSubW(_p, _wName).sysDmg += systemDmg; statSubF(_p, fleetTagOf(target)).sysDmg += systemDmg; } }  // 战报口径：系统伤害
+                if (sys.hp <= 0) { sys.hp = 0; sys.destroyed = true; sys.repairTimer = 0; if (_sst) { _sst.sysKill++; const _p = statPer(_sst, statRowOf(CR)); if (_p) { _p.sysKill++; statSub(_p, statRowOf(target)).sysKill++; statSubW(_p, _wName).sysKill++; statSubF(_p, fleetTagOf(target)).sysKill++; } } sysHpPenalty(sys, sysName); }
+                else addBattleLog('system', `🔧 ${target.name||target.id} 的${sys.name}受创 -${systemDmg}（剩 ${Math.max(0, Math.round(sys.hp))}/${sys.maxHp}）`);
+            } else {
+                sys.destroyed = true; sys.repairTimer = 0;
+                if (_sst) { _sst.sysKill++; _sst.sysDmg += systemDmg; }
+                sysHpPenalty(sys, sysName);
             }
         }
 
