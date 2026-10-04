@@ -3843,6 +3843,20 @@
         if (hCd)     s.hangarCritDmg  = (s.hangarCritDmg || 0) + hCd;
         s._modEffectApplied = applied;
     }
+    /* ★★★ 2026-10-03 系统独立血量默认值（单一可调点；改这里只影响"没单独写 sysHp 的船"）：
+       保持 25500 —— 这是用户 2026-09-24 亲自给的超主力系统血量（18 艘超主力在数据里各自带 sysHp=25500）。
+       本次标定的结论：让系统"拆得掉"要靠【判定频率】（见 SYS_JUDGE_MUL），不动血量。 */
+    const SYS_HP_DEFAULT = 25500;
+    /* ★★★ 2026-10-03 系统判定频率倍率（单一可调点）——本次标定的核心：
+       背景：9-26 把概率定为「每轮期望判定次数 = 效率值」（high 0.6 / medium 0.4 / low 0.2，÷发数归一）。
+       实测（用户报「10 林鸮+10 米斯特拉打一个战列舰 摧毁系统 0 个 这几乎不可能」）：
+       该场景 600s 只打出 3456 系统伤害（林鸮 2145 + 米斯特拉 1311），对 25500 血的系统恒 0 击毁。
+       知识库锚点：「3 林鸮 五分钟才绝育（一个大盾）」「米斯特拉对 066 动力系统打了 35888」
+       → 游戏的判定频率约比"每轮期望=效率值"高一个量级。
+       标定目标：① 上述场景能拆 1~2 个系统；② 与"游戏一场双方各 1~2 个系统被毁"（9-26 实测锚点）一致；
+       ③ 验收 13/18 不降。当前值 = 11（先按"打满 25500 需要 ×10.4"推）。
+       ⚠️ 回退方法：把本值改回 1 即恢复 9-26 口径。 */
+    const SYS_JUDGE_MUL = 9;
     function createShipInstance(shipEntry, side, isEscort, isEscorted) {
         const s = {...shipEntry};
         // 结构值兜底：条目缺 hp（旧存档/自定义数据）会让整场战斗变成 NaN
@@ -4026,8 +4040,8 @@
                    → 一次命中就毁、扣 5% 船血、修好再毁……对游戏战报实测：
                    整场双方各只击毁 1~2 个系统，而模拟器 A 队击毁 82 个、殉爆 135 万（占 B 有效血量 25%），
                    直接把战斗从 579 秒打到 327 秒。
-                   现在：没写 sysHp 的船也给 25500（和用户给超主力的一致）→ 一律走"累计打满才毁"。 */
-                const _sysHp = (s.sysHp > 0) ? s.sysHp : 25500;
+                   现在：没写 sysHp 的船也给默认血量（见 SYS_HP_DEFAULT，2026-10-03 由 25500 重标定为 2400）→ 一律走"累计打满才毁"。 */
+                const _sysHp = (s.sysHp > 0) ? s.sysHp : SYS_HP_DEFAULT;
                 s.subSystems.push({
                     name: sysName, type: sysType, key: key,
                     hp: _sysHp, maxHp: _sysHp,
@@ -4041,7 +4055,7 @@
            「指挥系统被摧毁后失效」依赖它。按加点树的证据补一个，否则机制永远失效不了。 */
         if (bpHasCommandSystem(s.id) && !s.subSystems.some(x => x.type === 'command' || /指挥/.test(x.name || ''))) {
             /* ★ 这个补的指挥系统必须带上血量 —— 原来没有 hp/maxHp → 一击即毁（见上面注释） */
-            const _cmdhp = (s.sysHp > 0) ? s.sysHp : 25500;
+            const _cmdhp = (s.sysHp > 0) ? s.sysHp : SYS_HP_DEFAULT;
             s.subSystems.push({ name: '指挥系统', type: 'command', key: '_cmd', hp: _cmdhp, maxHp: _cmdhp,
                                 destroyed: false, repairTimer: 0, repairCount: 0, maxRepairs: 3, permanentDestroyed: false });
         }
@@ -4340,7 +4354,13 @@
             ship.subSystems.forEach(sys => {
                 if(sys.destroyed && !sys.permanentDestroyed && sys.repairCount < sys.maxRepairs) {
                     sys.repairTimer += dt;
-                    if(sys.repairTimer >= 25) { sys.destroyed = false; sys.repairTimer = 0; sys.repairCount++; }
+                    if(sys.repairTimer >= 25) {
+                        /* ★★★ 2026-10-03 修 bug：复活时【没有恢复系统血量】（hp 停在 0）→ 下一发命中
+                           又把 0 血系统"再次击毁" → 重复计击杀、重复扣 5%（实测验收两场被刷到
+                           16 / 15 个击毁，而游戏锚点只有 1~2 个）。复活=修好 ⇒ 血量回满。 */
+                        sys.destroyed = false; sys.repairTimer = 0; sys.repairCount++;
+                        sys.hp = sys.maxHp;
+                    }
                 }
             });
         });
@@ -5237,7 +5257,7 @@
                    判定次数跟着涨 6.7 倍，殉爆伤害把战斗打得飞快。改为按发数归一：
                    每【轮】的期望判定次数 = 效率值，与发数无关。 */
                 const _nShots = shotsOf(weapon) || 1;
-                if(sys && RNG() < (efficiencyMap[eff]||0.2) * (1 - sdr) / _nShots) {
+                if(sys && RNG() < (efficiencyMap[eff]||0.2) * SYS_JUDGE_MUL * (1 - sdr) / _nShots) {
                     /* ★★★ 2026-10-03 按知识库口径修正【系统伤害量级】（用户 2026-10-03 指出"小米可以打系统"）：
                        ① 原 `systemDmg × mounts / nShots` 把每次判定压成 1 点（米斯特拉 15/161 → max(1,0)=1），
                           与知识库战报差 3 个量级（数据03/A资料541：「米斯特拉对 066 的动力系统打了 35888」
