@@ -136,8 +136,9 @@ textarea{min-height:52px;resize:vertical}
     <div class="tabs">
         <button id="tabEditor" class="on" onclick="switchTab('editor')">🛠️ 配队</button>
         <button id="tabMine" onclick="switchTab('mine')">📁 我的配队</button>
-        <!-- ★ 2026-10-07：自定义舰船管理（列表/新建/编辑/删 + 页内和 AI 设计机制）——两个 Tab 下都可见 -->
-        <button onclick="CustomShip.open()" title="新建/编辑自定义舰船，并在弹窗里让 AI 设计「当X之后X」机制">⚙️ 自定义舰船</button>
+        <!-- ★ 2026-10-07：自定义舰船（两个 Tab 下都可见）——「自定义舰船」=直接新建；「自定义舰船管理」=打开列表管理 -->
+        <button onclick="CustomShip.newShip()" title="直接新建一艘自定义舰船（弹窗里可让 AI 设计机制）">➕ 自定义舰船</button>
+        <button onclick="CustomShip.open()" title="管理已有自定义舰船：列表里点船名编辑 / 新建 / 删除">📋 自定义舰船管理</button>
     </div>
     <div class="links">
         <a href="chat.html">🤖 AI对话</a>
@@ -185,7 +186,8 @@ textarea{min-height:52px;resize:vertical}
                 <button class="btn red" style="flex:0 0 auto" onclick="delAllPlans()">删除全部</button>
             </div>
             <div class="row" style="margin-top:8px">
-                <button class="btn cyan" onclick="CustomShip.open()">⚙️ 自定义舰船管理</button>
+                <button class="btn cyan" onclick="CustomShip.open()">📋 自定义舰船管理</button>
+                <button class="btn gold" onclick="CustomShip.newShip()">➕ 新增自定义舰船</button>
                 <button class="btn" onclick="document.getElementById('impFile').click()">📥 导入配队</button>
                 <button class="btn" onclick="exportLib()">📚 导出配队库</button>
                 <button class="btn" onclick="document.getElementById('impLibFile').click()">📚 导入配队库</button>
@@ -732,7 +734,7 @@ function openPicker(sec){
     pickMode='ship';
     pickSection=sec; pickSel=[]; pickFilter='';
     document.getElementById('pkTitle').textContent=(sec==='reinforce'?'选择舰船 · 增援':'选择舰船 · 主舰队');
-    document.getElementById('pkFilters').innerHTML='<button class="on" onclick="setPickFilter(\'\',this)">全部</button>'+TYPES.map(t=>`<button onclick="setPickFilter('${t[0]}',this)">${t[1]}</button>`).join('')+'<button style="margin-left:6px" onclick="document.getElementById(&quot;pickModal&quot;).classList.remove(&quot;show&quot;);CustomShip.open()">⚙️ 自定义舰船管理</button>';
+    document.getElementById('pkFilters').innerHTML='<button class="on" onclick="setPickFilter(\'\',this)">全部</button>'+TYPES.map(t=>`<button onclick="setPickFilter('${t[0]}',this)">${t[1]}</button>`).join('')+'<button style="margin-left:6px" onclick="document.getElementById(&quot;pickModal&quot;).classList.remove(&quot;show&quot;);CustomShip.newShip()">➕ 自定义舰船</button><button style="margin-left:4px" onclick="document.getElementById(&quot;pickModal&quot;).classList.remove(&quot;show&quot;);CustomShip.open()">📋 自定义舰船管理</button>';
     renderPickGrid(); document.getElementById('pickModal').classList.add('show');
 }
 /* ================= 载机数量弹窗（1..min(载机位, 服役上限)；缝合开启则不受服役上限） ================= */

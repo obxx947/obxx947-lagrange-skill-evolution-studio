@@ -592,7 +592,8 @@
                 <button class="btn btn-sm" style="background:var(--accent-gold);" onclick="syncFleetsToBattle()">🔄 同步配队到战斗模拟</button>
                 <!-- ★ 2026-10-07：原「📦 舰船库」卡片删除（用户要求）；加船入口移到「点开舰队 → 下方编辑区」的
                      整宽按钮（同「战舰配队」页：列表下方一个 ➕ 增加战舰/增加增援）。自定义舰船管理放这里。 -->
-                <button class="btn btn-sm" style="background:var(--accent-gold);" onclick="CustomShip.open()">⚙️ 自定义舰船管理</button>
+                <button class="btn btn-sm" style="background:var(--accent-cyan);color:#06263a;font-weight:700;" onclick="CustomShip.newShip()">➕ 自定义舰船</button>
+                <button class="btn btn-sm" style="background:var(--accent-gold);" onclick="CustomShip.open()">📋 自定义舰船管理</button>
                 <label style="font-size:11px;cursor:pointer;color:var(--text-secondary);"><input type="checkbox" id="stitchCb" onchange="stitchMode=this.checked;showToast(stitchMode?'🪡 缝合模式:忽略服役上限':'✅ 正常模式')"> 🪡 缝合模式</label>
             </div>
             <!-- Inline Fleet Editor -->
