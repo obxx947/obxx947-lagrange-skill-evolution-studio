@@ -30,7 +30,7 @@ const results=[]; function check(n,ok,d){ results.push({n,ok:!!ok,d}); say((ok?'
       hasAirSlots:!!(g('sun-whale')&&g('sun-whale').airSlots),
       wfA:g('wildfire-AA-A')&&g('wildfire-AA-A').name, wfB:g('wildfire-AA-B')&&g('wildfire-AA-B').name};
   });
-  check('A1 模拟器加载 JSON 数据源（200 艘）', A.ready===true && A.n===200, JSON.stringify({ready:A.ready,n:A.n}));
+  check('A1 模拟器加载 JSON 数据源（202 艘）', A.ready===true && A.n===202, JSON.stringify({ready:A.ready,n:A.n}));
   check('A2 5 条数据修正已在模拟器生效', A.br050a===10 && A.connA===16 && A.connB===8 && A.antontas===3,
         JSON.stringify({BR050:A.br050a,connA:A.connA,connB:A.connB,antontas:A.antontas}));
   check('A3 已删的 FSV380 消失、新增 FSV830 存在', A.fsv380===false && A.fsv830===true, JSON.stringify({FSV380:A.fsv380,FSV830:A.fsv830}));

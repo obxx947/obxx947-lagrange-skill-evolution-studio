@@ -69,7 +69,7 @@ const RULES = [
   /* ---- 武器分散/集中打击：⚠️ 文本里是 {101} 占位符，不是阿拉伯数字，\d+ 匹配不到 ---- */
   [/分散打击(\{[^}]+\}|\d+)个目标/, 'multiTarget'],
   [/集中打击(\{[^}]+\}|\d+)个目标/, 'focusTargets'],
-  [/下一轮(?:可)?额外对(\{[^}]+\}|\d+)个目标/, 'multiTarget'],
+  [/下一轮(?:可)?额外对(\{[^}]+\}|\d+)个目标/, 'roundsExtraTarget'],   // ★ 第71轮：原指 multiTarget，但 multi=2 会走 statValueAt 而 KEY.multiTarget 不认“额外对”→ needsManual；改指新分支
   /* ---- 武器持续时间 / 攻击次数（⚠️ 原文用「延长/缩短」，不止「提升」）
          ⚠️ 不能只写「持续时间提升」—— 会把「干扰效果/护盾效果/防护效果持续时间提升」也吞进来，
             那是状态持续时间，不是武器攻击持续时间。必须限定到 攻击/打击/射击/系统武器。 */
@@ -86,6 +86,10 @@ const RULES = [
   /* 周期性爆发 */
   [/每.{0,4}秒时?，缩短系统主武器/, 'burst'],
   /* 两列型暴击 */
+  /* ★ 2026-10-02 第71轮（子智能体《机制报告》A 类打包）—— 三条经全库验证无误伤的新句式 */
+  [/每隔\s*(\{[^}]+\}|\d+)\s*轮[^。]{0,30}有(\{[^}]+\}|\d+)%概率造成额外(\{[^}]+\}|\d+)%的暴击伤害/, 'critPair'],   // 天权 弱点定位 613010401（命中 1 个）
+  [/每(\{[^}]+\}|\d+)轮，下一轮可?额外对(\{[^}]+\}|\d+)个目标造成伤害/, 'roundsExtraTarget'],  // 止战 多目标同步打击 972010109/209（命中 2 个）
+  [/下一轮[^，。]{0,12}额外对(\{[^}]+\}|\d+)个舰载机目标/, 'aaExtraTarget'],          // 棕熊-防空强化 514020111（命中 1 个）
   [/概率额外造成.{0,6}暴击伤害/, 'critPair'],
   /* ---- 其它明确可做的机制 ---- */
   [/攻击次数[×x]2|系统内武器攻击次数|密集射击/, 'denseFire'],
@@ -320,7 +324,7 @@ function detectCondMeta(desc) {
      · 切入作战        舰队不是主目标（即在被护航舰队里）→ 优先选血量最低的 N 个目标
    ⚠️ 前四类【必须是指定为旗舰才生效】，且该舰【指挥系统被摧毁后失效】。 */
 function detectFleetMech(desc) {
-  let m;
+  let m, m2;
   if (m = desc.match(/舰队在被多支舰队同时攻击时，每存在1个副目标舰队，系统内武器对(.{2,4})命中提升/))
     return { kind: 'subTargetHit', vs: m[1], flagshipOnly: true };
   if (/舰队在被多支舰队同时攻击时，可对.{0,4}个副目标舰队发起反击/.test(desc))
@@ -331,6 +335,28 @@ function detectFleetMech(desc) {
     return { kind: 'repairBoost', flagshipOnly: true };
   if (/舰队不成为作战对象的主目标时/.test(desc))
     return { kind: 'cutInSub', flagshipOnly: false };
+  /* ★ 2026-10-02 第62轮：按 KB《驱逐舰资料4和舰船旗舰资料》+ 加点树实测新增 3 类
+     · 防空网络II/G（光锥级-综合导弹巡洋舰 50501 / 白垩级-战术无人机巡洋舰 52101）：
+         中排舰船搭载的【投射/直射】对空武器，防空范围扩大为临近排
+     · 防空网络I（静海区 30203 / 枪骑兵 40803 / 狩猎者级-防空 51003）：
+         舰载机力量居于劣势时，舰队内具备防空能力的武器优先攻击载机 且 命中 +1/5/10/15%
+     · 火力校准（枪骑兵 40803）：本公司舰船或舰载机搭载的防空武器有 5/10% 概率
+         对命中目标造成额外 80/160% 伤害（旗舰生效） */
+  /* ★ 2026-10-02 第65轮：「机动作成B」（狼足级-攻坚护卫舰 318030602）：
+     自身结构比例降至 P% 时提前撤退至中排（与官方「紧急避险」同族，但阈值由节点给） */
+  if (/自身结构比例降至.{0,6}%时，舰船可提前撤退至中排位置/.test(desc))
+    return { kind: 'retreatMid', flagshipOnly: false };
+  /* ★ 2026-10-02 第68轮：「信息伪装」（鲗-装甲护航舰 / RB7-13型-导弹艇 等）
+     「开启伪装系统，在战斗开始后{T}秒内，会被敌方识别为战机」。
+     引擎侧 matchesType 已支持 disguiseAs/disguiseSec，这里只是把节点接上去。 */
+  if (m2 = desc.match(/被敌方识别为(战机|护航艇|护卫舰|驱逐舰|巡洋舰)/))
+    return { kind: 'disguise', as: m2[1], flagshipOnly: false };
+  if (/防空范围扩大为临近排/.test(desc))
+    return { kind: 'aaRangeNext', flagshipOnly: false, mode: /直射/.test(desc) ? 'direct' : 'projectile' };
+  if (/舰载机力量居于劣势时/.test(desc))
+    return { kind: 'aaNet', flagshipOnly: false };
+  if (/防空武器有.{0,6}的额外概率对命中目标造成额外.{0,6}伤害/.test(desc))
+    return { kind: 'aaCalib', flagshipOnly: true };
   return null;
 }
 /* 把条件里的 token 解成数值：写死的数字直接用；{xxx} 按"剔除文中已有数字后按顺序配位"的规则取 */
@@ -419,7 +445,13 @@ bp.forEach(r => r.systems.forEach(y => y.nodes.forEach(n => {
     const v = ((n.levelValue || [])[1] || [])[0];
     const vn = num(v);
     if (/掩护所有|掩护前排/.test(desc)) rec.mechanic = { kind: 'coverBase', dur: vn, all: true, text: desc.slice(0, 34) };
-    else if (/掩护时间延长/.test(desc)) rec.mechanic = { kind: 'coverDurAdd', add: vn, text: desc.slice(0, 24) };
+    /* ★ 2026-10-02：取【满级值】不是 1 级值。
+       引擎把 add 当常量用（不随等级放大），而操作上这类节点基本都点满；
+       且部署版就是 2（天权 613010101 等 12 个节点）—— 原来取 levelValue[1]（=0.4）是重建时新引入的偏差。 */
+    else if (/掩护时间延长/.test(desc)) {
+      const _mx = Math.max.apply(null, ((n.levelValue || []).map(r => num(Array.isArray(r) ? r[0] : r))).filter(x => typeof x === 'number'));
+      rec.mechanic = { kind: 'coverDurAdd', add: (typeof _mx === 'number' ? _mx : vn), text: desc.slice(0, 24) };
+    }
     else if (/掩护目标数上限/.test(desc)) rec.mechanic = { kind: 'coverTargetsAdd', add: vn, text: desc.slice(0, 24) };
     else rec.mechanic = { kind: 'coverMisc', text: desc.slice(0, 34) };
     rec.addable = false; rec.isMechanic = true;
@@ -445,6 +477,46 @@ bp.forEach(r => r.systems.forEach(y => y.nodes.forEach(n => {
     m.crit = (n.levelValue || []).map(v => Array.isArray(v) ? num(v[0]) : null);
     m.critDmg = (n.levelValue || []).map(v => Array.isArray(v) ? num(v[1]) : null);
     rec.statMap = m; rec.stat = 'crit'; rec.addable = true;
+  } else if (/降低自身[^，。]{0,6}%闪避[^。]{0,20}全舰武器伤害提升/.test(desc)) {
+    /* ★ 2026-10-02 第68轮：「自适应控制」（开阳级-机动/鱼雷驱逐舰 420020102）
+       “降低自身{20}%闪避，全舰武器伤害提升{25}%” —— 两列且方向相反，必须手写 statMap。
+       诊断依据：子智能体《机制报告》A-1（evasion 走 AP_A、dmgBonus 走 AP_B，两者都已在 executeShot 消费） */
+    const lv = n.levelValue || [];
+    rec.statMap = {
+      evasion: lv.map(v => Array.isArray(v) ? (num(v[0]) === null ? null : -num(v[0])) : null),
+      dmgBonus: lv.map(v => Array.isArray(v) ? num(v[1]) : null)
+    };
+    rec.stat = 'evasion'; rec.addable = true; rec.needsManual = false;
+  } else if (/对方包含(战列巡洋舰|航空母舰|支援舰)[^。]{0,12}优先对其打击/.test(desc)) {
+    /* ★ 2026-10-02 第69轮：「重点目标」（卡利斯托/雷里亚特 共 3 艘，节点 504020110）
+       「对方包含战列巡洋舰时，优先对其打击，并提高{25}%伤害」
+       复用已有 cond 种类 onTargetType（与「重型弹药」同款：当前目标符合舰种时加成） */
+    const m3 = desc.match(/对方包含(战列巡洋舰|航空母舰|支援舰)/);
+    rec.stat = 'dmgBonus'; rec.addable = true; rec.needsManual = false;
+    rec.cond = { kind: 'onTargetType', targetKind: (m3 ? m3[1] : '战列巡洋舰') + '时', cd: 30, dur: 30, once: false };
+    } else if (/本舰船武器消灭目标后/.test(desc)) {
+    /* ★ 「备用弹药」（雷火之星 606010111）：消灭目标后下一轮 冷却下降{90}%
+       引擎 condWants 已有 onKill（ship._lastKillAt 在 executeShot 打点），只差一条分类规则 */
+    rec.stat = 'cooldownReduction';
+    rec.addable = true; rec.needsManual = false;
+    rec.cond = { kind: 'onKill', cd: 0, dur: 10, once: false };
+    rec.condMeta = { durTok: null, durRoundTok: null, once: false };
+  } else if (s === 'roundsExtraTarget') {
+    /* ★ 「多目标同步打击」（止战级 972010109/972010209）：每{P}轮，下一轮额外对{101}个目标造成伤害。
+       接到已有的 multiTarget（moduleOnly → AP_M，processShipWeapons 已消费）。子报告建议：先落地第二列（额外目标数），实测不达标再试 N+1。 */
+    const lv = n.levelValue || [];
+    rec.stat = 'multiTarget';
+    rec.statValues = lv.map(v => Array.isArray(v) ? num(v[1]) : null);
+    rec.addable = true;
+    rec.cond = { kind: 'everyRounds', tok: null, rounds: num((lv[1] || [])[0]), threshold: num((lv[1] || [])[0]), dur: 0, once: false };
+  } else if (s === 'aaExtraTarget') {
+    /* ★ 「防空强化」（棕熊-防空巡洋舰 514020111）：每{P}轮，下一轮额外对 1 个舰载机目标打击。
+       额外数是原文里的字面量 "1"，不能用 stripInText 取（会把它剔掉）→ 直接写死为 2（原目标 + 额外 1） */
+    const lv = n.levelValue || [];
+    rec.stat = 'multiTarget';
+    rec.statValues = lv.map(() => 2);
+    rec.addable = true;
+    rec.cond = { kind: 'everyRounds', tok: null, rounds: num((lv[1] || [])[0]), threshold: num((lv[1] || [])[0]), dur: 0, once: false };
   } else if (s === 'targetPriority') {
     rec.mechanic = {
       kind: 'targetPriority',
@@ -520,6 +592,10 @@ bp.forEach(r => r.systems.forEach(y => y.nodes.forEach(n => {
       fm.multi = rec.multi;
       fm.perLevel = rec.perLevel;
       fm.lvRaw = n.levelValue || [];            // 原始每级数组（多列时引擎按列取）
+      /* ★ 2026-10-02：记下 maxLevel —— levelValue 有的从 0 级开始（行数 = maxLevel+1），
+         有的从 1 级开始（行数 = maxLevel）。引擎取值时必须能分辨，否则满级会取到 undefined。
+         （实测：防空网络I maxLevel=4 且 4 行 → 按 lv 直取会越界成 undefined） */
+      fm.maxLevel = n.maxLevel || ((n.levelValue || []).length);
       rec.fleetMech = fm;
       rec.addable = false;                      // 不再当普通数值累加
       delete rec.statValues;
@@ -538,6 +614,18 @@ bp.forEach(r => r.systems.forEach(y => y.nodes.forEach(n => {
       }
       out.nodes[n.id] = rec;
 })));
+
+/* ★★ 2026-10-02 第62轮：恢复 4 类“条件触发”节点的 cond
+   坑：这 4 类（onAttacked / onTargetType / onKill / onEnemyLoss）原本只在一次临时补丁里写进了 json，
+   本脚本里没有对应的识别规则 → 重建时这 15 个节点的条件被整个扔掉，
+   变成“常驻生效”（实测：战报2 时长 -26%、通过数 12→13 —— 那是假好转，已回复）。
+   现在：每次重建都从 _cond_restore.json（从部署版抽出的真值）重新注入。 */
+try {
+  const _cr = JSON.parse(require('fs').readFileSync(ROOT + '/_cond_restore.json', 'utf8'));
+  let n = 0;
+  Object.keys(_cr).forEach(k => { if (out.nodes[k]) { out.nodes[k].cond = _cr[k]; n++; } });
+  console.log('恢复条件触发节点: ' + n);
+} catch (e) { console.log('⚠ _cond_restore.json 读不到：' + e.message); }
 
 fs.writeFileSync(ROOT + '/data/blueprint_stats.json', JSON.stringify(out), 'utf8');
 
