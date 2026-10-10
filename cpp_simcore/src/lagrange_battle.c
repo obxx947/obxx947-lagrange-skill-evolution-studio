@@ -15,15 +15,22 @@
 #include <stdio.h>
 #include <time.h>
 
+#include "lagrange_battle.h"   /* 对外接口声明（保证与实现一致） */
+
 /* ==================== 全局常量（来自战斗机制.txt） ==================== */
 
-#define TUNE            1.3     /* (1 + 调校系数30%) */
+/* ★ 2026-10-11 对齐 JS 引擎：tuningCoeff 1.3 → 1.0
+   （JS 在 2026-09-26 决定：面板数值本身就是游戏真值，核对式里没有调校项；
+     原 1.3 会让所有伤害系统性偏高 30%） */
+#define TUNE            1.0     /* 调校系数（JS 现行 = 1.0） */
 #define MIN_DMG_RATIO   0.10    /* 实弹不破防保底10% */
 #define CRIT_BASE_RATE  0.15    /* 基础暴击率15% */
 #define SYS_DMG_CHANCE  0.10    /* 系统破坏触发概率 */
 #define PLUTUS_REDUCTION 0.30   /* 普鲁图斯之盾旗舰减伤30% */
 #define BOMB_BASE_DIST  15.0    /* 轰炸距离基准(吉米) */
-#define BOMB_PENALTY    0.02    /* 每吉米命中修正2% */
+#define BOMB_PENALTY    0.02    /* 每吉米命中修正2%（★ JS 2026-10-03 已停用） */
+#define HIT_MIN         0.10    /* 命中率下限（JS: HIT_MIN） */
+#define HIT_MAX         0.95    /* 命中率上限（JS: HIT_MAX） */
 #define FLIGHT_PER_JIMI 2.0     /* 每吉米飞行时间2秒 */
 #define REPAIR_ARMOR_BONUS 0.0025 /* 1点物理护甲=0.25%维修加成 */
 #define REPAIR_MAX_BONUS 2.5    /* 维修加成上限150% */
@@ -245,15 +252,10 @@ static double calc_physical_damage(double base, double tech, double strategy,
  */
 static double calc_hit_chance(double hit_min, double hit_max, double evasion,
                                double bomb_distance) {
+    (void)bomb_distance;   /* ★ JS 2026-10-03 已停用轰炸距离修正，此处同步停用 */
     double base = (hit_min + (double)rand() / RAND_MAX * (hit_max - hit_min)) / 100.0;
     base *= (1.0 - evasion / 100.0);
-    /* 轰炸距离修正 (L338) */
-    if (bomb_distance > BOMB_BASE_DIST) {
-        base -= (bomb_distance - BOMB_BASE_DIST) * BOMB_PENALTY;
-    } else {
-        base += (BOMB_BASE_DIST - bomb_distance) * BOMB_PENALTY;
-    }
-    return fmax(0.01, fmin(0.99, base));
+    return fmax(HIT_MIN, fmin(HIT_MAX, base));   /* ★ 10%~95%（JS 口径；原 1%~99% 不符） */
 }
 
 /**
@@ -914,4 +916,112 @@ void run_battle(BattleState* bs, double max_time, double dt) {
     while (!bs->ended && bs->time < max_time) {
         simulate_tick(bs, dt);
     }
+}
+
+/* ==================== 外部语言调用接口（C ABI） ==================== */
+
+/*
+ * ★ 2026-10-11 新增：简化战斗入口，给 Python ctypes / 其它语言直接调用。
+ * 每艘舰用 4 个 double 描述：hp, physical_armor, shield_pct, single_dmg
+ * （武器统一构造为：直射/不可拦截/2轮×3发/锁定3s/冷却12s/命中50-70%/可暴击15%×1.5）
+ *
+ * out_report 至少 8 个 double，写回：
+ *   [0] winner(1=ally 2=enemy 0=未决)   [1] 战斗时长(秒)
+ *   [2] 我方总伤害                      [3] 敌方总伤害
+ *   [4] 我方损失舰数                    [5] 敌方损失舰数
+ *   [6] 我方剩余总HP                    [7] 敌方剩余总HP
+ *
+ * 返回 8（写入的元素个数）；参数非法返回 -1。
+ */
+int lagrange_battle_simple(int ally_n, const double* ally_stats,
+                            int enemy_n, const double* enemy_stats,
+                            double max_time, double* out_report) {
+    if (ally_n <= 0 || enemy_n <= 0 || !ally_stats || !enemy_stats || !out_report)
+        return -1;
+    if (ally_n > 64 || enemy_n > 64) return -1;
+
+    ShipInstance allies[64], enemies[64];
+    int i, k;
+    for (i = 0; i < ally_n; i++) {
+        memset(&allies[i], 0, sizeof(ShipInstance));
+        snprintf(allies[i].id, sizeof(allies[i].id), "A%d", i + 1);
+        snprintf(allies[i].name, sizeof(allies[i].name), "ally-%d", i + 1);
+        snprintf(allies[i].side, sizeof(allies[i].side), "%s", "ally");
+        allies[i].position = (i == 0) ? FRONT : MID;
+        allies[i].max_hp = ally_stats[i * 4 + 0];
+        allies[i].current_hp = allies[i].max_hp;
+        allies[i].physical_armor = ally_stats[i * 4 + 1];
+        allies[i].energy_shield_pct = ally_stats[i * 4 + 2];
+        allies[i].evasion = 5.0;
+        allies[i].alive = 1;
+    }
+    for (i = 0; i < enemy_n; i++) {
+        memset(&enemies[i], 0, sizeof(ShipInstance));
+        snprintf(enemies[i].id, sizeof(enemies[i].id), "E%d", i + 1);
+        snprintf(enemies[i].name, sizeof(enemies[i].name), "enemy-%d", i + 1);
+        snprintf(enemies[i].side, sizeof(enemies[i].side), "%s", "enemy");
+        enemies[i].position = (i == 0) ? FRONT : MID;
+        enemies[i].max_hp = enemy_stats[i * 4 + 0];
+        enemies[i].current_hp = enemies[i].max_hp;
+        enemies[i].physical_armor = enemy_stats[i * 4 + 1];
+        enemies[i].energy_shield_pct = enemy_stats[i * 4 + 2];
+        enemies[i].evasion = 5.0;
+        enemies[i].alive = 1;
+    }
+
+    /* 每舰一门统一武器（单发值取输入的第 4 个字段） */
+    Weapon ally_w[64], enemy_w[64];
+    for (i = 0; i < ally_n; i++) {
+        memset(&ally_w[i], 0, sizeof(Weapon));
+        snprintf(ally_w[i].name, sizeof(ally_w[i].name), "main-gun");
+        ally_w[i].dmg_type = PHYSICAL;
+        ally_w[i].weapon_type = DIRECT_FIRE;
+        ally_w[i].single_dmg = ally_stats[i * 4 + 3];
+        ally_w[i].attacks = 2; ally_w[i].ammo = 3;
+        ally_w[i].atk_duration = 3.0; ally_w[i].lock_time = 3.0; ally_w[i].cooldown = 12.0;
+        ally_w[i].hit_min = 50; ally_w[i].hit_max = 70;
+        ally_w[i].can_crit = 1; ally_w[i].crit_rate = 0.15; ally_w[i].crit_dmg = 1.5;
+        ally_w[i].cannot_be_intercepted = 1; ally_w[i].sys_dmg_coeff = 1.0;
+        allies[i].weapon_count = 1;
+        allies[i].weapons = &ally_w[i];
+        ship_instance_init(&allies[i]);
+    }
+    for (i = 0; i < enemy_n; i++) {
+        memset(&enemy_w[i], 0, sizeof(Weapon));
+        snprintf(enemy_w[i].name, sizeof(enemy_w[i].name), "main-gun");
+        enemy_w[i].dmg_type = PHYSICAL;
+        enemy_w[i].weapon_type = DIRECT_FIRE;
+        enemy_w[i].single_dmg = enemy_stats[i * 4 + 3];
+        enemy_w[i].attacks = 2; enemy_w[i].ammo = 3;
+        enemy_w[i].atk_duration = 3.0; enemy_w[i].lock_time = 3.0; enemy_w[i].cooldown = 12.0;
+        enemy_w[i].hit_min = 50; enemy_w[i].hit_max = 70;
+        enemy_w[i].can_crit = 1; enemy_w[i].crit_rate = 0.15; enemy_w[i].crit_dmg = 1.5;
+        enemy_w[i].cannot_be_intercepted = 1; enemy_w[i].sys_dmg_coeff = 1.0;
+        enemies[i].weapon_count = 1;
+        enemies[i].weapons = &enemy_w[i];
+        ship_instance_init(&enemies[i]);
+    }
+
+    BattleState bs;
+    memset(&bs, 0, sizeof(bs));
+    bs.ally_ships = allies; bs.ally_count = ally_n;
+    bs.enemy_ships = enemies; bs.enemy_count = enemy_n;
+    bs.mode = BATTLE_ESCORT;
+    bs.bomb_distance = 15.0;
+
+    run_battle(&bs, max_time > 0 ? max_time : 600.0, 0.1);
+
+    double ally_hp_left = 0.0, enemy_hp_left = 0.0;
+    for (k = 0; k < ally_n; k++) ally_hp_left += allies[k].current_hp;
+    for (k = 0; k < enemy_n; k++) enemy_hp_left += enemies[k].current_hp;
+
+    out_report[0] = (double)bs.winner;
+    out_report[1] = bs.time;
+    out_report[2] = bs.total_ally_dmg;
+    out_report[3] = bs.total_enemy_dmg;
+    out_report[4] = (double)bs.ally_ships_lost;
+    out_report[5] = (double)bs.enemy_ships_lost;
+    out_report[6] = ally_hp_left;
+    out_report[7] = enemy_hp_left;
+    return 8;
 }

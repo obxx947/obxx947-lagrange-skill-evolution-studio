@@ -32,6 +32,7 @@ set(C_SOURCES
 
 set(HEADERS
     include/battle_calc.h
+    include/lagrange_battle.h   # 简化入口（给 Python ctypes / 其它语言）
     include/sim_engine.hpp   # C++ 头（声明已有，实现源 sim_engine.cpp 待补）
 )
 

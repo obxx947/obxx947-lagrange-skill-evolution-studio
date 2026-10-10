@@ -441,10 +441,17 @@ impl BattleState {
                             };
                             target.current_hp -= dmg;
                             ship.total_dmg_dealt += dmg;
+                            /* ★ 2026-10-11：BattleState 级总伤害此前从未累加（集成测试
+                               battle_smoke 抓出：整场打完 total_*_dmg 恒 0）—— 与 C 引擎同款修复 */
+                            if is_ally { self.total_ally_dmg += dmg; }
+                            else { self.total_enemy_dmg += dmg; }
                             ship.ws_shots_fired[wi] += 1;
                             if target.current_hp <= 0.0 {
                                 target.current_hp = 0.0;
                                 target.alive = false;
+                                /* ★ 2026-10-11：损失计数此前从未累加（同款修复） */
+                                if target.side == "ally" { self.ally_ships_lost += 1; }
+                                else { self.enemy_ships_lost += 1; }
                             }
                         }
                     }

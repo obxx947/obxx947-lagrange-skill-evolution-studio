@@ -20,16 +20,22 @@ extern "C" {
 
 /* ==================== 全局常量 ==================== */
 
-#define TUNING_COEFFICIENT      1.3     /* 全局调校系数 */
+#define TUNING_COEFFICIENT      1.0     /* 全局调校系数
+                                         * ★ 2026-10-11 对齐 JS 引擎：JS 在 2026-09-26
+                                         * 把 tuningCoeff 从 1.3 改为 1.0（理由：面板
+                                         * 数值本身就是游戏真值，核对式里没有调校项）。
+                                         * 原值 1.3 会让所有伤害系统性偏高 30%。 */
 #define MIN_DAMAGE_RATIO        0.10    /* 实弹未穿透保底10% */
 #define CRIT_BASE_RATE          0.15    /* 基础暴击率15% */
 #define SYSTEM_DAMAGE_CHANCE    0.10    /* 系统破坏触发概率10% */
 #define PLUTUS_DAMAGE_REDUCTION 0.30    /* 普卢托斯之盾旗舰减伤30% */
 #define BOMB_DISTANCE_BASE      15.0    /* 轰炸距离基准(吉米) */
-#define BOMB_DISTANCE_PENALTY   0.02    /* 每吉米命中修正2% */
+#define BOMB_DISTANCE_PENALTY   0.02    /* 每吉米命中修正2%（★ JS 2026-10-03 已停用，保留常量） */
 #define FLIGHT_TIME_PER_JIMI    2.0     /* 每吉米飞行时间2秒 */
 #define REPAIR_ARMOR_BONUS      0.0025  /* 1点装甲=0.25%维修加成 */
 #define REPAIR_MAX_BONUS        2.5     /* 维修加成上限(150%) */
+#define HIT_RATE_MIN            0.10    /* 命中率下限（JS: HIT_MIN=0.10） */
+#define HIT_RATE_MAX            0.95    /* 命中率上限（JS: HIT_MAX=0.95） */
 
 /* ==================== 枚举定义 ==================== */
 
@@ -208,17 +214,19 @@ double calc_system_damage_c(double base_dmg, double system_coeff,
 /* ==================== 命中率计算 ==================== */
 
 /**
- * 计算命中率
- * @param base_hit 基础命中率
- * @param lock_efficiency 锁定效率
- * @param evasion 目标闪避率
- * @param bomb_distance 轰炸距离
- * @param hit_bonus 命中加成
- * @return 命中概率(0-1)
+ * 计算命中率 —— ★ 2026-10-11 与 JS 引擎（simulator.html:5189-5243）逐行对齐：
+ *   区间随机 [hit_min, hit_max]% × (1 + (命中加成 − 闪避)/100)，最后 clamp 10%~95%
+ *   注意：「锁定效率」不算命中（2026-09-24 拍板，已挪到"缩短锁定时间"）；
+ *         轰炸距离修正 JS 已于 2026-10-03 停用。
+ * @param hit_min   命中区间下限（百分数，如 50）
+ * @param hit_max   命中区间上限（百分数，如 70）
+ * @param roll      区间随机位置 [0,1)，由调用方给随机数 —— 纯函数，可复现测试
+ * @param evasion   目标闪避率（百分数）
+ * @param hit_bonus 命中加成（百分数，舰船级+武器强化合计）
+ * @return 命中概率(0.10~0.95)
  */
-double calc_hit_chance_c(double base_hit, double lock_efficiency,
-                          double evasion, double bomb_distance,
-                          double hit_bonus);
+double calc_hit_chance_c(double hit_min, double hit_max, double roll,
+                          double evasion, double hit_bonus);
 
 /* ==================== 拦截率计算 ==================== */
 

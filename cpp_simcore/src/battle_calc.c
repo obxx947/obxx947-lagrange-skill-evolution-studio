@@ -69,19 +69,19 @@ double calc_system_damage_c(double base_dmg, double system_coeff,
 
 /* ==================== 命中率计算 ==================== */
 
-double calc_hit_chance_c(double base_hit, double lock_efficiency,
-                          double evasion, double bomb_distance,
-                          double hit_bonus) {
-    double hit = base_hit * (1.0 + hit_bonus - evasion) * lock_efficiency;
-
-    /* 轰炸距离修正 */
-    if (bomb_distance > BOMB_DISTANCE_BASE) {
-        hit -= (bomb_distance - BOMB_DISTANCE_BASE) * BOMB_DISTANCE_PENALTY;
-    } else {
-        hit += (BOMB_DISTANCE_BASE - bomb_distance) * BOMB_DISTANCE_PENALTY;
-    }
-
-    return clamp_d(hit, 0.01, 0.99);
+/**
+ * ★ 2026-10-11 重写：与 JS 引擎 simulator.html 5189-5243 逐行对齐
+ *   旧实现把「锁定效率」乘进命中率 —— JS 已在 2026-09-24 拍板"锁定效率不算命中"
+ *   （锁定效率只影响锁定阶段的时间），且旧 clamp 1%~99% 与 JS 的 10%~95% 不符。
+ */
+double calc_hit_chance_c(double hit_min, double hit_max, double roll,
+                          double evasion, double hit_bonus) {
+    /* 1) 区间随机取基础命中（JS: (hitMin + RNG()*(hitMax-hitMin))/100） */
+    double hit = (hit_min + roll * (hit_max - hit_min)) / 100.0;
+    /* 2) 命中加成与闪避在同一个括号里加算（JS: ×(1+(hitBonus−evasion)/100)） */
+    hit *= (1.0 + (hit_bonus - evasion) / 100.0);
+    /* 3) clamp 到 10%~95%（JS: HIT_MIN/HIT_MAX） */
+    return clamp_d(hit, HIT_RATE_MIN, HIT_RATE_MAX);
 }
 
 /* ==================== 拦截率计算 ==================== */
