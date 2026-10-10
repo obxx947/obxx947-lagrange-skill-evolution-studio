@@ -62,7 +62,9 @@ typedef enum { DIRECT_FIRE = 0, PROJECTILE = 1 } WeaponType;
 typedef enum { FRONT = 0, MID = 1, BACK = 2, AIR = 3 } ShipPosition;
 typedef enum { MAIN_WEAPON = 0, HANGAR = 1, COMMAND = 2, PROPULSION = 3 } SystemType;
 typedef enum { INDEPENDENT = 0, RECIPROCATING = 1 } AircraftMode;
-typedef enum { AA_COUNTER = 0, AA_AREA = 1, AA_ACTIVE = 2 } AAType;
+/* ★ 2026-10-11：加 AA_NONE=0 并把它放在首值 —— 原来 AA_COUNTER=0 是首值，
+   memset 默认构造的武器全部变成"防空反击"（process_antiair 会把它们拿去打敌舰）。 */
+typedef enum { AA_NONE = 0, AA_COUNTER = 1, AA_AREA = 2, AA_ACTIVE = 3 } AAType;
 typedef enum { BATTLE_ESCORT = 0, BATTLE_BOMB = 1 } BattleMode;
 
 /* ==================== 数据结构 ==================== */
@@ -384,6 +386,36 @@ static void init_weapon_states(ShipInstance* ship) {
     }
 }
 
+/**
+ * ★ 2026-10-11 新增：舰船实例初始化（公开入口）
+ *
+ * 此前 init_weapon_states 是 static、且 subsystems[] 从没被初始化过 ——
+ * simulate_tick 会读到未初始化的 destroyed/max_hp 垃圾值（影响指挥系统判定与维修）。
+ * 调用前请先设置好：weapon_count/weapons、max_hp、position 等基础字段。
+ */
+void ship_instance_init(ShipInstance* ship) {
+    init_weapon_states(ship);
+
+    /* 子系统按比例初始化（比例常量见文件头 #define） */
+    const double ratios[4] = {
+        SYS_MAIN_WEAPON_RATIO, SYS_HANGAR_RATIO,
+        SYS_COMMAND_RATIO, SYS_PROPULSION_RATIO
+    };
+    const SystemType types[4] = { MAIN_WEAPON, HANGAR, COMMAND, PROPULSION };
+    const char* names[4] = { "主武器系统", "机库系统", "指挥系统", "动力系统" };
+    int i;
+    for (i = 0; i < 4; i++) {
+        ship->subsystems[i].type = types[i];
+        snprintf(ship->subsystems[i].name, sizeof(ship->subsystems[i].name), "%s", names[i]);
+        ship->subsystems[i].max_hp = ship->max_hp * ratios[i];
+        ship->subsystems[i].current_hp = ship->subsystems[i].max_hp;
+        ship->subsystems[i].destroyed = 0;
+        ship->subsystems[i].permanent_destroyed = 0;
+        ship->subsystems[i].repair_count = 0;
+        ship->subsystems[i].repair_timer = 0.0;
+    }
+}
+
 /* ==================== 战斗模拟核心 ==================== */
 
 /**
@@ -488,6 +520,9 @@ static void execute_shot(ShipInstance* attacker, ShipInstance* target,
     attacker->total_dmg_dealt += dmg;
     target->total_dmg_taken += dmg;
     attacker->shots_hit++;
+    /* ★ 2026-10-11：BattleState 级总伤害此前从未累加（smoke 打印恒 0） */
+    if (attacker->side[0] == 'a') bs->total_ally_dmg += dmg;
+    else bs->total_enemy_dmg += dmg;
 
     /* 8. 系统破坏判定 (10%概率) */
     if ((double)rand() / RAND_MAX < SYS_DMG_CHANCE) {
@@ -687,19 +722,22 @@ static void process_antiair(ShipInstance* defender, ShipInstance* enemy_aircraft
     int i;
     for (i = 0; i < defender->weapon_count; i++) {
         Weapon* w = &defender->weapons[i];
-        if (w->aa_type == AA_COUNTER || w->aa_type == AA_AREA ||
-            w->aa_type == AA_ACTIVE) {
+        if (w->aa_type != AA_NONE) {
             /* 防空武器基础命中率 (L105) */
             double base_hit = (defender->is_aircraft) ?
                 COUNTER_AA_AIRCRAFT : COUNTER_AA_SHIP;
-            /* 选择空中目标攻击 */
+            /* 选择空中目标攻击
+               ★ 2026-10-11 修复：调用方传入的是【全部敌舰数组】，这里必须过滤
+               is_aircraft —— 否则敌舰会被当载机打（不走伤害管线/不 clamp/不统计）。 */
             int j;
             for (j = 0; j < ac_count; j++) {
                 if (!enemy_aircraft[j].alive || enemy_aircraft[j].in_hangar) continue;
+                if (!enemy_aircraft[j].is_aircraft) continue;   /* ★ 只打载机 */
                 if ((double)rand() / RAND_MAX < base_hit) {
                     double dmg = w->single_dmg * TUNE;
                     enemy_aircraft[j].current_hp -= dmg;
                     if (enemy_aircraft[j].current_hp <= 0) {
+                        enemy_aircraft[j].current_hp = 0;       /* ★ clamp，原来会打穿成负数 */
                         enemy_aircraft[j].alive = 0;
                         if (enemy_aircraft[j].side[0] == 'a') bs->ally_aircraft_lost++;
                         else bs->enemy_aircraft_lost++;

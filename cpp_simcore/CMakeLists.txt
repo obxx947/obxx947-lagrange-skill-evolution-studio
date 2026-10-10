@@ -88,6 +88,14 @@ if(BUILD_TESTS)
     target_include_directories(test_battle PRIVATE include)
     target_link_libraries(test_battle PRIVATE m)
     add_test(NAME test_battle COMMAND test_battle)
+
+    # 冒烟测试：真实跑一场战斗（unity build 引入引擎源码）
+    add_executable(smoke_battle
+        tools/smoke_main.c
+    )
+    target_include_directories(smoke_battle PRIVATE include src)
+    target_link_libraries(smoke_battle PRIVATE m)
+    add_test(NAME smoke_battle COMMAND smoke_battle)
 endif()
 
 # 安装规则
