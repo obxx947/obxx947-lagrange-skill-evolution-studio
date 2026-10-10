@@ -4106,7 +4106,8 @@
                    整场双方各只击毁 1~2 个系统，而模拟器 A 队击毁 82 个、殉爆 135 万（占 B 有效血量 25%），
                    直接把战斗从 579 秒打到 327 秒。
                    现在：没写 sysHp 的船也给默认血量（见 SYS_HP_DEFAULT，2026-10-03 由 25500 重标定为 2400）→ 一律走"累计打满才毁"。 */
-                const _sysHp = (s.sysHp > 0) ? s.sysHp : SYS_HP_DEFAULT;
+                /* ★ 2026-10-10：先用【模块/系统自带】的 hp（自定义舰逐系统填），再船级 sysHp，最后默认 */
+                const _sysHp = (mod.hp > 0) ? mod.hp : ((s.sysHp > 0) ? s.sysHp : SYS_HP_DEFAULT);
                 s.subSystems.push({
                     name: sysName, type: sysType, key: key,
                     hp: _sysHp, maxHp: _sysHp,
@@ -5371,8 +5372,8 @@
            加点 +20% 伤害 × 暴击 30%/150% = **1.38**」—— 说明暴击是【所有武器】的基础属性。
            现取基础暴击率 15%（= 原来 crit:true 的值），叠加加点的 st.critRate。
            实测输出偏低：我 面板×0.94 vs 游戏 面板×1.58。 */
-        const critRate = 0.15 + (st.critRate||0)/100;   // ★ 基础 15% + 加点
-        const critDmg = 1.5 + (st.critDmg||0)/100;
+        const critRate = 0.15 + ((st.critRate||0) + (weapon.critRate||0))/100;   // ★ 基础 15% + 加点 + 武器自带
+        const critDmg = 1.5 + ((st.critDmg||0) + (weapon.critDmg||0))/100;
         if(critRate > 0 && RNG() < critRate) {
             critMult = critDmg;
             if(RNG() < 0.1) addBattleLog('info', `💥 ${CR.name||CR.id} 暴击!`);
