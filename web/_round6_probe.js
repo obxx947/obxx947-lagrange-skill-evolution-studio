@@ -40,7 +40,7 @@ const OLD = {
         };
         CustomShip.close();
         /* —— 新船：全套填一遍 —— */
-        CustomShip.open();
+        CustomShip.newShip();
         const name = '系统化测试舰';
         document.getElementById('csName').value = name;
         /* 武器1 */

@@ -66,10 +66,16 @@ window.CustomShip = (function () {
             + '<h3 style="font-size:0.92rem;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">'
             + '<span>⚙️ 自定义舰船管理 <span id="csSubTitle" style="font-size:0.68rem;color:#8899aa"></span></span>'
             + '<span style="cursor:pointer;padding:0 6px" onclick="CustomShip.close()">✕</span></h3>'
-            + '<div style="margin-bottom:10px;padding:6px 8px;background:#0b1220;border:1px solid #2d4a6f;border-radius:8px;">'
-            + '<span style="color:#8899aa;font-size:0.66rem;margin-right:6px;">已有自定义舰船（点击编辑）：</span><span id="csList"></span>'
-            + '<button class="cs-btn pri" style="margin-left:6px" onclick="CustomShip.newShip()">➕ 新建</button>'
+            /* —— 视图1：列表（一艘一张卡，点进去才编辑）—— */
+            + '<div id="csViewList" style="display:none;">'
+            + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
+            + '<span style="color:#8899aa;font-size:0.7rem;">我保存的自定义舰船（点卡片进入编辑）：</span>'
+            + '<button class="cs-btn pri" onclick="CustomShip.newShip()">➕ 新建自定义舰船</button></div>'
+            + '<div id="csShipCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;"></div>'
             + '</div>'
+            /* —— 视图2：编辑（表单 + AI）—— */
+            + '<div id="csViewForm">'
+            + '<div style="margin-bottom:8px;"><button class="cs-btn" onclick="CustomShip.openList()">← 返回列表</button></div>'
             + '<div class="cs-cols">'
             + '<div class="cs-col left">'
             /* 基本数据 */
@@ -112,17 +118,45 @@ window.CustomShip = (function () {
             + '<div style="margin-top:8px;font-size:0.72rem;font-weight:600">📋 当前机制 <span style="color:#8899aa;font-size:0.62rem" id="csMechCnt"></span> <button class="cs-btn red" style="font-size:0.6rem;padding:2px 6px" onclick="CustomShip.clearMechs()">清空全部</button></div>'
             + '<div id="csMechList" style="max-height:200px;overflow-y:auto"></div>'
             + '</div>'
+            + '</div>'
             + '</div></div>';
         document.body.appendChild(el);
     }
 
-    /* ---------- 管理条 ---------- */
-    function renderList() {
-        const box = $('csList'); if (!box) return;
+    /* ---------- 视图切换 ---------- */
+    function showView(which) {
+        const l = $('csViewList'), f = $('csViewForm');
+        if (l) l.style.display = (which === 'list') ? 'block' : 'none';
+        if (f) f.style.display = (which === 'list') ? 'none' : 'block';
+    }
+    function typeCn(t) { return ({ frigate: '护卫舰', destroyer: '驱逐舰', cruiser: '巡洋舰', battlecruiser: '战列巡洋舰', battleship: '战列舰', aircraftcarrier: '航空母舰', support: '支援舰', fighter: '战机', corvette: '护航艇' })[t] || t || ''; }
+    /* ---------- 列表视图：所有自定义舰船（一艘一张卡，点进去编辑） ---------- */
+    function renderShipList() {
+        const box = $('csShipCards'); if (!box) return;
         const all = readAll(); const ids = Object.keys(all);
-        box.innerHTML = ids.length
-            ? ids.map(id => '<span class="cs-chip' + (id === editingId ? ' on' : '') + '" onclick="CustomShip.open(\'' + id + '\')">' + esc((all[id] && all[id].name) || id) + '</span>').join('')
-            : '<span style="color:#5a7a9a;font-size:0.66rem">（还没有，点右边「➕ 新建」造一艘）</span>';
+        if (!ids.length) {
+            box.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:#5a7a9a;padding:30px 10px;">还没有自定义舰船 —— 点右上角「➕ 新建自定义舰船」造一艘</div>';
+        } else {
+            box.innerHTML = ids.map(id => {
+                const sh = all[id] || {};
+                const mods = sh.modules || {};
+                const sysCnt = Object.keys(mods).length;
+                const mechCnt = (sh.condEffects || []).length;
+                const wpnCnt = Object.values(mods).reduce((n, m) => n + ((m && m.weapons) ? m.weapons.length : 0), 0);
+                const hangar = Object.values(mods).filter(m => m && m.type === 'hangar').length;
+                return '<div class="cs-card" style="cursor:pointer;margin:0;" onclick="CustomShip.open(\'' + id + '\')">'
+                    + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;">'
+                    + '<b style="color:#ffd700;font-size:0.8rem;">' + esc(sh.name || id) + '</b>'
+                    + '<span style="cursor:pointer;color:#ff6b6b;font-size:0.7rem" title="删除这艘" onclick="event.stopPropagation();CustomShip.delFromList(\'' + id + '\')">🗑</span></div>'
+                    + '<div class="cs-th" style="margin-top:4px;">' + esc(typeCn(sh.type)) + ' · ' + esc(sh.position || '中排') + ' · 结构 ' + (sh.hp || 0) + ' · 指挥 ' + (sh.commandValue || 0) + '</div>'
+                    + '<div class="cs-th">系统 ' + sysCnt + '（武器 ' + wpnCnt + ' / 机库 ' + hangar + '）· 机制 ' + mechCnt + ' 条</div>'
+                    + '<div style="margin-top:6px;display:flex;gap:6px;">'
+                    + '<button class="cs-btn sm pri" onclick="event.stopPropagation();CustomShip.open(\'' + id + '\')">✏️ 编辑</button>'
+                    + '<button class="cs-btn sm" onclick="event.stopPropagation();CustomShip.duplicate(\'' + id + '\')">⧉ 复制一份</button>'
+                    + '</div></div>';
+            }).join('');
+        }
+        const sub = $('csSubTitle'); if (sub) sub.textContent = '（共 ' + ids.length + ' 艘）';
     }
 
     /* ---------- 武器卡片 ---------- */
@@ -627,7 +661,21 @@ window.CustomShip = (function () {
     }
 
     /* ---------- 打开/关闭/保存/删除 ---------- */
+    /* ★ 2026-10-10（用户要求）：先出【列表】（像我的配队/图鉴），点某艘才进【编辑页】 */
     function open(id) {
+        inject();
+        const all = readAll();
+        $('customShipOverlay').classList.add('show');
+        if (id && all[id]) openForm(id); else openList();
+    }
+    function openList() {
+        inject();
+        editingId = null;
+        renderShipList();
+        showView('list');
+        $('customShipOverlay').classList.add('show');
+    }
+    function openForm(id) {
         inject();
         editingId = id || null;
         const all = readAll(); const s = editingId ? all[editingId] : null;
@@ -637,11 +685,31 @@ window.CustomShip = (function () {
         $('csDelBtn').style.display = editingId ? '' : 'none';
         try { chatMsgs = editingId ? (JSON.parse(localStorage.getItem(CHAT(editingId)) || '[]') || []) : []; } catch (e) { chatMsgs = []; }
         if (!chatMsgs.length) chatMsgs.push({ role: 'sys', content: '和我说「给这艘船设计一条XX机制」就行；想改就说「把第2条冷却改成30秒」。我按白名单设计、**先给你看提议，你点「✅ 写入」才生效**；每条机制都能单独开关。' });
-        renderChat(); renderMechs(); renderList();
+        renderChat(); renderMechs();
+        showView('form');
         $('customShipOverlay').classList.add('show');
     }
     function close() { $('customShipOverlay').classList.remove('show'); }
-    function newShip() { open(); }
+    function newShip() { inject(); openForm(null); }
+    /* 列表里删除（带确认）；删除后刷新列表 */
+    function delFromList(id) {
+        const all = readAll(); const sh = all[id] || {};
+        if (!confirm('删除自定义舰船「' + (sh.name || id) + '」？')) return;
+        delete all[id]; saveAll(all);
+        try { localStorage.removeItem(CHAT(id)); } catch (e) { }
+        try { if (typeof ALL !== 'undefined') { const i = ALL.findIndex(x => x.id === id); if (i >= 0) ALL.splice(i, 1); } if (typeof ALLMAP !== 'undefined') delete ALLMAP[id]; if (typeof renderPickGrid === 'function') renderPickGrid(); } catch (e) { }
+        if (editingId === id) editingId = null;
+        renderShipList();
+    }
+    /* 复制一份（新 id、名字加"-副本"） */
+    function duplicate(id) {
+        const all = readAll(); const sh = all[id]; if (!sh) return;
+        const copy = JSON.parse(JSON.stringify(sh));
+        copy.id = 'custom_' + Date.now();
+        copy.name = (sh.name || '自定义舰船') + '-副本';
+        all[copy.id] = copy; saveAll(all); syncToPage(copy);
+        renderShipList();
+    }
 
     function save() {
         const name = ($('csName').value || '').trim();
@@ -657,7 +725,7 @@ window.CustomShip = (function () {
         all[editingId] = ship; saveAll(all); syncToPage(ship);
         $('csSubTitle').textContent = '编辑中：' + ship.name;
         $('csDelBtn').style.display = '';
-        renderMechs(); renderList();
+        renderMechs(); renderShipList();
         chatMsgs.push({ role: 'sys', content: '✅ 已保存「' + ship.name + '」（' + Object.keys(ship.modules).length + ' 个系统，' + (ship.condEffects || []).length + ' 条机制）。配队页/模拟器里现在就能用。' });
         renderChat();
         try { localStorage.setItem(CHAT(editingId), JSON.stringify(chatMsgs.slice(-40))); } catch (e) { }
@@ -669,7 +737,7 @@ window.CustomShip = (function () {
         const all = readAll(); delete all[editingId]; saveAll(all);
         try { localStorage.removeItem(CHAT(editingId)); } catch (e) { }
         try { if (typeof ALL !== 'undefined') { const i = ALL.findIndex(x => x.id === editingId); if (i >= 0) ALL.splice(i, 1); } if (typeof ALLMAP !== 'undefined') delete ALLMAP[editingId]; if (typeof renderPickGrid === 'function') renderPickGrid(); } catch (e) { }
-        editingId = null; open();
+        editingId = null; openList();
     }
     function delMech(i) {
         const all = readAll(); const s = all[editingId]; if (!s || !s.condEffects) return;
@@ -718,6 +786,7 @@ window.CustomShip = (function () {
     return {
         open: open, close: close, newShip: newShip, save: save, del: del,
         delMech: delMech, toggleMech: toggleMech, clearMechs: clearMechs,
+        openList: openList, openForm: openForm, delFromList: delFromList, duplicate: duplicate,
         addWeapon: addWeapon, addHangar: addHangar, addTargetRow: addTargetRow, delTargetRow: delTargetRow, addSysRow: addSysRow, delSysRow: delSysRow, removeCard: removeCard, refresh: refresh,
         applyPending: applyPending, discardPending: discardPending, send: send
     };

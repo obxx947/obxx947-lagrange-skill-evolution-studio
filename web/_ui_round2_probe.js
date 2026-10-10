@@ -67,27 +67,38 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         const tabBtns = [...document.querySelectorAll('.tabs button')].map(x => x.textContent.trim());
         const hasCreateBtn = tabBtns.some(t => t.indexOf('自定义舰船') >= 0 && t.indexOf('管理') < 0);
         const hasMgrBtn = tabBtns.some(t => t.indexOf('自定义舰船管理') >= 0);
-        localStorage.setItem('lagrange_custom_ships', JSON.stringify({ custom_mgr1: { id: 'custom_mgr1', name: '管理测试舰', variant: '自定义', condEffects: [] } }));
-        /* 点「➕ 自定义舰船」→ 应为新建态（无删除按钮、名称是默认值、不指向已有船） */
-        const createBtn = [...document.querySelectorAll('.tabs button')].find(t => t.textContent.indexOf('自定义舰船') >= 0 && t.textContent.indexOf('管理') < 0);
-        createBtn.click();
-        const shown1 = document.getElementById('customShipOverlay').classList.contains('show');
-        const newName = document.getElementById('csName').value;
-        const delHidden = document.getElementById('csDelBtn').style.display === 'none';
-        const sub1 = document.getElementById('csSubTitle').textContent;
-        CustomShip.close();
-        /* 点「📋 自定义舰船管理」→ 应列出已有船 + 有新建按钮 */
+        localStorage.setItem('lagrange_custom_ships', JSON.stringify({ custom_mgr1: { id: 'custom_mgr1', name: '管理测试舰', variant: '自定义', type: 'cruiser', hp: 88888, commandValue: 9, modules: {}, condEffects: [] } }));
+        /* ① 点「📋 自定义舰船管理」→ 应是【列表视图】（一艘一张卡） */
         const mgrBtn = [...document.querySelectorAll('.tabs button')].find(t => t.textContent.indexOf('自定义舰船管理') >= 0);
         mgrBtn.click();
-        const listChips = [...document.querySelectorAll('#csList .cs-chip')].map(x => x.textContent);
-        const hasNew = [...document.querySelectorAll('#customShipOverlay button')].some(x => x.textContent.includes('新建'));
+        const listShown = document.getElementById('csViewList').style.display !== 'none';
+        const formHidden = document.getElementById('csViewForm').style.display === 'none';
+        const cards = [...document.querySelectorAll('#csShipCards .cs-card')].map(x => x.textContent);
+        const hasCard = cards.some(t => t.indexOf('管理测试舰') >= 0);
+        const hasEditBtn = cards.some(t => t.indexOf('编辑') >= 0);
+        const hasNewInList = [...document.querySelectorAll('#csViewList button')].some(b => b.textContent.indexOf('新建') >= 0);
+        /* ② 点卡片 → 进入编辑视图 */
+        document.querySelector('#csShipCards .cs-card').click();
+        const formShown = document.getElementById('csViewForm').style.display !== 'none';
+        const nameInForm = document.getElementById('csName').value;
+        const delVisible = document.getElementById('csDelBtn').style.display !== 'none';
+        /* ③ 返回列表 */
+        CustomShip.openList();
+        const backTo = document.getElementById('csViewList').style.display !== 'none';
+        CustomShip.close();
+        /* ④ 点「➕ 自定义舰船」→ 空白编辑视图 */
+        const createBtn = [...document.querySelectorAll('.tabs button')].find(t => t.textContent.indexOf('自定义舰船') >= 0 && t.textContent.indexOf('管理') < 0);
+        createBtn.click();
+        const newFormShown = document.getElementById('csViewForm').style.display !== 'none';
+        const newName = document.getElementById('csName').value;
+        const newDelHidden = document.getElementById('csDelBtn').style.display === 'none';
         CustomShip.close();
         const all = JSON.parse(localStorage.getItem('lagrange_custom_ships') || '{}'); delete all.custom_mgr1; localStorage.setItem('lagrange_custom_ships', JSON.stringify(all));
-        return { hasCreateBtn, hasMgrBtn, shown1, newName, delHidden, sub1: sub1.slice(0, 12), listChips, hasNew };
+        return { hasCreateBtn, hasMgrBtn, listShown, formHidden, hasCard, hasEditBtn, hasNewInList, formShown, nameInForm, delVisible, backTo, newFormShown, newName, newDelHidden };
     });
-    console.log('② 配队页：tabs「➕自定义舰船」=', r2.hasCreateBtn, '｜「📋自定义舰船管理」=', r2.hasMgrBtn);
-    console.log('   点新增 → 弹窗=', r2.shown1, '名称=', r2.newName, '(应 自定义舰船)｜删除按钮隐藏=', r2.delHidden, '｜副标题=', r2.sub1);
-    console.log('   点管理 → 列表 =', JSON.stringify(r2.listChips), '｜新建按钮 =', r2.hasNew);
+    console.log('② 配队页：两按钮 =', r2.hasCreateBtn, '/', r2.hasMgrBtn, '｜点管理→列表视图 =', r2.listShown, '(表单隐藏 =', r2.formHidden + ')', '｜船卡 =', r2.hasCard, '编辑按钮 =', r2.hasEditBtn, '新建按钮 =', r2.hasNewInList);
+    console.log('   点船卡→编辑视图 =', r2.formShown, '名称 =', r2.nameInForm, '删除可见 =', r2.delVisible, '｜返回列表 =', r2.backTo);
+    console.log('   点新增→空白编辑 =', r2.newFormShown, '名称 =', r2.newName, '(应 自定义舰船)｜删除隐藏 =', r2.newDelHidden);
 
     /* ②b 模拟器顶部：两个按钮 */
     await p.goto('http://127.0.0.1:3888/simulator.html', { waitUntil: 'domcontentloaded' });
@@ -109,7 +120,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         && r1.ed.pkRein.shown && r1.ed.pkRein.tab === 'reinforcement' && r1.ed.pkMain.shown && r1.ed.pkMain.tab === 'main'
         && r1.ed.reinCount === 1 && r1.ed.mainCount === 1
         && r1.ed.cross && r1.ed.cross.changed
-        && r2.hasCreateBtn && r2.hasMgrBtn && r2.shown1 && r2.newName === '自定义舰船' && r2.delHidden && r2.listChips.includes('管理测试舰') && r2.hasNew
+        && r2.hasCreateBtn && r2.hasMgrBtn && r2.listShown && r2.formHidden && r2.hasCard && r2.hasEditBtn && r2.hasNewInList
+        && r2.formShown && r2.nameInForm === '管理测试舰' && r2.delVisible && r2.backTo && r2.newFormShown && r2.newName === '自定义舰船' && r2.newDelHidden
         && r2b.create && r2b.mgr
         && !r3.tipZoomWord && r3.zoomBtns === 3 && r3.media && !errs.length;
     console.log(pass ? '\n✅ 全部通过' : '\n❌ 有不符合预期项');

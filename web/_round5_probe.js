@@ -36,7 +36,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         const pkMgr = (document.getElementById('pkFilters') || {}).textContent.indexOf('自定义舰船管理') >= 0;
         try { document.getElementById('pickModal').classList.remove('show'); } catch (e) { }
         /* ③ 武器编辑器（2026-10-10 新版：卡片式，含 暴击/攻击系统/目标优先级） */
-        CustomShip.open();
+        CustomShip.newShip();
         const row = document.querySelector('#csWeapons .cs-card');
         const wsel = row && row.querySelector('[data-f="weaponType"]');
         const critOn = row && row.querySelector('[data-f="critOn"]');
