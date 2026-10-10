@@ -37,14 +37,15 @@ pub fn calc_energy_damage(
     dmg_bonus: f64,
     strategy_coeff: f64,
 ) -> f64 {
-    // 100%能量抗性 = 完全免疫
-    if target_energy_armor_pct >= 100.0 {
-        return 0.0;
+    /* ★ 2026-10-11 对齐 JS：能抗 ≥100% 不再完全免疫 —— 实测"能抗拉满也有 10% 保底"
+       （JS: dmg = singleDmg×(1+bonus−resist)；dmg≤0 时 baseVal×0.1） */
+    let base_val = base_dmg * (1.0 + dmg_bonus);
+    let mut dmg = base_dmg * (1.0 + dmg_bonus - target_energy_armor_pct / 100.0)
+        * TUNING_COEFFICIENT * strategy_coeff;
+    if dmg <= 0.0 {
+        dmg = base_val * 0.1 * TUNING_COEFFICIENT * strategy_coeff;
     }
-
-    let effective_mult = 1.0 + dmg_bonus - (target_energy_armor_pct / 100.0);
-    let final_dmg = base_dmg * effective_mult * TUNING_COEFFICIENT * strategy_coeff;
-    final_dmg.max(0.0)
+    dmg.max(0.0)
 }
 
 /// 计算实弹伤害
@@ -70,16 +71,17 @@ pub fn calc_physical_damage(
     strategy_coeff: f64,
     armor_penetration: f64,
 ) -> f64 {
+    /* ★ 2026-10-11 对齐 JS（simulator.html:5358-5362）：
+       dmg = baseVal × 调校 − 护甲（先乘调校再减甲）；不破防保底 = baseVal × 10% × 调校。
+       原实现把减甲放在乘调校之前、保底基数用裸 base —— 调校=1.0 时看不出来，
+       但结构错了（三项对拍 实弹-540甲保底 项抓出：应 36 而非 30）。 */
     let effective_armor = (target_armor - armor_penetration).max(0.0);
-    let raw_dmg = base_dmg * (1.0 + dmg_bonus) - effective_armor;
-
-    let effective_raw = if raw_dmg <= 0.0 {
-        base_dmg * MIN_DAMAGE_RATIO // 10%保底
-    } else {
-        raw_dmg
-    };
-
-    (effective_raw * TUNING_COEFFICIENT * strategy_coeff).max(0.0)
+    let base_val = base_dmg * (1.0 + dmg_bonus);
+    let mut dmg = base_val * TUNING_COEFFICIENT - effective_armor;
+    if dmg <= 0.0 {
+        dmg = base_val * MIN_DAMAGE_RATIO * TUNING_COEFFICIENT;   /* 10% 保底 */
+    }
+    (dmg * strategy_coeff).max(0.0)
 }
 
 /// 计算暴击伤害倍率
@@ -223,9 +225,11 @@ mod tests {
     }
 
     #[test]
-    fn test_energy_damage_immune() {
+    fn test_energy_damage_floor_at_full_shield() {
+        // ★ 2026-10-11：抗性 >=100% 不再免疫，走 10% 保底（与 JS 对齐）
+        // 500 单发、100% 抗性、无加成 → raw=0 → 保底 500×0.1×1.0 = 50
         let dmg = calc_energy_damage(500.0, 100.0, 0.0, 1.0);
-        assert_eq!(dmg, 0.0);
+        assert!((dmg - 50.0).abs() < 1e-9);
     }
 
     #[test]

@@ -28,11 +28,17 @@ static double safe_div(double a, double b, double default_val) {
 
 double calc_energy_damage_c(double base_dmg, double target_shield_pct,
                              double dmg_bonus, double strategy_coeff) {
-    if (target_shield_pct >= 100.0) return 0.0;
-
-    double effective_mult = 1.0 + dmg_bonus - (target_shield_pct / 100.0);
-    double final_dmg = base_dmg * effective_mult * TUNING_COEFFICIENT * strategy_coeff;
-    return final_dmg > 0.0 ? final_dmg : 0.0;
+    /* ★ 2026-10-11 对齐 JS（simulator.html:5345-5352）：
+       能量伤害 = 单发 × (1 + 加成 − 抗性/100) × 调校；
+       【能抗 ≥100% 不再是完全免疫】—— JS 实测"能抗拉满也有 10% 保底"
+       （旧实现在 ≥100% 时直接 return 0，与 JS 不符）。 */
+    double base_val = base_dmg * (1.0 + dmg_bonus);
+    double dmg = base_dmg * (1.0 + dmg_bonus - target_shield_pct / 100.0)
+                 * TUNING_COEFFICIENT * strategy_coeff;
+    if (dmg <= 0.0) {
+        dmg = base_val * 0.1 * TUNING_COEFFICIENT * strategy_coeff;   /* 10% 保底（基数含加成） */
+    }
+    return dmg > 0.0 ? dmg : 0.0;
 }
 
 double calc_physical_damage_c(double base_dmg, double target_armor,
@@ -47,8 +53,9 @@ double calc_physical_damage_c(double base_dmg, double target_armor,
     double raw_dmg = base_dmg * (1.0 + dmg_bonus) * TUNING_COEFFICIENT - effective_armor;
 
     if (raw_dmg <= 0.0) {
-        /* 不破防保底 = 基础 × 10% × 调校 */
-        raw_dmg = base_dmg * MIN_DAMAGE_RATIO * TUNING_COEFFICIENT;
+        /* 不破防保底 = baseVal × 10% × 调校（★ 2026-10-11 对齐 JS：基数含加成，
+           JS 是 baseVal×0.1×tuning；原实现用裸 base 会少算 36-30=6） */
+        raw_dmg = base_dmg * (1.0 + dmg_bonus) * MIN_DAMAGE_RATIO * TUNING_COEFFICIENT;
     }
 
     double final_dmg = raw_dmg * strategy_coeff;

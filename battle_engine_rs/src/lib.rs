@@ -20,7 +20,9 @@ use pyo3::wrap_pyfunction;
 use rayon::prelude::*;
 
 /// 调校系数（全局常量）
-pub const TUNING_COEFFICIENT: f64 = 1.3;
+/// ★ 2026-10-11 对齐 JS 引擎：1.3 → 1.0（JS 2026-09-26 决定"面板即真值"，
+///   核对式里没有调校项；原 1.3 会让所有伤害系统性偏高 30%）
+pub const TUNING_COEFFICIENT: f64 = 1.0;
 
 /// 实弹未穿透保底伤害比例（10%）
 pub const MIN_DAMAGE_RATIO: f64 = 0.10;

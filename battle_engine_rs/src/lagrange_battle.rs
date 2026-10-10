@@ -6,7 +6,7 @@
 use std::f64;
 
 // ==================== 类型安全常量 ====================
-const TUNE: f64 = 1.3;
+const TUNE: f64 = 1.0;   // ★ 2026-10-11 对齐 JS 引擎（原 1.3；JS 已改"面板即真值"=1.0）
 const MIN_DMG_RATIO: f64 = 0.10;
 const CRIT_BASE_RATE: f64 = 0.15;
 const SYS_DMG_CHANCE: f64 = 0.10;
@@ -270,23 +270,27 @@ pub struct BattleState {
 
 // ==================== 战斗公式 (纯函数) ====================
 
-/// 能量结构伤害 §1.1.1 L387-389（口径与 JS 引擎 simulator.html:5299 一致）
-/// 能量单发 = (基础 + 各类伤害加成 + 策略增幅 − 基础×对方护盾%) × 1.3
-/// 验证: (600+120-510)×1.3=273 ✓
+/// 能量结构伤害 §1.1.1 L387-389（口径与 JS 引擎一致；调校系数 2026-10-11 对齐为 1.0）
+/// 能量单发 = (基础 + 各类伤害加成 + 策略增幅 − 基础×对方护盾%) × 调校(现行 1.0)
+/// 验证: (600+120-510)×1.0=210 ✓（旧 1.3 口径为 273，已按 JS 改为 1.0）
 pub fn energy_damage(base: f64, tech: f64, strategy: f64, shield_pct: f64) -> f64 {
-    if shield_pct >= 100.0 { return 0.0; }
+    /* ★ 2026-10-11 对齐 JS：能抗 >=100% 不再完全免疫（10% 保底兜底） */
     let raw = base + tech + strategy - base * (shield_pct / 100.0);
-    (raw * TUNE).max(0.0)
+    let dmg = raw * TUNE;
+    if dmg <= 0.0 {
+        return ((base + tech + strategy) * MIN_DMG_RATIO * TUNE).max(0.0);
+    }
+    dmg.max(0.0)
 }
 
-/// 实弹可破防 L387
-/// 验证: (300+60)×1.3-140=328 ✓
+/// 实弹可破防 L387 —— 调校乘在【减甲之前】（与 JS 口径一致）
+/// 验证: (300+60)×1.0-140=220 ✓
 pub fn physical_penetrating(base: f64, tech: f64, strategy: f64, armor: f64) -> f64 {
     ((base + tech + strategy) * TUNE - armor).max(0.0)
 }
 
 /// 实弹不破防 L453-457
-/// 验证: (300+60)/10×1.3=46 ✓
+/// 验证: (300+60)/10×1.0=36 ✓
 pub fn physical_nonpenetrating(base: f64, tech: f64, strategy: f64) -> f64 {
     ((base + tech + strategy) / 10.0 * TUNE).max(0.0)
 }
@@ -302,14 +306,10 @@ pub fn physical_damage(base: f64, tech: f64, strategy: f64, armor: f64) -> f64 {
 
 /// 命中率 L183, L274
 pub fn hit_chance(hit_min: f64, hit_max: f64, evasion: f64, bomb_dist: f64) -> f64 {
+    let _ = bomb_dist;   // ★ 2026-10-11 对齐 JS：轰炸距离修正已于 2026-10-03 停用
     let base = (hit_min + rand::random::<f64>() * (hit_max - hit_min)) / 100.0;
-    let mut hit = base * (1.0 - evasion / 100.0);
-    if bomb_dist > BOMB_BASE_DIST {
-        hit -= (bomb_dist - BOMB_BASE_DIST) * BOMB_PENALTY;
-    } else {
-        hit += (BOMB_BASE_DIST - bomb_dist) * BOMB_PENALTY;
-    }
-    hit.max(0.01).min(0.99)
+    let hit = base * (1.0 - evasion / 100.0);
+    hit.max(0.10).min(0.95)   // ★ JS: HIT_MIN/HIT_MAX = 0.10/0.95（原 0.01/0.99 不符）
 }
 
 /// 三层拦截 L280-282
@@ -481,35 +481,38 @@ mod tests {
 
     #[test]
     fn test_energy_formula_official() {
-        // 爱奥VS电磁ST59(85%盾) → (600+120-510)×1.3=273
+        // 爱奥VS电磁ST59(85%盾) → (600+120-510)×1.0=210（2026-10-11 对齐 JS 现行口径）
         let dmg = energy_damage(600.0, 120.0, 0.0, 85.0);
-        assert!((dmg - 273.0).abs() < 1.0);
+        assert!((dmg - 210.0).abs() < 1.0);
     }
 
     #[test]
     fn test_physical_formula_official() {
-        // 阋神重炮VS奇美拉(140甲) → (300+60)×1.3-140=328
+        // 阋神重炮VS奇美拉(140甲) → (300+60)×1.0-140=220
         let dmg = physical_damage(300.0, 60.0, 0.0, 140.0);
-        assert!((dmg - 328.0).abs() < 1.0);
+        assert!((dmg - 220.0).abs() < 1.0);
     }
 
     #[test]
     fn test_physical_nonpenetrating_official() {
-        // 阋神300炮VS重甲540大矛 → (300+60)/10×1.3=46
+        // 阋神300炮VS重甲540大矛 → (300+60)/10×1.0=36
         let dmg = physical_damage(300.0, 60.0, 0.0, 540.0);
-        assert!((dmg - 46.0).abs() < 1.0);
+        assert!((dmg - 36.0).abs() < 1.0);
     }
 
     #[test]
     fn test_strategy_physical_official() {
-        // 卡利莱恩重炮+策略VS奇美拉 → (300+60+180)×1.3-140=562
+        // 卡利莱恩重炮+策略VS奇美拉 → (300+60+180)×1.0-140=400
         let dmg = physical_damage(300.0, 60.0, 180.0, 140.0);
-        assert!((dmg - 562.0).abs() < 1.0);
+        assert!((dmg - 400.0).abs() < 1.0);
     }
 
     #[test]
-    fn test_energy_shield_immune() {
-        assert_eq!(energy_damage(100.0, 0.0, 0.0, 100.0), 0.0);
+    fn test_energy_shield_floor() {
+        // ★ 2026-10-11：能抗 100% 不再是免疫 —— 走 10% 保底（与 JS 实测口径对齐）
+        // (100+0+0−100)×1.0 = 0 → 保底 (100+0+0)×0.1×1.0 = 10
+        let dmg = energy_damage(100.0, 0.0, 0.0, 100.0);
+        assert!((dmg - 10.0).abs() < 1e-9);
     }
 
     #[test]

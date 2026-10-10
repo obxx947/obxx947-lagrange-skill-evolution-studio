@@ -24,7 +24,12 @@ try:
 except Exception:
     pass
 
-DEFAULT_DLL = r"D:\cbuild-cpp\liblagrange_battle.dll"
+DEFAULT_DLL = next(
+    (p for p in [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "liblagrange_battle.dll"),  # 随项目打包
+        r"D:\cbuild-cpp\liblagrange_battle.dll",                                              # 构建目录
+    ] if os.path.exists(p)),
+    r"D:\cbuild-cpp\liblagrange_battle.dll")
 
 # MinGW 运行库（libgcc_s_seh-1.dll / libwinpthread-1.dll）在 msys64 里
 if os.path.isdir(r"D:\msys64\mingw64\bin"):

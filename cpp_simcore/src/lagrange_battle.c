@@ -204,14 +204,18 @@ typedef struct {
 
 /**
  * 能量结构伤害 (§1.1.1, 战斗机制.txt L387-389)
- * 公式: (基础+科技+策略-基础×护甲%) × (1+调校)
- * 验证: 爱奥(600+120-510)×1.3=273 ✓
+ * 公式: (基础+科技+策略−基础×护盾%) × 调校（现行 1.0）
+ * ★ 2026-10-11 对齐 JS：能抗 ≥100% 不再是完全免疫（JS 实测"能抗拉满也有 10% 保底"）
+ * 验证: 爱奥(600+120−510)×1.0=210 ✓
  */
 static double calc_energy_damage(double base, double tech, double strategy,
                                   double shield_pct) {
-    if (shield_pct >= 100.0) return 0.0;
     double shield_reduction = base * (shield_pct / 100.0);
-    return fmax(0.0, (base + tech + strategy - shield_reduction) * TUNE);
+    double dmg = (base + tech + strategy - shield_reduction) * TUNE;
+    if (dmg <= 0.0) {
+        dmg = (base + tech + strategy) * MIN_DMG_RATIO * TUNE;   /* 10% 保底 */
+    }
+    return fmax(0.0, dmg);
 }
 
 /**

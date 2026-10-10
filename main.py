@@ -149,6 +149,14 @@ app.include_router(api_router)     # 用户端 API
 app.include_router(admin_router)   # 管理员 API
 app.include_router(llm_proxy_router)  # 站内 GLM 服务端 LLM 代理（web/ 与 APK 默认走它）
 
+# ★ 2026-10-11：C++/Rust 重写引擎接口（/api/battle_c 跑战斗、/api/calc_rs 算公式）
+# 惰性加载：dll/pyd 缺失时只影响这两个接口，不影响后端其它功能
+try:
+    from battle_c_api import router as battle_c_router
+    app.include_router(battle_c_router)
+except Exception as _e:
+    print("[warn] battle_c_api 未挂载:", _e)
+
 
 # ==================== 静态文件挂载 ====================
 

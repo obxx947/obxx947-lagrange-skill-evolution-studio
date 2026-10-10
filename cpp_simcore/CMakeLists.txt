@@ -59,6 +59,8 @@ set_target_properties(lagrange_battle PROPERTIES
     DEBUG_POSTFIX _d
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON
+    # ★ 2026-10-11：Windows 下自动导出全部符号（供 Python ctypes 调 calc_*_c 等公式函数）
+    WINDOWS_EXPORT_ALL_SYMBOLS ON
 )
 
 # 静态库版本
