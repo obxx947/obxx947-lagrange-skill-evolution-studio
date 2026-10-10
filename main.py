@@ -25,7 +25,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 # 确保项目根目录在 Python 路径中
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -157,6 +157,7 @@ static_dir = Path(__file__).resolve().parent / "static"
 static_dir.mkdir(parents=True, exist_ok=True)
 
 if static_dir.exists():
+    # ★ 2026-10-10：static/ 是早期前端（8 月版），仅作历史留档；对外页面一律走 /web/
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 # 原品牌展示站（React 项目）
@@ -181,57 +182,35 @@ if web_dir.exists():
 @app.get("/")
 async def root():
     """
-    根路径 → 配舰星港模拟器（主界面）
-    包含：舰队配队 / 战斗模拟 / 舰船图鉴 / AI聊天 / 设置
+    根路径 → 当前版全功能前端（/web/；index.html 会再自动跳到 chat.html）
+    ★ 2026-10-10 更新：原来这里发的是 static/ 里的老版模拟器（8 月的旧前端），
+      现已改为指向随仓库同步的 web/ 前端；老 static/ 仅作历史留档（/static/* 仍可访问）。
     """
-    sim_path = static_dir / "index.html"
-    if sim_path.exists():
-        return FileResponse(str(sim_path))
-    return {"error": "模拟器页面未找到"}
+    return RedirectResponse("/web/", status_code=307)
 
 
 @app.get("/intro")
 async def intro():
-    """
-    项目介绍页（战斗引擎 + 公式 + 数据来源）
-    """
-    serene_index = serene_dir / "index.html"
-    if serene_index.exists():
-        return FileResponse(str(serene_index))
-    return {"error": "页面未找到"}
+    """项目介绍页 → 当前版（/web/features.html）"""
+    return RedirectResponse("/web/features.html", status_code=307)
 
 
 @app.get("/simulator.html")
 async def simulator():
-    """
-    配舰星港模拟器 → 完整战斗引擎
-    """
-    sim_path = static_dir / "index.html"
-    if sim_path.exists():
-        return FileResponse(str(sim_path))
-    return {"error": "模拟器页面未找到"}
+    """配舰星港模拟器 → 当前版（/web/simulator.html）"""
+    return RedirectResponse("/web/simulator.html", status_code=307)
 
 
 @app.get("/chat")
 async def chat_page():
-    """
-    AI 战术顾问 — 独立对话页面
-    """
-    chat_path = static_dir / "chat.html"
-    if chat_path.exists():
-        return FileResponse(str(chat_path))
-    return {"error": "页面未找到"}
+    """AI 战术顾问 → 当前版（/web/chat.html）"""
+    return RedirectResponse("/web/chat.html", status_code=307)
 
 
 @app.get("/settings.html")
 async def settings():
-    """
-    AI智能体设置页
-    """
-    settings_path = static_dir / "settings.html"
-    if settings_path.exists():
-        return FileResponse(str(settings_path))
-    return {"error": "设置页面未找到"}
+    """AI智能体设置页 → 当前版（/web/settings.html）"""
+    return RedirectResponse("/web/settings.html", status_code=307)
 
 
 @app.get("/health")
