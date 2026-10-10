@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>神经元实验室 — 拉格朗日智能体</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#0a0e1a;color:#e8f4ff;min-height:100vh}
+:root{--bg2:#111827;--card:#1a2332;--border:#2d4a6f;--blue:#4a9eff;--cyan:#00d4ff;--gold:#ffd700;--green:#2ed573;--red:#ff4757;--t1:#e8f4ff;--t2:#8ba3c7;--t3:#5a7a9a}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 18px;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:50}
+.topbar .logo{font-size:0.95rem;font-weight:800;background:linear-gradient(135deg,var(--blue),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.topbar .links{display:flex;gap:8px;flex-wrap:wrap}
+.topbar .links a{color:var(--t2);text-decoration:none;font-size:0.7rem;padding:5px 10px;border-radius:6px;transition:all .2s;white-space:nowrap}
+.topbar .links a:hover{color:#fff;background:rgba(255,255,255,.05)}
+.topbar .links a.on{color:var(--cyan);border:1px solid var(--cyan)}
+.container{max-width:1180px;margin:0 auto;padding:18px 20px 60px}
+h1{font-size:1.5rem;font-weight:800;margin-bottom:4px;background:linear-gradient(135deg,var(--blue),var(--cyan),var(--gold));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.sub{color:var(--t3);font-size:0.76rem;margin-bottom:18px;line-height:1.7}
+.sec{font-size:1rem;font-weight:700;margin:24px 0 10px;padding-left:10px;border-left:3px solid var(--blue)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:820px){.grid2{grid-template-columns:1fr}}
+.btn{background:rgba(74,158,255,.12);color:var(--cyan);border:1px solid var(--border);border-radius:8px;padding:7px 14px;font-size:0.75rem;cursor:pointer;transition:all .2s;white-space:nowrap}
+.btn:hover{border-color:var(--cyan);background:rgba(0,212,255,.15)}
+.btn.primary{background:rgba(46,213,115,.15);color:var(--green);border-color:var(--green)}
+.btn.primary:hover{background:rgba(46,213,115,.28)}
+.btn.warn{color:var(--gold);border-color:rgba(255,215,0,.4)}
+.btn.danger{color:var(--red);border-color:rgba(255,71,87,.4)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn.sm{padding:4px 10px;font-size:0.68rem}
+input[type=number],input[type=text],select{background:#0d1526;border:1px solid var(--border);color:var(--t1);border-radius:6px;padding:5px 8px;font-size:0.74rem;width:86px}
+input[type=range]{width:150px}
+label{font-size:0.74rem;color:var(--t2)}
+.hl{color:var(--cyan);font-weight:600}
+.gold{color:var(--gold)}
+.tag{display:inline-block;font-size:0.62rem;padding:1px 8px;border-radius:10px;border:1px solid var(--border);color:var(--cyan);margin-right:4px}
+.tag.gold{color:var(--gold);border-color:var(--gold)}
+.tag.green{color:var(--green);border-color:var(--green)}
+.tag.red{color:var(--red);border-color:var(--red)}
+.note{font-size:0.7rem;color:var(--t3);line-height:1.7}
+.note b{color:var(--t2)}
+table{width:100%;border-collapse:collapse;font-size:0.7rem}
+th,td{padding:5px 7px;border-bottom:1px solid rgba(45,74,111,.5);text-align:left;white-space:nowrap}
+th{color:var(--t3);font-weight:600;font-size:0.64rem}
+td.num,th.num{text-align:right}
+.st-row{display:flex;gap:8px;align-items:center;font-size:0.72rem;padding:4px 0;border-bottom:1px dashed rgba(45,74,111,.4)}
+.st-row .nm{width:64px;color:var(--t2)}
+.st-row .bar{flex:1;height:6px;background:rgba(45,74,111,.4);border-radius:3px;overflow:hidden}
+.st-row .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--blue),var(--cyan));width:0}
+pre.log{background:#0d1526;border:1px solid var(--border);border-radius:8px;padding:10px;font-size:0.66rem;line-height:1.6;max-height:260px;overflow:auto;color:var(--t2);white-space:pre-wrap;word-break:break-all}
+.side-card{background:rgba(74,158,255,.04)}
+.side-card.ally{border-left:3px solid var(--blue)}
+.side-card.enemy{border-left:3px solid var(--red)}
+.kv{font-size:0.72rem;color:var(--t2);line-height:1.9}
+.kv b{color:var(--t1)}
+details{margin-top:8px}
+summary{cursor:pointer;font-size:0.75rem;color:var(--t2)}
+.sw{display:inline-flex;align-items:center;gap:6px;font-size:0.74rem;color:var(--t2);cursor:pointer}
+.badge{font-size:0.68rem;padding:2px 10px;border-radius:10px;border:1px solid var(--border);color:var(--t2)}
+.badge.run{color:var(--green);border-color:var(--green)}
+.badge.pause{color:var(--gold);border-color:var(--gold)}
+.badge.stop{color:var(--t3)}
+.spark{height:26px;width:110px;display:inline-block;vertical-align:middle}
+.fleet-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:900px){.fleet-cols{grid-template-columns:1fr}}
+.fleet-box{background:#0d1526;border:1px solid var(--border);border-radius:10px;padding:10px}
+.fleet-box h4{font-size:0.78rem;margin-bottom:6px;color:var(--cyan)}
+.fleet-box h4 span{color:var(--t3);font-weight:400;font-size:0.68rem}
+</style>
+</head>
+<body>
+<div class="topbar">
+    <div class="logo">🌌 拉格朗日智能体</div>
+    <div class="links">
+        <a href="index.html">🏠 主页</a>
+        <a href="chat.html">🤖 AI对话</a>
+        <a href="fleet.html">⚓ 战舰配队</a>
+        <a href="simulator.html">⚔️ 战斗模拟</a>
+        <a href="ships.html">🚀 舰船图鉴</a>
+        <a href="addpoint.html">⬆ 舰船加点</a>
+        <a href="neuron3d.html">🧠 网络 3D</a>
+        <a class="on" href="neuron.html">🧬 神经元实验室</a>
+    </div>
+</div>
+<div class="container">
+    <h1>🧬 神经元实验室</h1>
+    <div class="sub">
+        两个神经网络互相打、各自进化（另一台设备「方案二A」完整移植版：NEAT 拓扑 + 双轨选择 + 新颖性档案 + E8 行为空间 + 岛间迁移 + 可进化目标向量）。
+        <b>A 控我方 2 支</b>（我方护航 + 我方被护航）、<b>B 控敌方 2 支</b>（敌方护航 + 敌方被护航）—— 每场就是 4 支舰队打一场护航战。
+        训练跑在浏览器后台（Web Worker），<b>每 5 代自动存档</b>（IndexedDB），断了/关了浏览器都能接着跑；暂停/收敛/击败后可直接把最近一次的配队复制到战舰配队页。
+        <br>本页纯前端运行，数据不出本机；建议用 Edge / Chrome 桌面版。
+    </div>
+
+    <!-- ① 使用方式 -->
+    <div class="sec">① 使用方式（至少一方要"进化"）</div>
+    <div class="grid2">
+        <div class="card side-card ally">
+            <div class="row" style="justify-content:space-between">
+                <b style="font-size:0.82rem">🔵 我方（A 方：护航队 + 被护航队）</b>
+                <span class="row" style="gap:8px">
+                    <label class="sw"><input type="radio" name="modeA" value="evolve" checked onchange="onModeChange()"> 进化</label>
+                    <label class="sw"><input type="radio" name="modeA" value="fixed" onchange="onModeChange()"> 固定</label>
+                </span>
+            </div>
+            <div class="row" style="margin-top:8px">
+                <label>护航队：</label><select id="fsEscort_A" onchange="onPick('A')" style="max-width:260px"></select>
+                <label>被护航队：</label><select id="fsEscorted_A" onchange="onPick('A')" style="max-width:260px"></select>
+                <label>加点方案：</label><select id="apSet_A" onchange="onPick('A')" style="max-width:170px"></select>
+            </div>
+            <div class="kv" id="sumA" style="margin-top:6px">（未选取 → 用内置默认战报配队）</div>
+        </div>
+        <div class="card side-card enemy">
+            <div class="row" style="justify-content:space-between">
+                <b style="font-size:0.82rem">🔴 敌方（B 方：护航队 + 被护航队）</b>
+                <span class="row" style="gap:8px">
+                    <label class="sw"><input type="radio" name="modeB" value="evolve" checked onchange="onModeChange()"> 进化</label>
+                    <label class="sw"><input type="radio" name="modeB" value="fixed" onchange="onModeChange()"> 固定</label>
+                </span>
+            </div>
+            <div class="row" style="margin-top:8px">
+                <label>护航队：</label><select id="fsEscort_B" onchange="onPick('B')" style="max-width:260px"></select>
+                <label>被护航队：</label><select id="fsEscorted_B" onchange="onPick('B')" style="max-width:260px"></select>
+                <label>加点方案：</label><select id="apSet_B" onchange="onPick('B')" style="max-width:170px"></select>
+            </div>
+            <div class="kv" id="sumB" style="margin-top:6px">（未选取 → 用内置默认战报配队）</div>
+        </div>
+    </div>
+    <div class="card">
+        <div class="row">
+            <button class="btn" onclick="loadDefaultWar()">📦 载入内置默认战报配队（另一台设备的训练起点）</button>
+            <button class="btn" onclick="fillFromSimulator()">⚡ 一键用「模拟器舰队」填满四个槽位</button>
+            <button class="btn sm" onclick="refreshPickers()">🔄 刷新列表</button>
+        </div>
+        <div class="note" style="margin-top:6px" id="srcInfo">…</div>
+        <div class="note" style="margin-top:6px">
+            上面四个下拉直接读取【网站里已保存的方案】，不用导入文件：<b>模拟器舰队</b>（战斗模拟页保存的 我方护航/我方被护航/敌方护航/敌方被护航）
+            和 <b>配队页「我的配队」</b>（每个方案里的每支舰队各算一条）；<b>加点方案</b>读加点页「💾 保存方案」存的整套方案。先在那些页面保存好，回这里点「🔄 刷新列表」即可。
+        </div>
+        <div class="note" style="margin-top:6px">
+            <b>三种典型用法</b>：① 两边都选"进化" = <span class="hl">自对弈</span>（A 群 vs B 群互打：<b>A 控我方 2 支</b>——我方护航 + 我方被护航；<b>B 控敌方 2 支</b>——敌方护航 + 敌方被护航）；② 敌方"固定" + 选好敌方两支舰队 = <span class="hl">打我指定的对手</span>（我方进化到能击败它）；③ 我方"固定" + 敌方"进化" = <span class="hl">强化对手</span>（练一个专门克制我这套的 AI）。
+        </div>
+    </div>
+
+    <!-- ② 算力与参数 -->
+    <div class="sec">② 算力与参数（按自己的设备调）</div>
+    <div class="card">
+        <div class="row">
+            <label>设备预设：</label>
+            <button class="btn sm" onclick="presetDevice('eco')">🍃 省电（1 岛）</button>
+            <button class="btn sm" onclick="presetDevice('bal')">⚖️ 均衡（推荐）</button>
+            <button class="btn sm" onclick="presetDevice('max')">🔥 火力全开</button>
+            <span class="note" id="coreInfo"></span>
+        </div>
+        <div class="row" style="margin-top:10px">
+            <label>启动数量（岛 / Worker）：<b class="hl" id="islesVal">2</b></label>
+            <input type="range" id="isles" min="1" max="16" value="2" oninput="document.getElementById('islesVal').textContent=this.value">
+            <label>每代个体 POP：</label><input type="number" id="pop" value="6" min="2" max="16" style="width:60px">
+            <label>每代抽对手：</label><input type="number" id="oppEval" value="2" min="1" max="5" style="width:60px">
+            <label>本次再跑（代）：</label><input type="number" id="gens" value="2000" min="1" style="width:76px">
+        </div>
+        <details>
+            <summary>高级参数（一般不碰）</summary>
+            <div class="row" style="margin-top:8px">
+                <label>单场上限 maxSec：</label><input type="number" id="maxSec" value="9000" style="width:76px">
+                <label>僵局判定秒：</label><input type="number" id="stall" value="90" style="width:60px">
+                <label>仿真步长 dt：</label><input type="number" id="dt" value="0.5" step="0.1" style="width:56px">
+                <label>决策节流(秒)：</label><input type="number" id="throttle" value="1.0" step="0.1" style="width:56px">
+                <label>指挥值下限：</label><input type="number" id="minCV" value="390" style="width:60px">
+                <label>上限：</label><input type="number" id="cvCap" value="420" style="width:60px">
+            </div>
+            <div class="note" style="margin-top:6px">说明：僵局判定 = 连续 N 秒双方剩余结构都没实质变化就提前结束（等价于"拖满算平"，但省算力）；决策节流 = 同一单位每秒只重新决策一次（网络推理是大头）。</div>
+        </details>
+        <div class="row" style="margin-top:10px">
+            <label class="sw"><input type="checkbox" id="useLib"> 🚀 舰船库模式（只用我舰船库里的船/模块；加点只能重分配且 ≤ 蓝点）</label>
+            <span class="note" id="libInfo"></span>
+        </div>
+        <div class="row" style="margin-top:6px">
+            <label class="sw"><input type="checkbox" id="useWarm" checked> 🔥 热启动（用内置预训练网络当起点，跨舰队可迁移）</label>
+            <label class="sw"><input type="checkbox" id="autoResume" checked> ♻️ 有本机存档就续跑</label>
+            <label class="sw"><input type="checkbox" id="autoStopConv" checked> 🎯 判定"几乎收敛"后自动暂停</label>
+            <label class="sw"><input type="checkbox" id="autoStopWin" checked> 🏆 已能稳定击败给定对手后自动暂停</label>
+        </div>
+    </div>
+
+    <!-- ③ 控制 -->
+    <div class="sec">③ 运行控制</div>
+    <div class="card">
+        <div class="row">
+            <button class="btn primary" id="btnStart" onclick="startTraining()">▶ 开始训练</button>
+            <button class="btn warn" id="btnPause" onclick="pauseAll()" disabled>⏸ 暂停</button>
+            <button class="btn" id="btnResume" onclick="resumeAll()" disabled>▶ 继续</button>
+            <button class="btn danger" id="btnStop" onclick="stopAll()" disabled>⏹ 停止本轮</button>
+            <span id="runBadge" class="badge stop">未开始</span>
+            <span class="note" id="runInfo"></span>
+        </div>
+        <div class="row" style="margin-top:10px">
+            <label>📥 装入训练存档（网站内置）：</label>
+            <select id="builtinState" style="max-width:360px"><option value="">（正在读取…）</option></select>
+            <button class="btn sm primary" onclick="loadBuiltinState(false)">装入这个岛</button>
+            <button class="btn sm" onclick="loadBuiltinState(true)">装入全部（12 岛）</button>
+            <button class="btn sm" onclick="exportSnaps()">📤 导出本机存档（JSON）</button>
+            <button class="btn sm danger" onclick="clearSnaps()">🗑 清空本机存档</button>
+        </div>
+        <div class="note" style="margin-top:6px" id="snapInfo">存档：每 <b>5</b> 代写入一次 IndexedDB（key = <code>lagrange_neuron</code>）。</div>
+        <div class="note" style="margin-top:4px" id="builtinInfo">…</div>
+    </div>
+
+    <!-- ④ 看板 -->
+    <div class="sec">④ 实时看板</div>
+    <div class="card">
+        <div class="row" style="margin-bottom:8px">
+            <span class="kv" id="boardSummary">还没有开始训练。</span>
+            <span class="badge" id="convBadge">收敛判定：样本不足</span>
+            <span class="badge gold" id="winBadge" style="display:none"></span>
+        </div>
+        <div style="overflow-x:auto"><table id="boardTbl">
+            <thead><tr><th>岛</th><th class="num">代数</th><th class="num">A 分(fscore)</th><th class="num">A 胜率</th><th class="num">A 胜时</th><th class="num">B 分(fscore)</th><th class="num">B 胜率</th><th>网络 A/B</th><th class="num">冻结 A/B</th><th>曲线(A fscore)</th><th>状态</th></tr></thead>
+            <tbody id="boardBody"><tr><td colspan="11" class="note">—</td></tr></tbody>
+        </table></div>
+        <div class="note" style="margin-top:8px">
+            分数 = 适应度（越高 = 越快击败对方；目标向量每代会小幅漂移，跨代比较一律看 <span class="gold">fscore（冻结标尺）</span>）；
+            「冻结」= 连续多少代没能换掉精英（大 = 精英真的强）。
+        </div>
+    </div>
+
+    <!-- ⑤ 结果 -->
+    <div class="sec">⑤ 最近一次最好配队（可直接复制到战舰配队页）</div>
+    <div class="card">
+        <div class="row" style="margin-bottom:8px">
+            <label>查看岛：</label><select id="viewIsle" onchange="renderBest()"></select>
+            <label>阵营：</label>
+            <select id="viewSide" onchange="renderBest()"><option value="A">A 方（我方）</option><option value="B">B 方（敌方）</option></select>
+            <button class="btn sm" onclick="copyFleet('escort')">📋 复制护航队到配队页</button>
+            <button class="btn sm" onclick="copyFleet('escorted')">📋 复制被护航队到配队页</button>
+            <button class="btn sm" onclick="downloadFleet()">⬇ 下载配队 JSON</button>
+            <button class="btn sm gold" onclick="saveReport()">💾 存进战报库</button>
+            <button class="btn sm" onclick="sendToAI()">📤 发给 AI 分析</button>
+        </div>
+        <div class="fleet-cols" id="fleetCols">
+            <div class="fleet-box" id="boxEscort"><h4>护航队</h4><div class="note">（还没有结果）</div></div>
+            <div class="fleet-box" id="boxEscorted"><h4>被护航队</h4><div class="note">（还没有结果）</div></div>
+        </div>
+        <div class="note" style="margin-top:8px" id="fleetMeta"></div>
+    </div>
+
+    <!-- ⑥ 日志 -->
+    <div class="sec">⑥ 运行日志</div>
+    <div class="card"><pre class="log" id="logBox">（等待开始…）</pre></div>
+
+    <div class="note" style="margin-top:18px">
+        ⚠️ 关于强度：网络互打的分数是"打对方"打出来的 —— 对手变弱自己的分就会涨，<b>分数高不等于真的强</b>。要判断"到底强不强"，看冻结标尺 fscore 的长期走势，或把配队复制到战斗模拟器里和真实战报对照。
+        收敛判定沿用另一台设备的判据（平台 + 多岛离散度 + 是否仍在爬），需要每岛至少 100 代才作数；本页会在满足条件时提示并可自动暂停。
+    </div>
+</div>
+
+<script src="js/neuron/neuron_store.js"></script>
+<script>
+/* ============================================================
+   神经元实验室 · 主线程（Worker 池 + 看板 + 存档 + 收敛判定 + 结果导出）
+   ============================================================ */
+const $ = id => document.getElementById(id);
+const ISLES_MAX = Math.min(16, Math.max(1, (navigator.hardwareConcurrency || 4)));
+$('coreInfo').textContent = '本机逻辑核心 ' + (navigator.hardwareConcurrency || '?') + '，最多可开 ' + ISLES_MAX + ' 个岛';
+$('isles').max = ISLES_MAX;
+$('isles').value = Math.max(1, Math.min(2, ISLES_MAX)); $('islesVal').textContent = $('isles').value;
+
+let given = { A: null, B: null };       // {escort:{...}, escorted:{...}, ap:{}, desc}
+let warmNet = null;
+let workers = {}, isleState = {}, running = false, autoPaused = false;
+let logBuf = [];
+
+/* ---------- 日志 ---------- */
+function pushLog(line) {
+    logBuf.push('[' + new Date().toLocaleTimeString('zh-CN') + '] ' + line);
+    if (logBuf.length > 400) logBuf = logBuf.slice(-300);
+    $('logBox').textContent = logBuf.join('\n');
+    $('logBox').scrollTop = $('logBox').scrollHeight;
+}
+
+/* ---------- 模式与配队载入 ---------- */
+function onModeChange() {
+    const a = document.querySelector('input[name=modeA]:checked').value;
+    const b = document.querySelector('input[name=modeB]:checked').value;
+    if (a === 'fixed' && b === 'fixed') {
+        toast('至少一方要"进化"（两边都固定就没有可训练的目标了）—— 已把 A 方改回"进化"', true);
+        document.querySelector('input[name=modeA][value=evolve]').checked = true;
+    }
+    updateSummaries();
+}
+/* ---------- 配队/加点来源：直接读【网站里已保存的方案】（不导入文件） ---------- */
+function normFleetEntry(s) {
+    return { id: s.id, name: s.name, qty: Math.max(1, s.qty || s.count || 1),
+        pos: s.pos || s.position || '', mods: Object.assign({}, s.selectedModules || s.mods || {}),
+        air: (s.aircraft || s.air || []).map(a => ({ id: a.id, name: a.name,
+            kind: ((a.aircraftType || a.type || a.kind) === 'corvette') ? 'corvette' : 'fighter',
+            qty: Math.max(1, a.count || a.qty || 1), slot: a.slot || '' })).filter(a => a.id) };
+}
+function normFleet(f) {          /* 任意来源（模拟器整船对象 / 配队页条目）→ 引擎侧统一格式 */
+    if (!f) return null;
+    const main = (f.main || []).map(normFleetEntry).filter(x => x.id);
+    if (!main.length) return null;
+    const reinforcement = (f.reinforce || f.reinforcement || []).map(normFleetEntry).filter(x => x.id);
+    return { main: main, reinforcement: reinforcement, flagship: f.flagship || f.fl || '' };
+}
+function collectSavedFleets() {
+    const out = [];
+    try {   /* ① 模拟器里保存的四支舰队（lagrange_sim_fleets） */
+        const sf = JSON.parse(localStorage.getItem('lagrange_sim_fleets') || 'null');
+        if (sf) [['ally-escort', '我方护航'], ['ally-escorted', '我方被护航'], ['enemy-escort', '敌方护航'], ['enemy-escorted', '敌方被护航']]
+            .forEach(([k, nm]) => { const f = normFleet(sf[k]); if (f) out.push({ group: '模拟器舰队', label: '模拟器 · ' + nm + '（主 ' + f.main.length + ' 条）', fleet: f }); });
+    } catch (e) { }
+    try {   /* ② 配队页「我的配队」（lagrange_fleets.plans[].fleets[]） */
+        const st = JSON.parse(localStorage.getItem('lagrange_fleets') || 'null');
+        ((st && st.plans) || []).forEach(p => (p.fleets || []).forEach(f0 => {
+            const f = normFleet(f0); if (!f) return;
+            const cv = f.main.reduce((a, x) => a + x.qty, 0);
+            out.push({ group: '配队页 · 我的配队', label: (p.name || '未命名方案') + ' · ' + (f0.name || '舰队') + '（主 ' + f.main.length + ' 条 / ' + cv + ' 艘）', fleet: f });
+        }));
+    } catch (e) { }
+    return out;
+}
+function collectApSets() {
+    try { return (JSON.parse(localStorage.getItem('lagrange_addpoint_sets') || '[]') || []).filter(x => x && x.name && x.addpoints); } catch (e) { return []; }
+}
+function fillSelect(sel, items, placeholder) {
+    const cur = sel.value;
+    let html = '<option value="">' + placeholder + '</option>';
+    const groups = {};
+    items.forEach((it, i) => { (groups[it.group] = groups[it.group] || []).push(i); });
+    Object.keys(groups).forEach(g => {
+        html += '<optgroup label="' + g + '">' + groups[g].map(i => '<option value="' + i + '">' + items[i].label + '</option>').join('') + '</optgroup>';
+    });
+    sel.innerHTML = html;
+    sel._items = items;
+    if (cur && sel.querySelector('option[value="' + cur + '"]')) sel.value = cur;
+}
+function refreshPickers() {
+    const fl = collectSavedFleets(), aps = collectApSets();
+    ['A', 'B'].forEach(s => {
+        fillSelect($('fsEscort_' + s), fl, '（用内置默认）');
+        fillSelect($('fsEscorted_' + s), fl, '（同护航队 / 内置默认）');
+        const sel = $('apSet_' + s);
+        const cur = sel.value;
+        sel.innerHTML = '<option value="">（不指定加点）</option>' + aps.map((x, i) => '<option value="' + i + '">' + x.name + '</option>').join('');
+        sel._sets = aps;
+        if (cur && sel.querySelector('option[value="' + cur + '"]')) sel.value = cur;
+    });
+    $('srcInfo').innerHTML = '网站上现成可选：保存的舰队 <b>' + fl.length + '</b> 支（模拟器/配队页各算一份）；整套加点方案 <b>' + aps.length + '</b> 套。先在那些页面保存，再回这里点「🔄 刷新列表」。';
+}
+function onPick(side) {
+    const eSel = $('fsEscort_' + side), dSel = $('fsEscorted_' + side), aSel = $('apSet_' + side);
+    const pickF = sel => (sel.value !== '' && sel._items && sel._items[+sel.value]) ? sel._items[+sel.value] : null;
+    const e = pickF(eSel), d = pickF(dSel);
+    const ap = (aSel.value !== '' && aSel._sets && aSel._sets[+aSel.value]) ? aSel._sets[+aSel.value].addpoints : {};
+    if (!e && !d) delete given[side];
+    else given[side] = { escort: (e || d).fleet, escorted: (d || e).fleet, ap: ap,
+        escortName: e ? e.label : (d.label + '（同护航队）'), escortedName: d ? d.label : e.label, fromPicker: true };
+    updateSummaries();
+}
+function fillFromSimulator() {   /* 一键：模拟器四支舰队 → 四个槽位 */
+    refreshPickers();
+    const items = ($('fsEscort_A')._items) || [];
+    const find = key => items.findIndex(it => it.group === '模拟器舰队' && it.label.indexOf(key) >= 0);
+    const a1 = find('我方护航'), a2 = find('我方被护航'), b1 = find('敌方护航'), b2 = find('敌方被护航');
+    if (a1 < 0 && a2 < 0) { toast('模拟器里还没有保存过舰队 —— 去「战斗模拟」页配置后会自动保存，或点"载入内置默认战报配队"', true); return; }
+    const set = (id, i) => { if (i >= 0) $(id).value = String(i); };
+    set('fsEscort_A', a1); set('fsEscorted_A', a2); set('fsEscort_B', b1); set('fsEscorted_B', b2);
+    onPick('A'); onPick('B');
+    pushLog('已按模拟器保存的舰队填满四个槽位');
+}
+async function loadDefaultWar(onlySides) {
+    try {
+        const J = u => fetch(u).then(r => r.json());
+        const [ae, ad, aa, be, bd, ba] = await Promise.all([
+            J('data/neuron/war_default/a_escort.json'), J('data/neuron/war_default/a_escorted.json'), J('data/neuron/war_default/a_ap.json'),
+            J('data/neuron/war_default/b_escort.json'), J('data/neuron/war_default/b_escorted.json'), J('data/neuron/war_default/b_ap.json')
+        ]);
+        const f = x => x.plans[0].fleets[0];
+        const want = onlySides || ['A', 'B'];
+        if (want.indexOf('A') >= 0) given.A = { escort: { main: f(ae).main, reinforcement: f(ae).reinforcement || [], flagship: f(ae).flagship || '' },
+            escorted: { main: f(ad).main, reinforcement: f(ad).reinforcement || [], flagship: f(ad).flagship || '' },
+            ap: aa.addpoints || {}, escortName: '默认战报·我方护航', escortedName: '默认战报·我方被护航', fromDefault: true };
+        if (want.indexOf('B') >= 0) given.B = { escort: { main: f(be).main, reinforcement: f(be).reinforcement || [], flagship: f(be).flagship || '' },
+            escorted: { main: f(bd).main, reinforcement: f(bd).reinforcement || [], flagship: f(bd).flagship || '' },
+            ap: ba.addpoints || {}, escortName: '默认战报·敌方护航', escortedName: '默认战报·敌方被护航', fromDefault: true };
+        pushLog('已载入内置默认战报配队（' + want.join('/') + '）');
+        updateSummaries();
+    } catch (e) { toast('载入失败：' + e.message, true); }
+}
+function updateSummaries() {
+    const txt = s => {
+        const g = given[s];
+        if (!g || !g.escort) return '（未选取 → 用内置默认战报配队）';
+        const mode = document.querySelector('input[name=mode' + s + ']:checked').value === 'fixed' ? '固定（当靶子）' : '进化（从这套起步）';
+        return '【' + mode + '】护航：' + (g.escortName || '（选取）') + '　被护航：' + (g.escortedName || '（选取）') +
+            '　加点：' + (Object.keys(g.ap || {}).length ? (Object.keys(g.ap).length + ' 艘船') : '不指定');
+    };
+    $('sumA').textContent = txt('A');
+    $('sumB').textContent = txt('B');
+    /* 舰船库状态 */
+    try {
+        const lib = JSON.parse(localStorage.getItem('lagrange_user_ships') || '{}');
+        const n = (lib.ships || []).length;
+        $('libInfo').textContent = n ? ('舰船库里现在有 ' + n + ' 艘（在舰船图鉴页维护）') : '⚠️ 舰船库还是空的 —— 打开"舰船库模式"前先去舰船图鉴页把拥有的船勾上';
+    } catch (e) { $('libInfo').textContent = ''; }
+}
+function toast(msg, isErr) {
+    pushLog((isErr ? '⚠️ ' : '') + msg);
+    alert(msg);
+}
+function presetDevice(kind) {
+    const cores = navigator.hardwareConcurrency || 4;
+    const n = kind === 'eco' ? 1 : kind === 'bal' ? Math.max(1, Math.min(4, cores - 1)) : ISLES_MAX;
+    $('isles').value = n; $('islesVal').textContent = n;
+    $('pop').value = kind === 'eco' ? 4 : 6;
+    pushLog('设备预设：' + ({ eco: '省电', bal: '均衡', max: '火力全开' })[kind] + ' → ' + n + ' 个岛');
+}
+
+/* ---------- 启动 ---------- */
+async function ensureWarm() {
+    if (!$('useWarm').checked) return null;
+    if (warmNet) return warmNet;
+    try { warmNet = (await fetch('data/neuron/warm_net.json').then(r => r.json())).net || null; pushLog('热启动网络已载入（隐藏节点 ' + (warmNet ? warmNet.nodes.filter(n => n.type !== 'evolve' && n.type === 'hidden').length : 0) + '）'); }
+    catch (e) { pushLog('热启动网络载入失败（改用随机网络）：' + e.message); }
+    return warmNet;
+}
+function buildLibConstraint() {
+    if (!$('useLib').checked) return null;
+    let lib = {};
+    try { lib = JSON.parse(localStorage.getItem('lagrange_user_ships') || '{}'); } catch (e) { }
+    const ships = {};
+    (lib.ships || []).forEach(s => {
+        if (!s || !s.shipKey) return;
+        ships[s.shipKey] = { mods: s.mods || null, tp: parseInt(s.techPoints, 10) || 0 };
+    });
+    if (!Object.keys(ships).length) { toast('舰船库是空的：先到"舰船图鉴"页把你有的船勾上（或关掉舰船库模式）', true); return null; }
+    return { ships: ships };
+}
+async function startTraining() {
+    const aFixed = document.querySelector('input[name=modeA]:checked').value === 'fixed';
+    const bFixed = document.querySelector('input[name=modeB]:checked').value === 'fixed';
+    /* 配队来源 = 上面四个下拉（网站里已保存的方案）；没选的两边自动用内置默认战报配队兜底 */
+    const missF = s => !(given[s] && given[s].escort && given[s].escort.main && given[s].escort.main.length);
+    if (missF('A') || missF('B')) await loadDefaultWar(['A', 'B'].filter(missF));
+    if (missF('A') || missF('B')) { toast('配队不完整：请在第①节里给两边选好"护航队/被护航队"，或点"载入内置默认战报配队"', true); return; }
+    const lib = buildLibConstraint();
+    if ($('useLib').checked && !lib) return;
+    const warm = await ensureWarm();
+
+    const isles = parseInt($('isles').value, 10);
+    const cfgBase = {
+        pop: parseInt($('pop').value, 10) || 6,
+        oppEval: parseInt($('oppEval').value, 10) || 2,
+        oppSample: 3,
+        gensCount: parseInt($('gens').value, 10) || 2000,   /* ★ "本次再跑 N 代"（续跑也成立） */
+        maxSec: parseInt($('maxSec').value, 10) || 9000,
+        stallSec: parseInt($('stall').value, 10) || 90,
+        dt: parseFloat($('dt').value) || 0.5,
+        throttle: parseFloat($('throttle').value) || 1.0,
+        minCV: parseInt($('minCV').value, 10) || 390,
+        cvCap: parseInt($('cvCap').value, 10) || 420,
+        saveEvery: 5,
+        resume: $('autoResume').checked,
+        evolve: { A: !aFixed, B: !bFixed },
+        lib: lib,
+        given: given,
+        warmNet: warm,
+        forever: false
+    };
+    if (cfgBase.minCV >= cfgBase.cvCap) { toast('指挥值下限必须小于上限', true); return; }
+    closeAllWorkers();
+    isleState = {}; logBuf = []; autoPaused = false;
+    for (let i = 0; i < isles; i++) {
+        isleState[i] = { gen: 0, rec: null, best: null, log: [], status: '启动中', net: null, acts: null };
+        startIsle(i, cfgBase);
+    }
+    running = true;
+    setRunBadge('run', '训练中（' + isles + ' 岛）');
+    $('btnStart').disabled = true; $('btnPause').disabled = false; $('btnResume').disabled = true; $('btnStop').disabled = false;
+    pushLog('开始训练：' + isles + ' 个岛（每个岛 ' + cfgBase.pop + ' 个体 × 抽 ' + cfgBase.oppEval + ' 对手）；模式 A=' + (aFixed ? '固定' : '进化') + ' B=' + (bFixed ? '固定' : '进化'));
+    renderBoard();
+}
+function startIsle(i, cfgBase) {
+    try {
+        const w = new Worker('js/neuron/worker_bundle.js');
+        w.onmessage = ev => onWorkerMsg(i, ev.data);
+        w.onerror = e => { isleState[i].status = 'Worker 错误'; pushLog('岛 ' + i + ' worker 错误：' + (e.message || e)); renderBoard(); };
+        w.postMessage({ type: 'start', cfg: Object.assign({}, cfgBase, { isle: i, seedBase: 20261004 + i * 101 }) });
+        workers[i] = w;
+        isleState[i].status = '运行中';
+    } catch (e) { pushLog('岛 ' + i + ' 启动失败：' + e.message); }
+}
+function closeAllWorkers() {
+    Object.keys(workers).forEach(k => { try { workers[k].postMessage({ type: 'stop' }); workers[k].terminate(); } catch (e) { } });
+    workers = {};
+}
+function onWorkerMsg(i, m) {
+    if (!isleState[i]) isleState[i] = { gen: 0, rec: null, best: null, log: [], status: '', net: null, acts: null };
+    const st = isleState[i];
+    switch (m.type) {
+        case 'console': if (m.msg && !/^\[I\d\d\]/.test(m.msg)) pushLog(m.msg); break;
+        case 'hello': st.nin = m.nin; st.nout = m.nout; break;
+        case 'log': pushLog(m.msg); st.status = '运行中'; break;
+        case 'gen':
+            st.gen = m.rec.gen; st.rec = m.rec; st.best = m.best; st.net = m.net; st.acts = m.acts;
+            st.log.push(m.rec);
+            if (st.log.length > 800) st.log = st.log.slice(-600);
+            renderBoard(); renderBestOptions();
+            if (i === parseInt($('viewIsle').value, 10) || $('viewIsle').value === '') renderBest();
+            bcPost(i);
+            mirrorStatus();
+            checkStopConditions();
+            break;
+        case 'logback': st.log = (m.recs || []).concat(st.log).slice(-800); break;
+        case 'saved': st.savedAt = Date.now(); st.savedGen = m.gen; break;
+        case 'paused': st.status = '已暂停'; renderBoard(); break;
+        case 'resumed': st.status = '运行中'; renderBoard(); break;
+        case 'stopped': st.status = '已停止'; renderBoard(); break;
+        case 'done': st.status = '已完成'; st.done = true; if (m.gen) st.gen = m.gen; renderBoard(); break;
+        case 'error': pushLog('岛 ' + i + ' 出错：' + m.msg); st.status = '错误'; renderBoard(); break;
+    }
+}
+function setRunBadge(cls, txt) { const b = $('runBadge'); b.className = 'badge ' + cls; b.textContent = txt; }
+
+/* ---------- 控制按钮 ---------- */
+function pauseAll() {
+    Object.keys(workers).forEach(k => workers[k].postMessage({ type: 'pause' }));
+    setRunBadge('pause', '已暂停'); $('btnPause').disabled = true; $('btnResume').disabled = false;
+    pushLog('已请求暂停（每个岛会在当前这一代跑完后停、并先存档）');
+}
+function resumeAll() {
+    Object.keys(workers).forEach(k => workers[k].postMessage({ type: 'resume' }));
+    setRunBadge('run', '训练中'); $('btnPause').disabled = false; $('btnResume').disabled = true;
+    pushLog('已继续');
+}
+function stopAll() {
+    if (!confirm('停止本轮训练？\n（存档会保留，下次勾着"有本机存档就续跑"可以从最近一次快照接着跑）')) return;
+    Object.keys(workers).forEach(k => workers[k].postMessage({ type: 'stop' }));
+    running = false;
+    setRunBadge('stop', '已停止'); $('btnStart').disabled = false; $('btnPause').disabled = true; $('btnResume').disabled = true; $('btnStop').disabled = true;
+    pushLog('已停止；存档已写入');
+}
+
+/* ---------- 看板 ---------- */
+function spark(arr, w, h) {
+    if (!arr || arr.length < 2) return '';
+    const mn = Math.min.apply(null, arr), mx = Math.max.apply(null, arr), rg = Math.max(1, mx - mn);
+    const pts = arr.map((v, i) => (i / (arr.length - 1) * w).toFixed(1) + ',' + (h - (v - mn) / rg * (h - 2) - 1).toFixed(1)).join(' ');
+    return '<svg class="spark" viewBox="0 0 ' + w + ' ' + h + '"><polyline points="' + pts + '" fill="none" stroke="#00d4ff" stroke-width="1.5"/></svg>';
+}
+function renderBoard() {
+    const tbody = $('boardBody');
+    const isles = Object.keys(isleState).map(Number).sort((a, b) => a - b);
+    if (!isles.length) { tbody.innerHTML = '<tr><td colspan="11" class="note">—</td></tr>'; return; }
+    let totGen = 0, bestFs = -1e9, bestTxt = '';
+    const rows = isles.map(i => {
+        const st = isleState[i], r = st.rec;
+        if (!r) return '<tr><td>I' + String(i).padStart(2, '0') + '</td><td colspan="9" class="note">（第 1 代进行中…）</td><td>' + st.status + '</td></tr>';
+        totGen += st.gen;
+        const fsA = (r.A.fscore != null ? r.A.fscore : r.A.score);
+        if (fsA > bestFs) { bestFs = fsA; bestTxt = 'I' + String(i).padStart(2, '0') + ' 第 ' + r.gen + ' 代'; }
+        const hist = st.log.map(x => (x.A.fscore != null ? x.A.fscore : x.A.score)).slice(-60);
+        return '<tr><td>I' + String(i).padStart(2, '0') + '</td>' +
+            '<td class="num">' + r.gen + '</td>' +
+            '<td class="num">' + r.A.score.toFixed(0) + ' <span class="gold">(' + fsA.toFixed(0) + ')</span></td>' +
+            '<td class="num">' + r.A.wins + '%</td><td class="num">' + r.A.winDur + 's</td>' +
+            '<td class="num">' + r.B.score.toFixed(0) + '</td><td class="num">' + r.B.wins + '%</td>' +
+            '<td>' + r.A.nodes + '/' + r.A.conns + ' · ' + r.B.nodes + '/' + r.B.conns + '</td>' +
+            '<td class="num">' + r.A.frozen + ' / ' + r.B.frozen + '</td>' +
+            '<td>' + spark(hist, 110, 26) + '</td>' +
+            '<td>' + st.status + '</td></tr>';
+    }).join('');
+    tbody.innerHTML = rows;
+    $('boardSummary').innerHTML = '累计代数 <b>' + totGen + '</b>　最好 fscore：<b class="gold">' + (bestFs > -1e9 ? bestFs.toFixed(0) : '—') + '</b>' + (bestTxt ? '（' + bestTxt + '）' : '') + '　自 ' + trainingSince();
+    const conv = convergenceCheck();
+    const cb = $('convBadge');
+    cb.textContent = '收敛判定：' + conv.label;
+    cb.className = 'badge' + (conv.done ? ' green' : '');
+    const wb = $('winBadge');
+    if (conv.winStreak >= 3) { wb.style.display = ''; wb.textContent = '🏆 已连续 ' + conv.winStreak + ' 代稳定击败给定对手'; }
+    else wb.style.display = 'none';
+}
+let _t0 = null;
+function trainingSince() { if (!_t0) _t0 = Date.now(); const s = Math.round((Date.now() - _t0) / 1000); return (s >= 3600 ? Math.floor(s / 3600) + 'h' + Math.floor(s % 3600 / 60) + 'm' : s >= 60 ? Math.floor(s / 60) + 'm' + (s % 60) + 's' : s + 's'); }
+
+/* ---------- 收敛判定（沿用另一台设备 _converge.js 的判据 A/B/C） ---------- */
+function convergenceCheck() {
+    const rows = Object.keys(isleState).map(Number).sort((a, b) => a - b).map(i => {
+        const L = isleState[i].log || [];
+        if (L.length < 12) return null;
+        const curGen = L[L.length - 1].gen;
+        const SEG = L.filter(r => r.gen <= curGen);
+        const A = SEG.map(r => (r.A.fscore !== undefined && r.A.fscore !== null) ? r.A.fscore : r.A.score);
+        const peak = Math.max.apply(null, A), pkGen = SEG[A.indexOf(peak)].gen;
+        const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
+        return { gen: curGen, last: A[A.length - 1], l10: avg(A.slice(-10)), sincePeak: curGen - pkGen,
+            f30: A.length >= 60 ? avg(A.slice(-60, -30)) : undefined, l30: A.length >= 60 ? avg(A.slice(-30)) : undefined };
+    }).filter(Boolean);
+    if (!rows.length) return { label: '样本不足', done: false, winStreak: winStreak() };
+    const long = rows.filter(r => r.gen >= 100);
+    const pool = long.length ? long : rows;
+    const L10 = pool.map(r => r.l10);
+    const spread = Math.max.apply(null, L10) - Math.min.apply(null, L10);
+    const sincePeakMin = Math.min.apply(null, pool.map(r => r.sincePeak));
+    const climbN = long.filter(r => r.f30 !== undefined && r.l30 > r.f30 + 100).length;
+    const A_plat = long.length > 0 && sincePeakMin >= 30 && spread <= 60;
+    const C_climb = long.length > 0 && climbN >= Math.ceil(long.length / 2);
+    const done = long.length > 0 && A_plat && !C_climb;
+    const label = !long.length ? ('观察中（还没有岛跑到 100 代；离散 ' + spread.toFixed(0) + '）')
+        : (C_climb ? ('仍在爬（' + climbN + '/' + long.length + ' 岛在涨，离散 ' + spread.toFixed(0) + '）')
+            : (A_plat ? '已收敛（平台 + 多岛挤在同一条线）' : ('介于两者之间（峰后 ' + sincePeakMin + ' 代 / 离散 ' + spread.toFixed(0) + '）')));
+    return { label: label, done: done, winStreak: winStreak() };
+}
+function winStreak() {
+    /* "稳定击败给定对手"：有固定方时，看进化方的胜率连续 100% 的代次（取所有岛里最长的） */
+    let best = 0;
+    Object.keys(isleState).forEach(i => {
+        const L = isleState[i].log || [];
+        let n = 0;
+        for (let k = L.length - 1; k >= 0; k--) {
+            const ev = L[k].A && L[k].A.evolve !== false;
+            const opp = L[k].B && L[k].B.evolve !== false;
+            const who = ev && !opp ? L[k].A : (!ev && opp ? L[k].B : null);
+            if (!who) { n = 0; break; }
+            if (who.wins >= 100) n++; else break;
+        }
+        best = Math.max(best, n);
+    });
+    return best;
+}
+function checkStopConditions() {
+    if (!running || autoPaused) return;
+    const conv = convergenceCheck();
+    if ($('autoStopConv').checked && conv.done) {
+        autoPaused = true; pauseAll();
+        pushLog('🎯 判定"几乎收敛"（' + conv.label + '）→ 已自动暂停。可以看下面的最好配队，或点"继续"再跑。');
+        return;
+    }
+    if ($('autoStopWin').checked && conv.winStreak >= 3) {
+        autoPaused = true; pauseAll();
+        pushLog('🏆 已连续 ' + conv.winStreak + ' 代稳定击败给定对手 → 已自动暂停（配队见下面第⑤节）。');
+    }
+}
+
+/* ---------- 结果：最好配队 ---------- */
+function renderBestOptions() {
+    const sel = $('viewIsle'), cur = sel.value;
+    const opts = Object.keys(isleState).map(Number).sort((a, b) => a - b).filter(i => isleState[i].rec);
+    const want = opts.map(i => String(i)).join(',');
+    if (sel.dataset.opts === want) return;
+    sel.innerHTML = opts.map(i => '<option value="' + i + '">岛 ' + String(i).padStart(2, '0') + '（第 ' + isleState[i].gen + ' 代）</option>').join('');
+    sel.dataset.opts = want;
+    if (cur && opts.indexOf(parseInt(cur, 10)) >= 0) sel.value = cur;
+    else {
+        /* 默认选 fscore 最高的岛 */
+        let bi = opts[0], bf = -1e9;
+        opts.forEach(i => { const r = isleState[i].rec; const v = r.A.fscore != null ? r.A.fscore : r.A.score; if (v > bf) { bf = v; bi = i; } });
+        sel.value = String(bi);
+    }
+}
+function currentFleet() {
+    const i = parseInt($('viewIsle').value, 10) || 0;
+    const side = $('viewSide').value;
+    const st = isleState[i]; if (!st || !st.best) return null;
+    return { isle: i, side: side, fj: st.best[side] ? st.best[side].fleet : null };
+}
+function fmtAir(a) { return (a && a.length) ? a.map(x => x.name + '×' + x.qty).join('、') : '—'; }
+function fmtMods(m) { const ks = Object.keys(m || {}); return ks.length ? ks.map(k => k + '=' + m[k]).join(',') : '—'; }
+function fleetTableHTML(fj, label) {
+    if (!fj) return '<div class="note">（还没有结果）</div>';
+    let h = '<h4>' + label + '　<span>指挥值 ' + fj.cv + ' / 旗舰：' + (fj.flagshipName || '（无）') + '</span></h4>';
+    h += '<table><thead><tr><th>#</th><th>舰船</th><th class="num">数量</th><th>站位</th><th>模块</th><th>载机</th></tr></thead><tbody>';
+    fj.main.forEach((x, i) => {
+        h += '<tr><td>' + (i + 1) + '</td><td>' + x.name + '</td><td class="num">' + x.count + '</td><td>' + (x.position || '—') + '</td><td>' + fmtMods(x.mods) + '</td><td>' + fmtAir(x.air) + '</td></tr>';
+    });
+    h += '</tbody></table>';
+    h += '<div class="note" style="margin-top:6px">增援（' + fj.reinfShips + '/5 艘）：' + ((fj.reinf && fj.reinf.length) ? fj.reinf.map(r => r.name + '×' + r.count).join('、') : '无') + '</div>';
+    return h;
+}
+function renderBest() {
+    const cur = currentFleet();
+    if (!cur || !cur.fj) { $('boxEscort').innerHTML = '<h4>护航队</h4><div class="note">（还没有结果）</div>'; $('boxEscorted').innerHTML = '<h4>被护航队</h4><div class="note">（还没有结果）</div>'; $('fleetMeta').textContent = ''; return; }
+    const fj = cur.fj;
+    $('boxEscort').innerHTML = fleetTableHTML(fj.escort, '护航队');
+    $('boxEscorted').innerHTML = fleetTableHTML(fj.escorted, '被护航队');
+    const i = cur.isle, r = isleState[i].rec;
+    $('fleetMeta').innerHTML = '岛 ' + String(i).padStart(2, '0') + ' · ' + (cur.side === 'A' ? 'A 方（我方）' : 'B 方（敌方）') + ' · 第 ' + r.gen + ' 代　网络 ' + fj.net.nodes + ' 隐藏节点 / ' + fj.net.conns + ' 连接　变异率 ' + (fj.mutRate || 0).toFixed(3) + '　算力预算 ' + (fj.opBudget ? (fj.opBudget / 1e6).toFixed(1) + 'M' : '—') +
+        '　加点覆盖 ' + Object.keys(fj.ap || {}).length + ' 艘（只能重分配、不可追加）';
+}
+/* 复制到战舰配队页（写 fleet.html 的导入通道） */
+function toAIFleet(fj, name) {
+    const air = [];
+    const main = fj.main.map(x => {
+        (x.air || []).forEach(a => air.push({ id: a.id, name: a.name, kind: a.kind, slot: a.slot, qty: a.qty, forId: x.id }));
+        return { id: x.id, name: x.name, pos: x.position, qty: x.count, mods: x.mods };
+    });
+    const reinforcement = (fj.reinf || []).map(x => ({ id: x.id, name: x.name, qty: x.count }));
+    return { name: name, desc: '神经元实验室 · 第 ' + (isleState[parseInt($('viewIsle').value, 10)] || {}).gen + ' 代', flagship: fj.flagship || '', main: main, reinforcement: reinforcement, air: air };
+}
+function copyFleet(which) {
+    const cur = currentFleet();
+    if (!cur || !cur.fj) { toast('还没有结果可复制', true); return; }
+    const fj = cur.fj[which];
+    const ai = toAIFleet(fj, '神经元-' + (which === 'escort' ? '护航队' : '被护航队') + '-I' + cur.isle);
+    localStorage.setItem('lagrange_fleet_import', JSON.stringify(ai));
+    toast('已复制「' + (which === 'escort' ? '护航队' : '被护航队') + '」→ 打开战舰配队页…');
+    setTimeout(() => { location.href = 'fleet.html?import=1'; }, 350);
+}
+function downloadFleet() {
+    const cur = currentFleet();
+    if (!cur || !cur.fj) { toast('还没有结果', true); return; }
+    const out = { type: 'neuron_fleet', isle: cur.isle, side: cur.side, gen: isleState[cur.isle].gen, escort: cur.fj.escort, escorted: cur.fj.escorted, ap: cur.fj.ap, net: cur.fj.net };
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 1)], { type: 'application/json' }));
+    a.download = 'neuron_fleet_I' + cur.isle + '_g' + isleState[cur.isle].gen + '.json';
+    a.click();
+}
+/* 战报库 + 发给 AI */
+function buildReport() {
+    const cur = currentFleet(); if (!cur || !cur.fj) return null;
+    const i = cur.isle, st = isleState[i], r = st.rec;
+    return {
+        kind: 'neuron', isle: i, side: cur.side, gen: r.gen, savedAt: new Date().toISOString(),
+        mode: (r.A.evolve === false ? 'B进化' : (r.B.evolve === false ? 'A进化' : '双方进化')),
+        score: { A: r.A.score, B: r.B.score, fscoreA: r.A.fscore, winsA: r.A.wins, winDurA: r.A.winDur, frozenA: r.A.frozen, frozenB: r.B.frozen },
+        net: { nodes: r.A.nodes, conns: r.A.conns }, beh: st.best.A ? st.best.A.beh : null,
+        fleet: { escort: cur.fj.escort, escorted: cur.fj.escorted },
+        ap: cur.fj.ap, recent: st.log.slice(-30)
+    };
+}
+function saveReport() {
+    const rep = buildReport();
+    if (!rep) { toast('还没有结果', true); return; }
+    let arr = [];
+    try { arr = JSON.parse(localStorage.getItem('lagrange_battle_reports') || '[]'); } catch (e) { }
+    arr.unshift(rep);
+    /* 只留最近 10 条，且单条截断（localStorage 有 5MB 上限） */
+    try { localStorage.setItem('lagrange_battle_reports', JSON.stringify(arr.slice(0, 10))); } catch (e) { toast('存储失败（可能太大）：' + e.message, true); return; }
+    if (window.NeuronStore) NeuronStore.addReport(rep).catch(() => { });
+    toast('已存进战报库（AI 对话里可以让它读「战报库」分析）');
+}
+function reportText(rep) {
+    const t = [];
+    t.push('【神经元实验室 · 请帮我分析这套配队】');
+    t.push('（这是浏览器里两个神经网络互相对打、进化出来的结果，不是人类配的。第 ' + rep.gen + ' 代 · ' + rep.mode + ' · 岛 ' + rep.isle + '）');
+    t.push('');
+    t.push('A 方：fscore ' + rep.score.fscoreA + '（冻结标尺）· 胜率 ' + rep.score.winsA + '% · 平均取胜用时 ' + rep.score.winDurA + 's · 精英冻结 ' + rep.score.frozenA + ' 代 · 网络 ' + rep.net.nodes + '隐藏/' + rep.net.conns + '连接');
+    t.push('');
+    const ftxt = (f, label) => {
+        t.push('== ' + label + '（指挥值 ' + f.cv + '，旗舰 ' + (f.flagshipName || '无') + '）==');
+        f.main.forEach((x, k) => {
+            t.push((k + 1) + '. ' + x.name + ' ×' + x.count + '（' + x.position + '）模块[' + fmtMods(x.mods) + ']' + (((x.air || []).length) ? ' 载机[' + fmtAir(x.air) + ']' : ''));
+        });
+        t.push('增援：' + ((f.reinf && f.reinf.length) ? f.reinf.map(r => r.name + '×' + r.count).join('、') : '无'));
+        t.push('');
+    };
+    ftxt(rep.fleet.escort, '护航队');
+    ftxt(rep.fleet.escorted, '被护航队');
+    t.push('加点：覆盖 ' + Object.keys(rep.ap || {}).length + ' 艘船（只能重分配、不可追加）；行为签名(8维)：' + ((rep.beh || []).map(x => (+x).toFixed(2)).join(' ')));
+    t.push('');
+    t.push('请：① 评价这套配队的思路（对比知识库里的常见强队）；② 指出明显短板；③ 如果要在游戏里用它，注意什么。');
+    return t.join('\n');
+}
+function sendToAI() {
+    const rep = buildReport();
+    if (!rep) { toast('还没有结果', true); return; }
+    const txt = reportText(rep);
+    localStorage.setItem('lagrange_chat_prefill', txt);
+    if (window.NeuronStore) NeuronStore.addReport(rep).catch(() => { });
+    toast('已把战报发给 AI，正在打开对话页…');
+    setTimeout(() => { location.href = 'chat.html?prefill=1'; }, 350);
+}
+
+/* ---------- 存档：导入 / 导出 / 清空 ---------- */
+/* ---------- 存档：装入【网站内置】的另一台设备 12 岛状态（不选文件） ---------- */
+let builtinManifest = null;
+async function loadBuiltinManifest() {
+    try {
+        builtinManifest = await fetch('data/neuron/state/manifest.json').then(r => r.json());
+        const sel = $('builtinState');
+        sel.innerHTML = builtinManifest.islands.map(x => '<option value="' + x.isle + '">岛 ' + String(x.isle).padStart(2, '0') + ' · 第 ' + x.gen + ' 代 · fscore ' + x.fscoreA + ' · 网 ' + x.nodesA + '/' + x.connsA + '</option>').join('');
+        $('builtinInfo').innerHTML = '网站内置：' + builtinManifest.source + '（' + builtinManifest.islands.length + ' 个岛，各含「快照 + 行为档案 + 最近 120 代日志」）<br>' + builtinManifest.note;
+    } catch (e) { $('builtinInfo').textContent = '内置存档读取失败：' + e.message; }
+}
+async function loadBuiltinState(all) {
+    if (!builtinManifest) { await loadBuiltinManifest(); if (!builtinManifest) return; }
+    if (!window.NeuronStore) { toast('IndexedDB 不可用', true); return; }
+    const list = all ? builtinManifest.islands : builtinManifest.islands.filter(x => x.isle === parseInt($('builtinState').value, 10));
+    if (!list.length) { toast('先在下拉里选一个岛', true); return; }
+    let n = 0;
+    for (const x of list) {
+        try {
+            const J = f => fetch('data/neuron/state/' + f).then(r => r.json());
+            await NeuronStore.put('kv', 'snap:' + x.isle, await J(x.files.snap));
+            if (x.files.arc) await NeuronStore.put('kv', 'arc:' + x.isle, await J(x.files.arc));
+            if (x.files.log) await NeuronStore.put('kv', 'log:' + x.isle, await J(x.files.log));
+            n++;
+            pushLog('已装入内置存档：岛 ' + String(x.isle).padStart(2, '0') + '（第 ' + x.gen + ' 代 · fscore ' + x.fscoreA + '）');
+        } catch (e) { pushLog('岛 ' + x.isle + ' 装入失败：' + e.message); }
+    }
+    await refreshSnapInfo();
+    toast('已装入 ' + n + ' 个岛的内置存档。\n下次点「开始训练」时保持勾选"有本机存档就续跑"，就会从这些快照接着跑。');
+}
+async function refreshSnapInfo() {
+    if (!window.NeuronStore) return;
+    try {
+        const ks = await NeuronStore.keys('kv');
+        const snaps = ks.filter(k => k.indexOf('snap:') === 0);
+        const parts = [];
+        for (const k of snaps) {
+            const s = await NeuronStore.get('kv', k);
+            parts.push(k.slice(5) + ':' + (s && s.gen) + '代');
+        }
+        $('snapInfo').innerHTML = '本机存档：' + (parts.length ? parts.join('　') : '（空）') + '　—　每 5 代自动更新；刷新/关浏览器都不丢。';
+    } catch (e) { }
+}
+async function exportSnaps() {
+    if (!window.NeuronStore) return;
+    const ks = await NeuronStore.keys('kv');
+    const snaps = ks.filter(k => k.indexOf('snap:') === 0);
+    if (!snaps.length) { toast('本机还没有存档', true); return; }
+    for (const k of snaps) {
+        const s = await NeuronStore.get('kv', k);
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([JSON.stringify(s, null, 1)], { type: 'application/json' }));
+        a.download = 'neuron_snap_isle' + String(k.slice(5)).padStart(2, '0') + '_gen' + (s.gen || 0) + '.json';
+        a.click();
+        await new Promise(r => setTimeout(r, 120));
+    }
+    pushLog('已导出 ' + snaps.length + ' 个岛的存档（放进另一台设备的"导入训练存档"就能接着跑）');
+}
+async function clearSnaps() {
+    if (!confirm('清空本机的全部神经元存档（不可恢复）？')) return;
+    if (!window.NeuronStore) return;
+    const ks = await NeuronStore.keys('kv');
+    for (const k of ks) await NeuronStore.del('kv', k);
+    refreshSnapInfo(); pushLog('已清空本机存档');
+}
+
+/* ---------- 3D 同步（BroadcastChannel） ---------- */
+let bc = null;
+try { bc = new BroadcastChannel('lagrange_neuron_3d'); } catch (e) { }
+let bcTimer = 0;
+function bcPost(i) {
+    if (!bc) return;
+    const now = Date.now();
+    if (now - bcTimer < 1500) return;      // 节流：3D 页不需要每一代
+    bcTimer = now;
+    try {
+        bc.postMessage({ type: 'nets', at: now, items: Object.keys(isleState).filter(k => isleState[k].net).map(k => ({ isle: +k, gen: isleState[k].gen, net: isleState[k].net, acts: isleState[k].acts, score: isleState[k].rec ? isleState[k].rec.A.score : null })) });
+    } catch (e) { }
+}
+/* ---------- 状态镜像（写 localStorage，供 AI 的 get_neuron_status 工具读） ---------- */
+let _mirrorT = 0;
+function mirrorStatus() {
+    if (Date.now() - _mirrorT < 5000) return;
+    _mirrorT = Date.now();
+    try {
+        const items = Object.keys(isleState).map(i => {
+            const s = isleState[i], r = s.rec;
+            return r ? { isle: +i, gen: r.gen, fscoreA: r.A.fscore, winsA: r.A.wins, winDurA: r.A.winDur, nodesA: r.A.nodes, connsA: r.A.conns, frozenA: r.A.frozen, frozenB: r.B.frozen, evolveA: r.A.evolve !== false, evolveB: r.B.evolve !== false } : null;
+        }).filter(Boolean);
+        const top = items.slice().sort((a, b) => (b.fscoreA || -1e9) - (a.fscoreA || -1e9))[0] || null;
+        let bestTxt = '';
+        if (top) {
+            const s = isleState[top.isle];
+            const fj = s && s.best && s.best.A ? s.best.A.fleet : null;
+            if (fj) {
+                const nm = x => x.name + '×' + x.count;
+                bestTxt = '护航队（CV ' + fj.escort.cv + '）：' + fj.escort.main.map(nm).join('、') + ' ｜ 被护航队（CV ' + fj.escorted.cv + '）：' + fj.escorted.main.map(nm).join('、');
+            }
+        }
+        localStorage.setItem('lagrange_neuron_status', JSON.stringify({
+            updatedAt: new Date().toISOString(), running: !!running, paused: autoPaused,
+            mode: (document.querySelector('input[name=modeA]:checked').value === 'fixed' ? 'B进化(强化对手)' : (document.querySelector('input[name=modeB]:checked').value === 'fixed' ? 'A进化(打指定对手)' : '双方进化(自对弈)')),
+            isles: items, top: top ? { isle: top.isle, gen: top.gen, fscoreA: top.fscoreA } : null, bestFleetText: bestTxt
+        }));
+    } catch (e) { }
+}
+
+/* ---------- 启动时 ---------- */
+(function init() {
+    updateSummaries();
+    refreshPickers();
+    refreshSnapInfo();
+    loadBuiltinManifest();
+    loadDefaultWar().then(() => { refreshPickers(); });    // 首次进页先把默认配队放好（下拉里选了就以选的为准）
+    window.addEventListener('beforeunload', e => {
+        if (running && !autoPaused) { e.preventDefault(); e.returnValue = '训练还在跑（关闭会丢失最近不到 5 代，快照保留）'; }
+    });
+})();
+</script>
+</body>
+</html>

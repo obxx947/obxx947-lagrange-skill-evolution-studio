@@ -169,12 +169,19 @@
         const userOn = !!(window.UserShipDB && UserShipDB.aiEnabled && UserShipDB.aiEnabled());
         const wantUser = opts.checkUser!==false && userOn;
 
+        /* ★ 2026-10-04 修（移植自另一台设备的同源修复）：服役上限是【整队口径】（主舰队+增援），
+           原实现只在 fixed.main 的条目上检查 —— 于是"只用增援装的船"超限**不报错**
+           （另一台设备实测：某船 增援 4 艘 / 上限 1，check() 却判"合法"）。
+           改成对全部船型统一检查（每个船型只报一条）。 */
+        if(!stitch) Object.keys(shipQty).forEach(id=>{
+            const ship=getShip(id); if(!ship) return;
+            const lim=ship.serviceLimit||99;
+            if(shipQty[id]>lim)
+                errors.push(`「${ship.name}」服役超上限：主舰队+增援合计 ${shipQty[id]} 艘 > 上限 ${lim} 艘`);
+        });
+
         fixed.main.forEach(s=>{
             const ship=getShip(s.id); if(!ship) return;
-            const lim=ship.serviceLimit||99;
-            const used=shipQty[s.id]||0;
-            if(!stitch && used>lim)
-                errors.push(`「${ship.name}」服役超上限：主舰队+增援合计 ${used} 艘 > 上限 ${lim} 艘`);
             if(wantUser && !UserShipDB.isOwned(s.id))
                 errors.push(`用户没有「${ship.name}」这艘船（舰船库未记录）`);
             // 模块必须是该船真实存在 + 用户拥有

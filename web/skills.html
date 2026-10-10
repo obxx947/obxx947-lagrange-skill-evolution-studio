@@ -65,6 +65,7 @@ body.mobile-ui .container{padding-bottom:calc(20px + env(safe-area-inset-bottom)
     <div class="logo">🧠 技能 / 工具管理</div>
     <div class="links">
         <a href="chat.html">🤖 AI对话</a>
+        <a href="neuron.html">🧬 神经元</a>
         <a href="ships.html">🚀 舰船</a>
         <a href="fleet.html">⚓ 配队</a>
         <a href="features.html">🗺️ 功能</a>
@@ -157,9 +158,20 @@ function renderSkills(){
                 <button class="btn" onclick="toggleBody('sb_${i}')">${''}查看全文</button>
                 <button class="btn ${s.enabled?'red':'green'}" onclick="toggleSkill(${i})">${s.enabled?'停用':'启用'}</button>
                 <button class="btn red" onclick="delSkill(${i})">删除</button>
+                <button class="btn" onclick="exportSkillJSON(${i})" title="把这个 skill 导出成 JSON（可喂给别的 AI）">导出JSON</button>
             </div>
             <div class="meta">创建 ${new Date(s.createdAt).toLocaleString('zh-CN')} · ${s.lastUsed?'最近使用 '+new Date(s.lastUsed).toLocaleString('zh-CN'):'尚未被注入'}</div>
         </div>`).join('');
+}
+/* 2026-10-05：单个 skill 导出 JSON（用户要"塞进上下文"解决质量问题用） */
+function exportSkillJSON(i){
+    const s=SkillSystem.loadSkills()[i]; if(!s){ return; }
+    const out={type:'lagrange_skill',version:1,exportedAt:new Date().toISOString(),skill:s};
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([JSON.stringify(out,null,1)],{type:'application/json'}));
+    a.download='skill_'+String(s.name||('s'+i)).replace(/[\\/:*?"<>|\s]/g,'_').substring(0,40)+'.json';
+    a.click();
+    try{ toast('已导出该 skill 的 JSON','ok'); }catch(e){}
 }
 function toggleSkill(i){
     const s=SkillSystem.loadSkills()[i]; if(!s) return;

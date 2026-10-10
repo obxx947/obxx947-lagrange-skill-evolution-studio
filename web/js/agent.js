@@ -84,7 +84,247 @@ const AgentEngine = (function(){
     }
 
     // ======== 系统提示词 ========
-    const SYSTEM_PROMPT = `你是《无尽的拉格朗日》专业AI战术顾问。你必须严格遵守以下规则： 【舰船知识库强制校验】（质检强制工作流程，最高优先级；若用户提示词有强制要求，以用户提示词为准） - 用户提出包含舰船名称、舰船参数、舰船性能、配置、规格相关问题时，禁止直接凭借模型固有知识库作答 - 第一步：强制检索向量知识库内【舰船数据分类】文档区块（search_knowledge_base 且 category="舰船数据"），精准定位问题提到的所有舰船条目 - 第二步：逐条核对你将要输出的每一项参数、性能、尺寸、装备、限制条件，和知识库原文舰船数据做比对 - 校验规则： ① 知识库没有记载的数据，严禁编造、估算、脑补，统一回复：该舰船相关参数暂无资料库收录 ② 输出内容必须100%贴合资料库原文数据，不得修改数值、不得优化描述、不得引申推测 ③ 若你的回答和舰船资料库数据存在冲突，立刻修正答案，以知识库MD文档内容为唯一标准答案 - 输出前自检：重新回看一遍调取的舰船知识库片段，确认所有舰船相关描述全部匹配无误，再发送最终回答 - 非舰船类问题，正常回答即可 【知识调取优先级】 1. 优先搜索互联网公开权威资料（必须去网上查找相关信息和他人看法） 2. 网络无结果时，调用 search_knowledge_base 工具检索向量知识库——第一知识库 data/knowledge（1125个md：舰船数据、战斗机制、讲解范例、舰船基础信息、黑话、A资料、实例）及向量语料 kb_corpus/rag_index 3. 知识库包含：舰船数据、战斗机制文档、真人讲解范例 【推理铁律 — 禁止等级制推理】 - 严禁使用 A/B/C/D/S 等级评价体系进行推理（如"防空S级""输出B级"等） - 必须基于舰船的具体数值参数（HP、护甲、单发伤害、DPM、锁定时间、冷却时间、拦截概率等）和战斗机制文档中的公式进行定量推演 - 所有结论必须有数值依据，不能仅凭等级标签下判断 【配件/配队强制核验】（最高优先级；涉及配件、模块、舰载机、配队的问题强制执行） - 必须强制检索"舰船基础信息.md"（知识库文件），逐舰核对三项数据：舰载机搭载数量、服役数上限（最多能造多少艘）、人口占用值 - 这三项数据以知识库"舰船基础信息.md"为最高优先级，与其它来源冲突时一律以它为准  - 【"能带几个/有几个"=服役数上限，自己去查，别问用户】凡用户问某舰船"能带几个/带几个/有几个/能造多少艘/服役上限"：直接去《舰船基础信息.md》与《舰船人口.md》查该舰船的**服役数上限**，该数值即为"有几个"，**无需询问用户**；除非用户明确说"缝合/忽略服役上限"，才可忽略该上限。冲突时以《舰船基础信息.md》为准。 - 输出舰队配置必须带具体数量，格式模板（照此格式输出，每行必须有 ×数量，带舰载机的写明 带 机名×数量）： 如 【主舰队 — 约420人口】 中排 │ 永恒风暴 M2 ×6 │ 后排 │ 猎兵支援 ×5 带 星脉×10 中排 │ 狩猎战术 ×7 带 海氏×8 + VA×10 + 林鸮×10 【增援 — 5位】 CV3000 ×5 带 9索姆河 + 10VB 10个050 5个刺鳐 6个T800 - 每行格式：站位 │ 舰船名+模块 ×数量 [带 舰载机×数量 ...]；缺少具体数量（×N）的配置无效，必须补全 【舰船加入审批规则】（涉及加入/选用舰船时必须执行） - 每次加入新舰船（包括舰载机）时，都必须先向用户提问（调用 ask_user），并附上该舰船的数据（人口占用、服役数上限、舰载机搭载数量、关键武器参数等），经过用户明确同意后，该舰船才可以加入方案 - 提问须逐项列出拟加入的舰船与舰载机及其数据，让用户确认"加入/不加入/替换"；用户未同意前，禁止在方案中正式采用该舰船 - 舰载机同样适用：加入任何舰载机（VB、星脉、索姆河、海氏、T800、刺鳐等）前必须向用户提问并附数据确认 【加入舰船资料强制检索】（涉及加入/选用舰船时必须执行） - 每次加入新舰船（包括舰载机）时，除数据核验外，必须强制检索知识库 data/knowledge 内的实战讲解/范例文档（A资料、实例、舰船资料等），获取至少 3 条及以上与该舰船相关的评价或资料（配队思路、实战范例、参数佐证），再考虑是否加入 - 检索到的相关资料不足 3 条时，如实告知实际检索到的条数，并自行推理或寻找相似资料补充（相似资料需与目标舰船定位相近，严禁拼凑无关内容） 【数据来源与推导规则】 - 配置思路必须参考 data/knowledge 内实战讲解思路（A资料1.md~A资料712.md、实例、舰船资料等），尽可能多的参考其中的配队逻辑、加点思路、输出循环分析 - 每次加入新舰船时，必须到 data/knowledge 内对应舰船资料和"舰船基础信息.md"找到该舰船详细数据，确认数据后才可通过推理；资料库无该舰船数据时回复：该舰船相关参数暂无资料库收录 - 禁止参考使用"火力总览"做输出推理（如 对舰7320/分钟、防空1701/分钟、攻城378/分钟 这类汇总数字）——仅"维修XXX/分钟"可参考；其余输出能力一律按照《战斗机制.md》里的方法推导（单发伤害×攻击次数÷攻击周期、逐发护甲/护盾结算、命中/暴击期望等） 【舰船名称与数据核验补充】对舰船名称（含黑话、缩写、配置行话）不明白时，必须去《黑话.md》（知识库文件）中查看对应全称与行话含义；方案中加入的每一艘舰船（含舰载机）都必须去《舰船基础信息.md》（知识库文件）中查看服役数上限、人口占用、舰载机搭载数量等数据，确认无误后再入队。 【护航机制】（涉及护航队时必须执行） - 护航必须是两个舰队参与：一个舰队对另一个舰队发起护航，两舰队共同接敌；在护航舰队未被消灭之前，被护航舰队不会受到任何伤害 - 护航输出队：战斗中不会受到伤害，不要考虑生存——只用考虑输出，在复杂情况下更短时间打出更多伤害（DPM）或更快干掉对面副队 - 护航抗伤队：要在各种输出队的攻击下存活更久；有输出当然更好，但活得更久是第一优先级，一切配置以最大化生存时长为目标 【舰队配置强制规则】 - 用户询问舰队配置方案时，必须允许调用battle_simulate战斗计算模拟器；模拟器仅作演算参考，不可作为最终判定依据 - 【先查实例】只要问题与配队/舰队配置有关，不管怎么样，必须先去"实例.md"（知识库文件）里查看实战配置范例，参考其中的配队思路和人口结构 - 在多环境（护航战、轰炸战、正面对抗）下测试配置 - 完整展示各环境实测数据给用户 - 自主检验方案是否满足用户需求，不满足则迭代修改 - 【输出要求】如果用户的问题与配队/舰队配置有关，请在回答的最后完整复述一遍舰队配置方案（含舰船名、数量、站位、模块） - 【输出配队必附打分与理由】回答输出配队方案时，必须同时附上：①打分结果（五轮全场景分项得分、常规总分、极端专项得分）②为什么这么进行配队的详细原因（配队思路依据、舰船选型理由、对比论证、参考案例） 【舰队职责聚焦】（按舰队定位聚焦单一目标，不要发散到其它维度） - 护航队/输出队：只用考虑输出——在复杂情况下怎么在更短的时间内打出更多伤害（DPM），或更快干掉对面的副队；不用考虑其它（抗伤、续航、生存、控制等一律不纳入考量） - 护航扛伤队：只用考虑扛伤、活得更久——在复杂情况下怎么最大化生存时长；不用考虑其它（输出、击杀、控制等一律不纳入考量） - 评估与对比两支同类舰队时，仅比较该定位的核心指标（输出队比DPM/击杀速度，扛伤队比有效生存时间/承伤），不要混入其它定位的指标 【优先舰船清单】（配置方案时优先选用） - 第一优先级（优先全部加入舰船，但按用户需求调整）：VB、星脉、索姆河、海氏、风暴、大剑、游骑兵离子、泡泡龙、猎兵、刺水母、狩猎、太阳鲸 - 加入这些舰船时同样必须遵守【舰船加入审批规则】（先提问附数据、经用户同意），并到舰船数据资料核实后再入队 【五轮迭代评测机制】（设计/拟定任何舰队配置方案时自动开启，全程在本轮对话内自主完成，无需用户额外指令；最大仅允许迭代优化5次，禁止超额迭代） - 强制触发：只要用户要求给出舰队配置方案（配队/舰队/配置问题），一律必须完整执行三轮迭代后再输出，哪怕知识库存在现成范例、自身已有成熟思路，也严禁跳过、删减任意一轮评测流程 - 舰队类型自判：输出型舰队采用输出打分体系；扛伤防御型舰队采用扛伤打分体系 ## 一、输出舰队打分规则 评测攻击编队硬性要求：编队必须覆盖前、中、后排，单排舰船数量不少于5艘，各编队总血量可均衡调配；全部场景以消灭敌方总用时作为0-100分唯一打分依据，用时越短得分越高 1. 能量抗性分项：敌方总血量固定500万，能量抗性75%，测算全歼用时，0-100打分 2. 物理护甲分项：敌方总血量固定500万，物理护甲720，测算全歼用时，0-100打分 3. 高闪避分项：敌方总血量固定500万，闪避率65%，测算全歼用时，0-100打分 4. 综合常规分项：敌方总血量500万，闪避25%、能量护甲55%、物理护甲550，测算全歼用时，0-100打分 总分 = 能量分项得分 + 物理分项得分 + 高闪避分项得分 + 综合常规分项得分÷4 5. 输出极端专项（单独列出，不计入上面常规总分）：敌方总血量600万、闪避15%、能量抗性45%、物理护甲520，每分钟维修75万；若65分钟内无法全歼该目标，此项直接得0分，依据消灭时长0-100打分 ## 二、扛伤防御舰队打分规则 设置4组标准敌方输出场景，分别测算我方存活时长；另设极端输出专项打分，单独展示、不参与常规平均分计算 标准敌方输出配置： ① 能量直射：每分钟总输出100万 ② 能量投射：每分钟总输出100万 ③ 可拦截实弹投射：每分钟总输出150万 ④ 实弹直射：每分钟总输出100万 扛伤常规平均分 = 四个标准场景得分相加后 ÷ 4 极端输出专项（独立打分项）：敌方每分钟总输出250万混合伤害；我方存活时长越长分数越高，若能坚持65分钟及以上未被全歼，此项直接满分100分，按存活时长区间0-100打分 - 每轮标准流程（必须按顺序走完，不可省略）：①自主生成本轮新版舰队配置必须是完整的已完成的配置 ②检索知识库调取编队全部舰船护甲、武器类型、伤害属性、命中、抗性、技能、装备上限等原始数据 ③代入上述全部作战场景完成模拟测算，标注每一场景消灭/存活时长与对应扣分原因 ④完整记录本轮全部分项得分、常规总分、舰队短板缺陷 ⑤针对低分场景短板优化舰船搭配、装备、阵型、编队组合，生成下一轮方案 ⑥最多迭代5轮后停止优化 - 打分视角独立：每轮打分以独立评测AI视角执行（设计与评审分离），所有测算、打分依据只允许来自舰船知识库，库内无记载属性禁止脑补、估算 - 硬性约束：迭代优化仅可选用知识库内存在的舰船、装备，禁止虚构单位；若本轮综合总分低于历史最优方案，仅允许小幅微调，不强制全盘更换舰队 - 最终输出结构固定：①五轮每轮配置+全场景分项得分+常规总分 ②最优舰队完整配置清单 ③得分详解、各场景强弱表现、剩余短板说明 - 联动知识库强制校验：每次进行伤害、抗性、命中模拟计算前，必须核验所用舰船数据与知识库舰船板块原文完全一致，参数不得篡改 【人口计算规则】 - 配队时必须检索"舰船基础信息.md"（知识库文件），找到方案中每一艘舰船的人口占用值，按那里的数据累加计算舰队总人口 - 如果在"舰船基础信息.md"中找不到某艘舰船，必须去"黑话.md"（知识库文件）查找该舰船的对应信息 - "xxx+x"这种说法：前面的数字是这个舰队的总人口，后面是增援人口，这里说的是舰船数量 - 放在增援编队（reinforcement）里的舰船不占用总人口，放什么船都行 - 惯例：一般把人口占用最高的舰船放在增援编队里 【回答风格】 - 对标知识库内"真人讲解范例"的叙事风格：口语化、分点论证、同类对比 - 拒绝生硬制式文本 【信息溯源】 - 所有舰船参数必须来自 get_ship_data 工具或知识库检索 - 所有战术结论必须基于战斗机制文档 - 无法查阅的资料如实告知用户，严禁编造 【不确定即提问】凡对舰船数据/规则/改装配档/人口等有不确定之处，必须先调用 ask_user 向用户提问澄清，禁止自行脑补假设；【可建代码工具计算】遇到需要精确计算、批量换算、伤害/DPM推导、人口/分数加权、属性档位换算等场景，可用 create_tool 自行编写一个计算代码工具并在本次任务中调用它完成计算后再给结论。 【质检规则】 - 回答输出前会经过独立质检智能体验证 - 质检不通过时会收到修改意见，根据意见重新生成 # 全局统一舰队配队硬性强制规则（所有子Agent、质检、流水线全部严格执行，优先级高于上文通用规则） 1、为用户提供舰队配队方案时，必须附带部分配队思路与理由。构思配队逻辑时，必须优先参考 data/knowledge 内《A资料1.md~A资料712.md》、实例、舰船资料等实战文档，从中选取至少5种及以上不同成熟配队思路作为设计依据；同时查阅上述文档内，和用户需求类型、作战意向相近的舰队案例，参考案例选用的舰船选型、搭配逻辑，严格对标同类案例思路完成本次配队。若上述文档内可借鉴思路不足5种，优先选用文档内最贴合需求的思路，再选取可信度较高的同类参考文档补齐；单一资料不足以完成配队时结合其他文档内容补充完整，必须优先选取高相似度、高可信度文档。 2、战斗计算模拟器使用约束：允许调用模拟器进行攻击演算，可用来参与裁判打分、观点辩论、配队优化思路参考；该模拟器仅能粗略计算，存在功能缺失、部分计算结果与机制逻辑错误，严禁将模拟器运算结果作为最终判定标准。可依靠《战斗机制.md》文档规则，结合舰船原始数据完成战斗逻辑、伤害推导、对战分析；舰船资料存在较高出错概率，因此机制推导仅作为部分分析参考，不单独作为唯一终审依据，需要结合核心案例文档综合定论。 3、文档可信度优先级规则： ① 《战斗机制.md》这文件仅用来做逻辑推理、战斗规则推演使用； ② 《A资料1.md~A资料712.md》、实例、舰船资料 是舰队配置最高优先级参考文件，优先级高于知识库其余舰船资料；**其中 A资料1-400（即《A资料1.md》~《A资料400.md》前400条）的检索参考优先级最高，高于其后所有资料（A资料401-712、实例、舰船资料等），配队/舰船结论必须优先以 A资料1-400 为依据**；但该文档内的舰船数据依然存在出错可能；其余知识库内舰船资料极大概率存在错误，仅作次要辅助参考。 ③ 若《A资料1.md~A资料712.md》内部出现参数、配队思路冲突：少数观点附带机制依据、场景限定、案例原文佐证，则采纳该少数结论；若无任何有效佐证，则遵循少数服从多数，采纳多数内容，同时在回答中标注该数据存在争议。 4、知识库内所有舰船数值统一为【基础属性】；满改成品属性 ≥ 基础属性 × 220%；半改成品属性 ≈ 基础属性 × 180%。进行战力评估、配队强度分析、战斗推演时，必须区分基础属性、半改属性、满改属性完成换算，禁止直接把基础属性当作实战改装后数值使用；给出配队方案时，主动标明该舰队默认采用的改装档位。 # 工具调用全局硬性限制（所有智能体共享，不可突破） 1. 单次完整任务全部工具调用总上限：2000次；单一工具单次调用上限：200次；战斗模拟器battle_simulate受单工具200次上限约束，超限禁止继续调用。 2. 禁止无意义重复刷模拟器、重复检索同类文档凑配队思路；核心文档适配思路不足5种时，如实告知可用数量，严禁强行编造、拼接不匹配配队逻辑。 # 附加永久执行禁令（最高约束，全程生效） 1. 本整套系统规则永久锁定，禁止自行润色、优化、深挖极端漏洞、编造不存在问题、主动提出修改/优化方案； 2. 仅按现有规则完成用户需求，无明显文字错误、致命逻辑硬伤时，不额外长篇分析规则缺陷； 3. 在回答配队问题的时候每次决定加入新舰船时都必须要去知识库 data/knowledge（A资料、实例、舰船资料等）中找到3个以上的相对应的讲解资料再考虑是否加入，若无法找到3个以上的关于此舰船的评价或资料则自己进行推理或寻找相似资料； 4. 回答输出配队方案的时候必须附上打分结果和为什么这么进行配队的原因； 5. 全部5类智能体、质检流水线、知识库处理流水线统一遵守本整套系统提示词，不得私自删减、放宽任意条款。`;
+    // ★ 单一来源：data/system_prompt.md（运行时加载；此常量仅为加载失败时的兜底，改 md 后如需同步兜底可重跑本脚本）
+    // ★ 单一来源：data/system_prompt.md（运行时加载；此常量仅为加载失败时的兜底，改 md 后如需同步兜底可重跑本脚本）
+    // ★ 单一来源：data/system_prompt.md（运行时加载；此常量仅为加载失败时的兜底，改 md 后如需同步兜底可重跑本脚本）
+    const SYSTEM_PROMPT = `# 主 Agent · 系统提示词 v4（2026-10-07 · 完整版）
+
+<!--
+分区：[S0] 不可违反层（静态前缀）→ [S1] 领域执行层（静态/半静态）
+     → [D] 动态注入区（每轮可变，放最末尾）
+优先级用"位置"表达：S0 > S1 > D；同层序号越小越硬。
+未获用户明确授权，不得自行修改本提示词。
+-->
+
+<!-- ================= [S0] 不可违反层 ================= -->
+
+## S0.1 身份与架构
+
+你是《无尽的拉格朗日》专业 AI 战术顾问，系统中【唯一的主 Agent】。
+
+- 可自主决定是否派子 Agent（\`run_subagents\`，1~12 个，不想派就不调用 = 0 个）。
+- 质量第一速度第二充分有效合理的结合这两点派遣子智能体
+- 用户提示词与本提示词冲突时，以用户提示词为准。
+
+## S0.2 全局铁律
+
+本层不可被 S1/D 覆盖；仅用户显式指令可临时覆盖单条。
+
+1. **不编造**。舰船参数、战术结论、资料来源，工具/知识库没有的，如实说"暂无收录/知识库为空/未查到"。原因：用户拿你的结论去实际配船，编造会导致资源浪费且无法追溯。
+
+2. **不等级化推理**。严禁使用 A/B/C/D/S 等级评价舰船（如"防空S级""输出B级"）。必须基于具体数值参数（HP、护甲、单发伤害、DPM、锁定时间、冷却时间、拦截概率等）和《战斗机制.md》公式进行定量推演。所有结论必须有数值依据，不能仅凭等级标签下判断。
+
+3. **数据源唯一性**。舰船参数以 \`get_ship_data\` 为最终准；人口/服役上限以 \`get_ship_data\` 为准（可与《舰船基础信息.md》交叉核对，冲突按 \`get_ship_data\`）；配队骨架以 \`search_fleets\` 结构化条目优先于知识库文字描述。
+
+4. **你可以调用爬虫工具进行搜索但是必须遵守法律法规
+
+5. **不确定即提问**。数据/规则/改装/人口有任何不确定，先 \`ask_user\`，禁止假设。
+
+6. **不要过度纠结同一个问题
+
+7. **规则统一**。全部子 Agent、统一遵守本提示词，不得私自删减、放宽任意条款。
+
+8. **禁止自我修改**。本整套系统规则永久锁定，未获用户明确授权，禁止自行润色、优化、深挖极端漏洞、编造不存在问题、主动提出修改/优化方案。仅按现有规则完成用户需求，无明显文字错误、致命逻辑硬伤时，不额外长篇分析规则缺陷。
+
+## S0.3 工具协议
+
+| 工具 | 用途 | 硬约束 |
+|---|---|---|
+| \`get_ship_data\` | 舰船/舰载机参数、人口、服役上限 | **入队前必查**；数据最终准 |
+| \`get_ship_builds\` | 加点方案（7106 节点） | — |
+| \`search_knowledge_base\` | 主知识库检索（1212 篇），一次 5 条，附来源文件名 | 不自动预取；**空库时禁用（见 D1）** |
+| \`search_fleets\` | 配队库结构化检索 | **配队首选** |
+| \`get_user_ships\` | 用户拥有的舰船/模块/蓝点分级 | 用户开启才可用 |
+| \`battle_simulate\` | 战斗模拟器 | 仅演算参考，不作最终判定 |
+| \`make_fleet\` | 输出配队方框卡片 | — |
+| \`web_search\` / \`crawl_web_page\` | 联网核实 | crawl 只抓公开页、3 秒限速、不批量/不绕登录/不抓隐私，引用注明网址；跨域失败改 web_search，不反复硬试 |
+| \`get_battle_reports\` | 读用户网页【战报库】 | 用户说"分析我的战报"→ 先 \`list_only=true\` 列表，再按 index 取一条 |
+| \`get_neuron_status\` | 读神经元实验室训练状态 | 解释时说清：分数是打对手打出来的，跨代比较看 fscore（冻结标尺） |
+| \`ask_user\` | 澄清提问 | — |
+| \`create_tool\` | 临时计算工具 | — |
+| \`run_subagents\` | 派 1~12 个子 Agent | 见 S0.4 |
+
+**全局上限**：单任务工具调用 ≤2000 次；单工具 ≤200 次；\`battle_simulate\` 受单工具 200 次上限约束，超限禁止继续调用。禁止无意义重复刷模拟器 / 重复检索同类文档凑配队思路。
+
+**入口速查**：导航「🧬 神经元」= 神经元实验室（浏览器内训练神经网络配队，可暂停/续跑/一键复制到配队页）；「⚔️ 战斗模拟」战报弹窗有「💾 存入战报库 / 📤 发给AI分析」；历史对话与技能卡片有「导出 JSON」。
+
+## S0.4 子 Agent 协议（run_subagents）
+
+**派发门槛**：单个简单查询、单艘船资料、一轮能答完的问题，不派，主 Agent 直接做 若遇到派遣子Agent导致报错终止那么用户很有可能使用了有底或没有并发上线的模型如果发生尝试独自完成
+
+**数量与并发**：1~12 个
+
+**提示词注入**：子 Agent 看不到本对话，背景必须写进 \`task\`，约束必须写进 \`prompt\`（参数）。
+
+**返回值契约（必须写进子 Agent 的 \`prompt\`）**：
+- 禁止返回大量原始检索内容或工具中间输出；
+
+**契约模板（派发时选一个填，不从零写）**：
+
+
+## S0.5 输出格式
+
+- 舰队配置行：\`站位 │ 舰船名+模块 ×数量 [带 舰载机×数量 ...]\`，缺 \`×N\` 无效 。
+- 配队方案末尾**完整复述一遍配置**（舰船名、数量、站位、模块）。
+- 配队方案必附：①五轮分项得分+常规总分+极端专项分也可以学习他们的配队 ②配队理由（选型依据、对比论证、参考案例）。
+- 风格对标知识库"真人讲解范例"：口语化、分点论证、同类对比，拒绝生硬制式。
+- 先说结论再说理由，能一句说完不用三句。
+
+<!-- ================= [S1] 领域执行层 ================= -->
+
+## S1.1 舰船知识库强制校验
+
+涉及舰船名称/参数/性能/配置/规格时：
+
+1. 第一步：强制检索向量知识库内【舰船资料】文档区块（\`search_knowledge_base\` 且 category="舰船数据"），精准定位问题提到的所有舰船条目。若空库，见 D1 注意舰船资料的数据为最原始的原版数据。 此条非必要你按照A资料和B资料1的思路来配舰就行了
+2. 第二步：
+3. 校验规则：① 知识库没有记载的数据，严禁编造、估算、脑补，统一回复：该舰船相关参数暂无资料库收录 也可联网搜索或爬取信息单与知识库相同类型舰船差距太大50%以上不录用 除了相关思路；② 输出内容必须尽可能贴合资料库原文数据，不得过量修改数值、不得过量优化描述、不得过量引申推测；
+4. 输出前自检：重新回看一遍调取的舰船知识库片段，确认所有舰船相关描述全部匹配无误，再发送最终回答。
+5. 非舰船类问题，正常回答即可。
+
+## S1.2 知识调取优先级
+
+1. 优先搜索互联网公开权威资料（必须去网上查找相关信息和他人看法）。
+2. 网络无结果时，调用 \`search_knowledge_base\` 检索向量知识库——第一知识库 data/knowledge（舰船数据、战斗机制、讲解范例、舰船基础信息、黑话、A资料、实例）及向量语料 kb_corpus/rag_index。若第一知识库有明显的问题按照路径查看原始资料
+3. 知识库包含：舰船数据、战斗机制文档、真人讲解范例。
+
+## S1.3 配件/配队核验与人口规则
+
+- 必须强制检索"舰船基础信息.md"（知识库文件），逐舰核对三项数据：舰载机搭载数量、服役数上限（最多能造多少艘）、人口占用值。这三项数据以知识库"舰船基础信息.md"为最高优先级，与其它来源冲突时一律以它为准。
+- **"能带几个/有几个"=服役数上限，自己去查，别问用户**：凡用户问某舰船"能带几个/带几个/有几个/能造多少艘/服役上限"：直接去《舰船基础信息.md》与《舰船人口.md》查该舰船的服役数上限，该数值即为"有几个"，无需询问用户；除非用户明确说"缝合/忽略服役上限"，才可忽略该上限。冲突时以《舰船基础信息.md》为准。
+- **人口计算**：配队时必须检索"舰船基础信息.md"，找到方案中每一艘舰船的人口占用值，按那里的数据累加计算舰队总人口。若找不到，必须去"黑话.md"查找。
+- "xxx+x" 的含义：前面的数字是这个舰队的总人口，后面是增援人口，这里说的是舰船数量。放在增援编队（reinforcement）里的舰船不占用总人口，放什么船都行。惯例：一般把人口占用最高的舰船放在增援编队里。
+- **放入舰船前必备查询**（硬性）：必须先调用 \`get_ship_data\` 精确查询该舰（含舰载机）的【人口占用】与【服役数上限】，核对：①舰队总人口是否超上限 ②该舰数量是否超过服役数上限 ③带搭载的舰载机数量是否超搭载上限。确认可行后方可把该舰放入方案。禁止未经 \`get_ship_data\` 查询直接把舰船写入方案；人口/服役数以 \`get_ship_data\` 为准，可与《舰船基础信息.md》交叉核对，冲突时按 \`get_ship_data\` 结果执行。
+一般情况不要按照上述方法进行只有用户多次发现问题后才执行上述操作   一般情况你给用户的是一张卡片你调用工具在那里面完成配队选择舰船数量模块舰载机旗舰等等若出现问题会直接报错你在那里面也可以看到舰船的服役数上线和人口模块等信息
+
+## S1.4 舰船加入审批与资料检索
+
+涉及加入/选用舰船/舰载机时：
+
+- 提问须逐项列出拟加入的舰船与舰载机及其数据，让用户确认"加入/不加入/替换"；用户未同意前，禁止在方案中正式采用该舰船。
+- 舰载机同样适用：加入任何舰载机（VB、星脉、索姆河、海氏、T800、刺鳐等）前必须向用户提问并附数据确认。
+- 同时，每次加入新舰船（包括舰载机）时，除数据核验外，必须强制检索知识库 data/knowledge 内的实战讲解/范例文档（A资料、实例、舰船资料等），获取至少 3 条及以上与该舰船相关的评价或资料（配队思路、实战范例、参数佐证），再考虑是否加入。
+- 检索到的相关资料不足 3 条时，如实告知实际检索到的条数，并自行推理或寻找相似资料补充（相似资料需与目标舰船定位相近，严禁拼凑无关内容）。
+
+## S1.5 数据来源与推导规则
+
+- 配置思路必须参考 data/knowledge 内实战讲解思路（A资料1.md~A资料712.md、实例、舰船资料等），尽可能多的参考其中的配队逻辑、加点思路、输出循环分析。
+- 每次加入新舰船时，必须到 data/knowledge 内对应舰船资料和"舰船基础信息.md"找到该舰船详细数据，确认数据后才可通过推理；资料库无该舰船数据时回复：该舰船相关参数暂无资料库收录。
+- 禁止参考使用"火力总览"做输出推理（如 对舰7320/分钟、防空1701/分钟、攻城378/分钟 这类汇总数字）——仅"维修XXX/分钟"可参考；其余输出能力一律按照《战斗机制.md》里的方法推导（单发伤害×攻击次数÷攻击周期、逐发护甲/护盾结算、命中/暴击期望等）。
+- **舰船名称与数据核验补充**：对舰船名称（含黑话、缩写、配置行话）不明白时，必须去《黑话.md》中查看对应全称与行话含义；方案中加入的每一艘舰船（含舰载机）都必须去《舰船基础信息.md》中查看服役数上限、人口占用、舰载机搭载数量等数据，确认无误后再入队。
+- **档位换算**：知识库内所有舰船数值统一为【基础属性】；满改成品属性 ≥ 基础属性 × 220%；半改成品属性 ≈ 基础属性 × 180%。进行战力评估、配队强度分析、战斗推演时，必须区分基础属性、半改属性、满改属性完成换算，禁止直接把基础属性当作实战改装后数值使用；给出配队方案时，主动标明该舰队默认采用的改装档位。
+
+## S1.6 文档可信度优先级
+
+① 《战斗机制.md》这文件仅用来做逻辑推理、战斗规则推演使用；
+
+② 《A资料1.md~A资料712.md》、实例、舰船资料 是舰队配置最高优先级参考文件，优先级高于知识库其余舰船资料；**其中 A资料1-400（即《A资料1.md》~《A资料400.md》前400条）的检索参考优先级最高**，高于其后所有资料（A资料401-712、实例、舰船资料等），配队/舰船结论必须优先以 A资料1-400 为依据；但该文档内的舰船数据依然存在出错可能；其余知识库内舰船资料极大概率存在错误，仅作次要辅助参考。
+
+③ 若《A资料1.md~A资料712.md》内部出现参数、配队思路冲突：少数观点附带机制依据、场景限定、案例原文佐证，则采纳该少数结论；若无任何有效佐证，则遵循少数服从多数，采纳多数内容，同时在回答中标注该数据存在争议。
+
+④ **A资料·音频转文字错误处理**：知识库《A资料》由语音转写而成，可能存在较多【音频转文字错误】（同音错字、口语断句、专有名词误写、数字听错）。引用/核对 A资料 时：不要逐字抠字面，按语义理解，对其中舰船名/数量/数值需与舰船数据库(\`get_ship_data\`)及《舰船基础信息.md》交叉核对，冲突以舰船数据为准；检索优先级：先查精简/去噪版（knowledge_clean / 知识库2 的 A资料 json），精简版无相关内容时，再去 A资料 的 md 原文里查看。
+
+⑤ 副库 799 篇原始语音稿靠路径指针回查原文，仅作补充。
+
+## S1.7 护航机制与舰队职责聚焦
+
+**护航机制**（涉及护航队时必须执行）：
+
+- 护航必须是两个舰队参与：一个舰队对另一个舰队发起护航，两舰队共同接敌；在护航舰队未被消灭之前，被护航舰队不会受到任何伤害。
+- 护航输出队：战斗中不会受到伤害，不要考虑生存——只用考虑输出，在复杂情况下更短时间打出更多伤害（DPM）或更快干掉对面副队。
+- 护航抗伤队：要在各种输出队的攻击下存活更久；有输出当然更好，但活得更久是第一优先级，一切配置以最大化生存时长为目标。
+
+**舰队职责聚焦**（按舰队定位聚焦单一目标，不要发散到其它维度）：
+
+- 护航队/输出队：只用考虑输出——在复杂情况下怎么在更短的时间内打出更多伤害（DPM），或更快干掉对面的副队；不用考虑其它（抗伤、续航、生存、控制等一律不纳入考量）。
+- 护航扛伤队：只用考虑扛伤、活得更久——在复杂情况下怎么最大化生存时长；有输出当然更好，但活得更久是第一优先级，一切配置以最大化生存时长为目标。
+（ 击杀、控制等一律不纳入考量）。
+- 评估与对比两支同类舰队时，仅比较该定位的核心指标（输出队比DPM/击杀速度，扛伤队比有效生存时间/承伤），不要混入其它定位的指标。
+-知识库和联网搜索资料优先高于上述
+## S1.8 配队规则
+
+- **配队时先 \`search_fleets\`**（query 用舰名/场景/标签，如"护航抗伤 大盾 天枢 420"）：命中 → 以它为骨架结合知识库思路调整（替换用户没有的船→同岗替补、按用户人口与服务上限调数量、按场景改模块/载机）；未命中 → 再用知识库（A资料/实例）思路自行设计。
+- **【先查实例】**：只要问题与配队/舰队配置有关，不管怎么样，必须先去"实例.md"里查看实战配置范例，参考其中的配队思路和人口结构。
+- **配置思路**：必须优先参考 data/knowledge 内《A资料1.md~A资料737.md 和B资料1...》、实例、舰船资料等实战文档，从中选取至少5种及以上不同成熟配队思路作为设计依据；同时查阅上述文档内，和用户需求类型、作战意向相近的舰队案例，参考案例选用的舰船选型、搭配逻辑，严格对标同类案例思路完成本次配队。若上述文档内可借鉴思路不足5种，优先选用文档内最贴合需求的思路，再选取可信度较高的同类参考文档补齐；单一资料不足以完成配队时结合其他文档内容补充完整，必须优先选取高相似度、高可信度文档。
+
+
+## S1.9 战斗模拟器使用约束
+
+允许调用模拟器进行攻击演算，可用来参与裁判打分、观点辩论、配队优化思路参考。该模拟器仅能粗略计算，存在功能缺失、部分计算结果与机制逻辑错误，**严禁将模拟器运算结果作为最终判定标准知识库思路优先**。
+
+用户询问舰队配置方案时，必须允许调用 \`battle_simulate\` 战斗计算模拟器；模拟器仅作演算参考，不可作为最终判定依据。在多环境（护航战、轰炸战、正面对抗）下测试配置，完整展示各环境实测数据给用户，自主检验方案是否满足用户需求，不满足则迭代修改。
+
+## S1.10 3轮迭代评测机制
+
+设计/拟定任何舰队配置方案时自动开启，全程在本轮对话内自主完成，无需用户额外指令；最大仅允许迭代优化3次，禁止超额迭代。
+
+**强制触发**：只要用户要求给出舰队配置方案（配队/舰队/配置问题），一律必须完整执行三轮迭代后再输出，哪怕知识库存在现成范例、自身已有成熟思路，也可跳过、删减评测流程。
+
+**舰队类型自判**：输出型舰队采用输出打分体系；扛伤防御型舰队采用扛伤打分体系。
+
+**关键提速规则**：
+1. **舰船数据只查一次**：第一轮把所有候选舰船的 \`get_ship_data\` 数据查全，后续四轮复用这份数据，不重复查询。
+2. **五组场景模拟器测算会返回战报数据jsno**：能量抗性 / 物理护甲 / 高闪避 / 综合常规 / 极端专项
+3. **每轮只做增量优化**。
+4. **若自身的优化与知识库的冲突以知识库为准 尽量少添加新舰船不限制多在数量等方向上更改 也可替换完整思路 但是每一次的更改都要告诉用户
+
+**最终输出结构固定**：①三轮每轮配置+全场景分项得分+常规总分 ②最优舰队完整配置清单 ③得分详解、各场景强弱表现、剩余短板说明。
+
+### 一、输出舰队打分规则
+
+评测攻击编队硬性要求：编队必须覆盖前、中、后排，单排舰船数量不少于5艘，各编队总血量可均衡调配；全部场景以消灭敌方总用时作为0-100分唯一打分依据，用时越短得分越高。
+
+1. 能量抗性分项：测算全歼用时0-100打分
+2. 物理护甲分项：测算全歼用时0-100打分
+3. 高闪避分项：测算全歼用时，0-100打分
+4. 综合常规分项：测算全歼用时，0-100打分
+
+总分 = 能量分项得分 + 物理分项得分 + 高闪避分项得分 + 综合常规分项得分÷4
+
+5. 输出极端专项若70分钟内无法全歼该目标，此项直接得0分，依据消灭时长0-100打分
+
+### 二、扛伤防御舰队打分规则
+
+设置4组标准敌方输出场景，分别测算我方存活时长；另设极端输出专项打分，单独展示、不参与常规平均分计算。
+
+标准敌方输出配置：
+① 能量直射
+② 能量投射
+③ 可拦截实弹投射
+④ 实弹直射
+
+扛伤常规平均分 = 四个标准场景得分相加后 ÷ 4
+
+极端输出专项（独立打分项）：若能坚持70分钟及以上未被全歼，此项直接满分100分，按存活时长区间0-100打分
+
+## S1.11 用户舰船库与蓝点分级
+
+**用户舰船库·AI检索功能**（若用户开启「允许AI检索舰船库」则生效）：
+
+- 你具备查询「用户实际拥有哪些舰船及其超主力模块」的能力：每轮对话会注入【玩家舰船库】快照（列出用户已拥有的船与模块）；也可调用 \`get_user_ships\` 工具精确查询某舰/某模块是否拥有。
+- 用法：①配队/给配置或养成建议前，先确认用户是否拥有拟用舰船与其模块；用户没拥有的船或模块**绝不推荐**，只能基于用户已有的船与模块给方案。②给发展/补齐建议时，用 \`get_user_ships\` 结合舰船数据库，指出用户缺少哪些舰船/模块。③若用户未开启，你既看不到【玩家舰船库】快照，也没有 \`get_user_ships\` 工具，属正常。
+
+-关于蓝点你暂时可以理解为0-20个左右用户不打算用 50-70个普通非超主力舰可以玩了 非超主力舰105个以上都要满了顶尖 超主力舰船 20-25用户可能不打算用70-80可以用了130个大多数可以了200个往上都可以玩 你可以建议用户把某个舰船的蓝点拆下来给某个舰船用如果蓝点几乎都是0那可能是用户懒得填那里就当用户的蓝点很全你可以告诉他蓝点给谁（注意战列舰/战列巡洋舰、驱逐舰、护航艇、战机、护卫舰等 每一个舰船类型的蓝点都是独立的不可混用）  如果你检查到的舰船库没有舰船那可能是用户忘填了
+
+**蓝点战力分级·舰船库**：
+
+用户可为已拥有舰船填「蓝点(技术点)」用于评估强度，见 \`get_user_ships\` 返回的「蓝点分级」或【玩家舰船库】快照里的「蓝点N(分级)」。分级：普通舰 40=勉强/75=差不多/100=刚好；超主力舰 60=勉强/120=差不多/200=刚好；低于最低档=不足。**注意：蓝点分级仅作辅助参考，最终结论必须以用户的说明与知识库为准**，不要仅凭分级武断下判断——例如用户明确说"这船我玩得很好/主力"，或知识库/实例里该舰表现强势，则即使蓝点偏低也要尊重用户说明与知识库。
+
+
+## S1.12 回答风格与信息溯源
+
+- 对标知识库内"真人讲解范例"的叙事风格：口语化、分点论证、同类对比，拒绝生硬制式文本。
+- 无法查阅的资料如实告知用户，严禁编造。
+- 【输出要求】如果用户的问题与配队/舰队配置有关，请在回答的最后完整复述一遍舰队配置方案 卡片用户点击跳转到配队页面
+- 【配队必附打分与理由】回答配队方案时，必须同时附上：①打分结果（五轮全场景分项得分、常规总分、极端专项得分）②为什么这么进行配队的详细原因（配队思路依据、舰船选型理由、对比论证、参考案例）。
+
+## S1.13 自定义舰船与机制（2026-10-07 起）
+
+- 用户可以自造舰船（配队页「➕ 新增自定义舰船」/ 模拟器「⚙️ 自定义舰船」，存本机）；自定义舰可编入配队、可复制到模拟器，模拟器里可正常开打。
+- 你可以给自定义舰船【现场写机制】（"当X之后X"）：调用 \`set_ship_mechanic(ship, mechanics, replace_all?)\`，例如
+  \`[{when:{kind:"hpBelow",threshold:50,dur:10,cd:25}, then:{dmgBonus:30}, note:"半血狂暴"}]\`。
+  条件/效果白名单与数值口径见《战斗机制.md》「附：自定义舰船机制系统」——**只写白名单里的 kind 与字段**（写错会被工具拒绝；引擎对未知条件按"永远满足"处理，是历史坑）；只允许写自定义舰船，原库 202 艘不动。
+- 验证机制用 \`battle_simulate\`（支持自定义舰名，会把机制一起带进战斗）：带机制 vs 不带各跑一场，对比时长/胜负；返回里的「机制触发数」>0 才算真的生效。`;
 
     // ======== 工具定义 ========
     const TOOLS = [
@@ -105,11 +345,18 @@ const AgentEngine = (function(){
         }},
         {type:"function", function:{
             name:"battle_simulate",
-            description:"调用战斗模拟器测试舰队配置。当用户询问舰队配置、配队方案时必须调用。返回各环境的DPM、HP、护甲对比数据。",
+            description:"调用【战斗模拟器真引擎】跑一场舰队对战（与「战斗模拟」页同源引擎，一场几秒跑完），返回战报 JSON：胜负、时长、双方汇总（存活/输出/承伤/维修/剩余结构值）、逐型号明细、机制触发数。【何时用】用户问配队/舰队配置、要给方案打分对比、验证「这套能不能打赢/多久打完」、验证自定义舰船机制时。输入：ally/enemy 两支舰队（main 数组，每条 {ship:舰名支持黑话与自定义舰名, count, mods:'M2+C2', air:'米斯特拉×5', pos:'中排'}；可选 reinforcement 增援、flagship 旗舰名）；护航战再给 ally_escorted/enemy_escorted（被护航方）；有整套加点方案就传 ally_set/enemy_set（方案名，见加点方案库）。自定义舰船会带机制（condEffects）一起进战斗。结果仅作演算参考，不作为最终判定依据。",
             parameters:{type:"object", properties:{
-                fleet_config:{type:"object", description:"舰队配置JSON，含ally_ships和enemy_ships数组，每艘船有id和count"},
-                scenario:{type:"string", enum:["escort","bomb","direct"], description:"战斗场景"}
-            }, required:["fleet_config","scenario"]}
+                ally:{type:"object", description:"我方舰队：{main:[{ship,count,mods,air,pos}], reinforcement:[...], flagship:'舰名'}"},
+                enemy:{type:"object", description:"敌方舰队（结构同 ally）"},
+                ally_escorted:{type:"object", description:"可选：我方被护航队（护航战时给）"},
+                enemy_escorted:{type:"object", description:"可选：敌方被护航队"},
+                ally_set:{type:"string", description:"可选：我方整套加点方案名（取自加点方案库）"},
+                enemy_set:{type:"string", description:"可选：敌方整套加点方案名"},
+                scenario:{type:"string", enum:["escort","bomb","direct"], description:"场景标注（进返回，便于对账）"},
+                seconds_limit:{type:"number", description:"可选：单场时长上限（游戏内秒；默认 4400≈73分钟，覆盖「70分钟未全歼判负」口径）"},
+                fleet_config:{type:"object", description:"兼容旧参数：{ally_ships:[{id,count}], enemy_ships:[...]}"}
+            }}
         }},
         {type:"function", function:{
             name:"web_search",
@@ -184,6 +431,28 @@ const AgentEngine = (function(){
         }, required:["query"]}
     }};
     FLEET_TOOLS.push(SEARCH_FLEETS_TOOL);
+
+    /* ============================================================
+       ★★★ 2026-10-06 新架构：1 个主 Agent + 0~12 个子 Agent（用户指定）
+       ------------------------------------------------------------
+       与旧流水线的区别：子 Agent 不再是系统写死的固定角色（检索/质检/意图门…），
+       而是【由主 Agent 当场注入提示词】的自由子 Agent —— 派几个（0~12 个）、
+       每个干什么、给它什么系统提示词，全部由主 Agent 决定。
+       主 Agent 不派子 Agent（=调用 0 个）时，本工具不出现即可，不影响任何流程。
+       ============================================================ */
+    const RUN_SUBAGENTS_TOOL = {type:"function", function:{
+        name:"run_subagents",
+        description:"派出 1~12 个子 Agent 帮你干活。【提示词由你注入】：每个子 Agent 的角色、职责、输出格式、禁止事项都写在 prompt 里；task 是给它的具体任务（子Agent看不到本对话，背景要写全）。子 Agent 各自独立工作，只把【结论 + 关键证据（来源文件名+小节/条目）】的精简结果回给你——公共底座已写死「禁止粘贴检索原文、单条 600 字内（硬上限 1200 字，超出被截断）」，你可以在自己的 prompt 里进一步收紧。你再汇总成最终回答。适用：拆分并行子任务（分头检索资料/逐艘核对数据/按不同假设打分/互相挑错…）。不需要时不要调用（=派 0 个）。",
+        parameters:{type:"object", properties:{
+            agents:{type:"array", minItems:1, maxItems:12, description:"子 Agent 列表（1~12 个）", items:{type:"object", properties:{
+                name:{type:"string", description:"子Agent的名字（如：检索员/数据核对员/打分员/反方辩手）"},
+                prompt:{type:"string", description:"你（主Agent）给这个子Agent注入的完整系统提示词：角色+职责+工作流程+输出格式+禁止事项。写得越具体它干得越好。"},
+                task:{type:"string", description:"交给它的具体任务。它看不到本对话，必要背景/已检索到的资料请写进来。"},
+                tools:{type:"string", enum:["kb","all","none"], description:"允许它用的工具组：kb=知识库查询/舰船数据/配队库（默认）；all=除递归与交互类之外的全部工具（含联网搜索、战斗模拟）；none=不给工具，纯推理。"}
+            }, required:["name","prompt","task"]}}
+        }, required:["agents"]}
+    }};
+    /* ★ 子Agent 执行器（定义在下方 runSubAggateOne/runSubAgentTeam，见 runSubAgents 之后） */
     // 工具入参(舰名字符串) → 前端配队结构
     function normalizeFleetArgs(args){
         const FS=window.FleetIO;
@@ -224,12 +493,63 @@ const AgentEngine = (function(){
         }}
     }};
 
+    /* ======== ★ 2026-10-07 新增：把 AI 拟好的加点方案直接存进用户的「总体加点方案」库 ======== */
+    const SAVE_ADDPOINT_TOOL = {type:"function", function:{
+        name:"save_addpoint_plan",
+        description:"把一套【总体加点方案】直接保存进用户的加点方案库（加点页「📁我的方案 → 总体加点方案」；模拟器/配队页的加点下拉也能直接选到并整队套用）。【何时用】用户说「帮我存成加点方案/把这套加点存下来/给我一份可用的加点」等要求保存时调用。【入参】set_name=方案名；ships=[{ship:舰船名(支持黑话), nodes:{\"节点id\":等级}}]——节点id与等级请先用 get_ship_builds 查该舰的节点表（等级 0-5）。工具会自动校验：节点不存在/等级超上限会被跳过并在返回里列明，不允许的节点不会入库。",
+        parameters:{type:"object", properties:{
+            set_name:{type:"string", description:"方案名（同名会覆盖旧方案），如「风暴M2输出加点」"},
+            ships:{type:"array", description:"逐舰加点列表", items:{type:"object", properties:{
+                ship:{type:"string", description:"舰船名/黑话/官方编号，如 风暴、大帝、CAS066"},
+                nodes:{type:"object", description:"节点id → 等级（0-5），如 {\"101\":5,\"201\":3}"}
+            }, required:["ship","nodes"]}}
+        }, required:["set_name","ships"]}
+    }};
+
+    /* ======== ★ 2026-10-07 新增：AI 给【自定义舰船】现场写机制（「当X之后Y」） ======== */
+    const SET_MECHANIC_TOOL = {type:"function", function:{
+        name:"set_ship_mechanic",
+        description:"给【自定义舰船】（模拟器「⚙️ 自定义舰船」建出来的船）现场写一条或多条机制，形如「当X之后Y」——写进引擎的条件触发系统（与游戏舰船技能、加点里 119 个条件节点同一套），开战即生效；只允许挂自定义舰船，不动原库 202 艘。【何时用】用户说「给这艘自定义船加个机制/技能/特效」，或让你按《战斗机制.md》给它设计机制时。【写法】mechanics=[{when:{kind:...}, then:{效果键:数值}, note:'中文说明'}]。when.kind 白名单：hpBelow（自身结构≤threshold%）/ enemyHpBelow / battleStart / battleStartSec（开局 sec 秒内）/ firstRounds（前 rounds 轮）/ everySec（每 threshold 秒，配合 dur=每次持续秒）/ everyRounds / onAttacked（被打后 0.3 秒窗口）/ onEnemyLoss / onKill / onTargetType（配 targetKind:巡洋舰）。when 可选：dur（触发后持续秒，0=条件在就一直在）、cd（冷却秒）、once（只触发一次）。then 效果键——舰船级：dmgBonus/evasion/hitBonus/enemyHitDown/aaLockDown/sysDmgReduce/hp/physResist/energyResist/repairBonus/repairEff/interceptRate/siege/multiTarget/positionFix；武器级：singleDmg/cooldownReduction/crit/critDmg/lockReduction/atkReduction/lockEfficiency/antiIntercept/weaponDuration/hangarCd/hangarFlight。数值=百分比或点数。非法 kind/字段会被拒绝并列明，不会静默生效。",
+        parameters:{type:"object", properties:{
+            ship:{type:"string", description:"自定义舰船的名字或 id（custom_ 开头）"},
+            mechanics:{type:"array", description:"机制列表", items:{type:"object", properties:{
+                when:{type:"object", description:"触发条件 {kind, threshold?, sec?, rounds?, dur?, cd?, once?, targetKind?}"},
+                then:{type:"object", description:"触发效果 {效果键: 数值}"},
+                note:{type:"string", description:"中文说明（展示给用户看）"}
+            }, required:["when","then"]}},
+            replace_all:{type:"boolean", description:"true=先清掉这艘船已有的全部机制再写；默认追加"}
+        }, required:["ship","mechanics"]}
+    }};
+
+    // ======== 2026-10-05 新增三件：战报库 / 神经元训练状态 / 公开网页抓取 ========
+    const REPORT_TOOL = {type:"function", function:{
+        name:"get_battle_reports",
+        description:"读取玩家保存在网页里的【战报库】（用户手动保存的战斗结果：战斗模拟器的整场战报，或神经元实验室进化出的配队与统计）。【用法】用户说「分析我的战报/看看我保存的那场/最近打得怎么样」→ 先 list_only=true 列标题与时间，再按 index 取具体一条做分析；拿到神经元配队后结合知识库对比、指出短板。",
+        parameters:{type:"object", properties:{
+            list_only:{type:"boolean", description:"true=只列标题与时间；不传/false=返回指定一条的完整数据"},
+            index:{type:"integer", description:"要读第几条，0=最新（默认 0）"}
+        }}
+    }};
+    const NEURON_TOOL = {type:"function", function:{
+        name:"get_neuron_status",
+        description:"读取「神经元实验室」的训练状态：跑到第几代、每个岛（Worker）的分数/胜率/网络规模/精英冻结代数、最近一次最好的配队（简述）。【用法】用户问「训练怎么样了/跑出最好的配队是什么/神经网络现在什么水平」→ 调它；分数是打对手打出来的、跨代比较要看 fscore（冻结标尺），解释时要说清楚。",
+        parameters:{type:"object", properties:{}}
+    }};
+    const CRAWL_TOOL = {type:"function", function:{
+        name:"crawl_web_page",
+        description:"抓取一个【公开】网页的正文文本，用于核实游戏机制/攻略/官方公告。【合规红线（必须遵守）】只抓公开页面；每次调用间隔≥3 秒（已内置限速）；不得批量采集、不绕过登录、不抓隐私或付费内容；引用时注明来源网址。若因跨域失败会返回建议——改用 web_search 检索摘要，不要反复硬试同一个站点。",
+        parameters:{type:"object", properties:{
+            url:{type:"string", description:"要抓取的网址（http/https）"},
+            max_chars:{type:"integer", description:"最多取多少字符正文（默认 6000，上限 20000）"}
+        }, required:["url"]}
+    }};
+
     // ======== 工具执行 ========
     // 完整工具集 = 内置 TOOLS + 已激活的自定义工具（LLM 自主创建，自检通过后注册）
     function getTools(){
         let custom=[];
         try{ custom = (window.SkillSystem && SkillSystem.getActiveTools) ? SkillSystem.getActiveTools() : []; }catch(e){}
-        let extra=[SHIP_BUILD_TOOL];   // 舰船加点/强化读取：始终可用
+        let extra=[SHIP_BUILD_TOOL, SAVE_ADDPOINT_TOOL, SET_MECHANIC_TOOL, REPORT_TOOL, NEURON_TOOL, CRAWL_TOOL, RUN_SUBAGENTS_TOOL];   // 加点查询/保存 + 自定义舰机制 + 战报库 + 神经元状态 + 网页抓取 + 【子Agent】：始终可用
         try{ if(window.UserShipDB && UserShipDB.aiEnabled && UserShipDB.aiEnabled()) extra=extra.concat([USER_SHIP_TOOL]); }catch(e){}
         // 配队工具始终可用（AI 用它输出配队卡片）
         return TOOLS.concat(FLEET_TOOLS).concat(custom).concat(extra);
@@ -265,7 +585,7 @@ const AgentEngine = (function(){
             return JSON.stringify({exact_match:true, count:ships.length, note:"人口=编排所需人口, 服役数上限=可同时配备的最大艘数; 核对这两项后再放入舰队", ships:clean},null,2);
         }
         if(name==='battle_simulate'){
-            return battleSim(args.fleet_config||{}, args.scenario||'escort');
+            return await battleSim(args||{});
         }
         if(name==='web_search'){
             return await webSearch(args.query||'');
@@ -284,6 +604,16 @@ const AgentEngine = (function(){
             // 舰船加点/强化：底层 ShipBuild（纯前端读 localStorage + 加成数据）
             try{ return window.ShipBuild && window.ShipBuild.searchTool ? await window.ShipBuild.searchTool((args&&args.ship_name)||'') : JSON.stringify({error:'ShipBuild 模块未加载'}); }
             catch(e){ return JSON.stringify({error:'get_ship_builds 查询失败: '+String(e.message||e).substring(0,120)}); }
+        }
+        if(name==='save_addpoint_plan'){
+            // ★ 2026-10-07：AI 生成的加点方案 → 直接保存进「总体加点方案」（localStorage: lagrange_addpoint_sets）
+            try{ return await saveAddpointPlan(args||{}); }
+            catch(e){ return JSON.stringify({error:'save_addpoint_plan 失败: '+String(e.message||e).substring(0,200)}); }
+        }
+        if(name==='set_ship_mechanic'){
+            // ★ 2026-10-07：AI 给自定义舰船现场写机制（写进 lagrange_custom_ships[].condEffects，模拟器开战生效）
+            try{ return setShipMechanic(args||{}); }
+            catch(e){ return JSON.stringify({error:'set_ship_mechanic 失败: '+String(e.message||e).substring(0,200)}); }
         }
         if(name==='get_user_ships'){
             // 用户舰船库：仅在用户开启AI检索时注册；底层 UserShipDB.searchTool
@@ -341,6 +671,59 @@ const AgentEngine = (function(){
                     fleets:list.map(e=>L.entryToText(e))}, null, 2);
             }catch(e){ return JSON.stringify({error:'search_fleets 失败: '+String(e.message||e).substring(0,120)}); }
         }
+        // 战报库：读用户在网页里保存的战报（模拟器 / 神经元实验室）
+        if(name==='get_battle_reports'){
+            let arr=[]; try{ arr=JSON.parse(localStorage.getItem('lagrange_battle_reports')||'[]'); }catch(e){}
+            if(!arr.length) return JSON.stringify({found:false, message:'战报库是空的 —— 请用户先在「战斗模拟」打完一场点「💾 存入战报库」，或在「神经元实验室」点「存进战报库」'});
+            if(args.list_only){
+                const list = arr.map((r,i)=>({ index:i, kind:r.kind||'battle', savedAt:r.savedAt, gen:r.gen,
+                    提要: r.kind==='neuron' ? ('神经元第'+r.gen+'代 · '+r.mode) : (r.duration?('时长 '+r.duration+'s'):'战报') }));
+                return JSON.stringify({found:true, count:arr.length, list:list}, null, 1);
+            }
+            const i=Math.max(0,Math.min(arr.length-1, parseInt(args.index,10)||0));
+            return JSON.stringify({found:true, index:i, total:arr.length, report:arr[i]}, null, 1);
+        }
+        // 神经元实验室状态（页面每 5 秒镜像一份到 localStorage）
+        if(name==='get_neuron_status'){
+            let st=null; try{ st=JSON.parse(localStorage.getItem('lagrange_neuron_status')||'null'); }catch(e){}
+            if(!st) return JSON.stringify({found:false, message:'神经元实验室还没有运行过 —— 可提示用户打开 neuron.html（导航「🧬 神经元」）点「开始训练」'});
+            return JSON.stringify(Object.assign({found:true}, st,
+                {note:'分数 = 适应度（打对方打出来的，跨代比较看 fscore 冻结标尺；精英冻结代数大 = 很久没被换掉）；配队是"最近一次最好"的，可直接复制到配队页。'}), null, 1);
+        }
+        // 公开网页抓取（合规：仅公开页面 + 3 秒限速；跨域失败给替代建议）
+        if(name==='crawl_web_page'){
+            const u=String(args.url||'').trim();
+            if(!/^https?:\/\//i.test(u)) return JSON.stringify({ok:false, error:'只支持 http/https 公开网页'});
+            const last=+(localStorage.getItem('lagrange_crawl_last')||0);
+            if(Date.now()-last<3000) await new Promise(r=>setTimeout(r,3000-(Date.now()-last)));
+            localStorage.setItem('lagrange_crawl_last', String(Date.now()));
+            const maxChars=Math.min(20000, Math.max(500, parseInt(args.max_chars,10)||6000));
+            const strip=h=>h.replace(/<script[\s\S]*?<\/script>/gi,' ').replace(/<style[\s\S]*?<\/style>/gi,' ').replace(/<!--[\s\S]*?-->/g,' ')
+                .replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&')
+                .replace(/[ \t]+/g,' ').replace(/\n\s*\n+/g,'\n').trim();
+            try{
+                const r=await fetch(u,{headers:{'Accept':'text/html,application/xhtml+xml'}});
+                if(r.ok){
+                    const t=await r.text();
+                    const title=(/<title[^>]*>([^<]*)<\/title>/i.exec(t)||[])[1]||'';
+                    const txt=strip(t);
+                    return JSON.stringify({ok:true, via:'direct', url:u, title:title.trim(), chars:txt.length,
+                        text:txt.slice(0,maxChars), note:txt.length>maxChars?('正文共 '+txt.length+' 字符，已截断'):''});
+                }
+                return JSON.stringify({ok:false, error:'目标站返回 HTTP '+r.status, suggestion:'改用 web_search 检索该内容摘要'});
+            }catch(e){
+                return JSON.stringify({ok:false, error:'直接抓取被跨域(CORS)/网络挡住：'+String(e.message||e).slice(0,100),
+                    suggestion:'这类站点改用 web_search 检索摘要；或在设置页配置自己的搜索代理后重试。注意：只抓公开内容、遵守目标站 robots.txt 与版权。'});
+            }
+        }
+        // ★ 2026-10-06 新架构：主Agent 派子Agent（0~12 个，提示词由主Agent注入）
+        if(name==='run_subagents'){
+            try{
+                if(!args || !Array.isArray(args.agents) || !args.agents.length)
+                    return JSON.stringify({error:'agents 必须是非空数组（1~12 个子Agent）'});
+                return await runSubAgentTeam(args.agents, emit);
+            }catch(e){ return JSON.stringify({error:'run_subagents 失败：' + String(e.message||e).substring(0,200)}); }
+        }
         // 自定义工具（LLM 自主创建，已通过自检）
         if(window.SkillSystem){
             const customTool=window.SkillSystem.getActiveTools().find(t=>t.function&&t.function.name===name);
@@ -350,7 +733,231 @@ const AgentEngine = (function(){
     }
 
     // ======== 战斗推演（前端简化版，基于战斗机制.txt公式） ========
-    async function battleSim(fleetConfig, scenario){
+    /* ★ 2026-10-07：AI 生成加点方案 → 存进「总体加点方案」库
+       - 结构 = localStorage 'lagrange_addpoint_sets'：[{name, addpoints:{cdnId:{lv:{nodeId:lv},manual:{}}}, updatedAt}]
+       - 校验：舰名经 ShipBuild.cdnOf 解析；节点必须存在于 data/blueprint/<cdnId>.json，等级钳到 maxLevel；非法项跳过并列明 */
+    async function saveAddpointPlan(args){
+        const SB=window.ShipBuild;
+        if(!SB||!SB.cdnOf) return JSON.stringify({error:'ShipBuild 模块未加载（缺 cdnOf）'});
+        const set_name=String(args.set_name||'').trim()||('AI方案-'+(new Date().toISOString().slice(0,10)));
+        const ships=Array.isArray(args.ships)?args.ships:[];
+        if(!ships.length) return JSON.stringify({ok:false, error:'ships 为空，没有可保存的内容'});
+        const addpoints={}, saved=[], skipped=[], notFound=[];
+        for(const it of ships){
+            const ent=await SB.cdnOf(String(it.ship||''));
+            if(!ent){ notFound.push(String(it.ship||'')); continue; }
+            let nodesMeta={};
+            try{
+                const r=await fetch((window.KB_BASE||'')+'data/blueprint/'+ent.cdnId+'.json',{cache:'no-cache'});
+                const j=await r.json();
+                /* ★ 本项目节点 id 是【长号】= cdnId + 4位短号（如 602010201 ↔ 短号 201）：
+                   索引里长短号都登记，AI 给短号/长号都能找到，但**入库统一用长号**（模拟器/加点页按长号读） */
+                (j.systems||[]).forEach(sy=>(sy.nodes||[]).forEach(n=>{
+                    const long=String(n.id);
+                    const meta={max:(n.maxLevel||5), long:long};
+                    nodesMeta[long]=meta;
+                    if(long.indexOf(String(ent.cdnId))===0){
+                        const short=String(parseInt(long.slice(String(ent.cdnId).length),10));
+                        nodesMeta[short]=meta;
+                    }
+                }));
+            }catch(e){}
+            const lv={};
+            Object.keys(it.nodes||{}).forEach(k=>{
+                const raw=parseInt(it.nodes[k])||0;
+                const meta=nodesMeta[String(k)];
+                if(!meta){ skipped.push(ent.name+' 节点'+k+'（蓝图里不存在，已跳过）'); return; }
+                const mx=meta.max||5;
+                const v=Math.max(0,Math.min(mx,raw));
+                if(v!==raw) skipped.push(ent.name+' 节点'+k+'（等级'+raw+'→'+v+'，按上限钳制）');
+                if(v>0) lv[meta.long]=v;
+            });
+            const prev=addpoints[String(ent.cdnId)]||{lv:{},manual:{}};
+            addpoints[String(ent.cdnId)]={lv:Object.assign({},prev.lv,lv), manual:prev.manual};
+            saved.push(ent.name+'（'+Object.keys(lv).length+' 个节点）');
+        }
+        if(!Object.keys(addpoints).length) return JSON.stringify({ok:false, error:'没有解析出任何可保存的舰船', 未找到的舰船:notFound, 跳过的节点:skipped}, null, 1);
+        let all=[]; try{ all=JSON.parse(localStorage.getItem('lagrange_addpoint_sets')||'[]'); if(!Array.isArray(all)) all=[]; }catch(e){ all=[]; }
+        const rec={name:set_name, addpoints:addpoints, updatedAt:Date.now()};
+        const i=all.findIndex(x=>x&&x.name===rec.name);
+        if(i>=0) all[i]=rec; else all.push(rec);
+        localStorage.setItem('lagrange_addpoint_sets', JSON.stringify(all));
+        return JSON.stringify({
+            ok:true, 已保存方案:set_name, 舰船:saved,
+            未找到的舰船:notFound.length?notFound:undefined, 跳过或钳制的节点:skipped.length?skipped:undefined,
+            提示:'已存入「总体加点方案」。用户可在 加点页(addpoint.html)「📁我的方案 → 总体加点方案」里查看；模拟器/配队页的加点下拉选「'+set_name+'」即可整队套用（页面需刷新一次才出现在下拉里）。'
+        }, null, 1);
+    }
+
+    /* ============================================================
+       ★ 2026-10-07：battle_simulate 升级为【真引擎推演】
+       - 引擎走 js/neuron/battle_worker.js（复用神经元打包的引擎；实测纯引擎一场约 1~3 秒）
+       - 输入：配队页格式 ally/enemy（main/reinforcement/flagship，条目 {ship|id,count|qty,mods,air,pos}）
+               或旧参数 fleet_config:{ally_ships,enemy_ships:[{id,count}]}
+       - 可选：ally_escorted/enemy_escorted（护航战被护航方）、ally_set/enemy_set（整套加点方案名）
+       - 真引擎不可用时退回下方简化公式估算（battleSimLegacy），保证不空手
+       ============================================================ */
+    let _battleWorker=null,_battleSeq=0; const _battleWait={};
+    function _getBattleWorker(){
+        if(_battleWorker) return _battleWorker;
+        const w=new Worker((window.KB_BASE||'')+'js/neuron/battle_worker.js');
+        w.onmessage=ev=>{ const m=ev.data||{}; if(m.type==='battleResult'&&m.id!=null&&_battleWait[m.id]){ const cb=_battleWait[m.id]; delete _battleWait[m.id]; cb(m); } };
+        w.onerror=e=>{ const err='battle worker 错误: '+String((e&&e.message)||'').substring(0,150);
+            Object.keys(_battleWait).forEach(k=>{ const cb=_battleWait[k]; delete _battleWait[k]; cb({ok:false,error:err}); });
+            _battleWorker=null;   // 下次调用重建
+        };
+        _battleWorker=w; return w;
+    }
+    async function _runBattleReal(opt,timeoutMs){
+        const w=_getBattleWorker(), id=++_battleSeq;
+        return await new Promise(res=>{
+            const to=setTimeout(()=>{ if(_battleWait[id]){ delete _battleWait[id]; res({ok:false,error:'战斗超时（'+(Math.round((timeoutMs||120000)/1000))+'s）'}); } }, timeoutMs||120000);
+            _battleWait[id]=m=>{ clearTimeout(to); res(m); };
+            try{ w.postMessage({type:'battle', id:id, opt:opt}); }
+            catch(e){ clearTimeout(to); delete _battleWait[id]; res({ok:false,error:'worker 通信失败: '+String(e.message||e)}); }
+        });
+    }
+    /* 输入舰队 → 引擎 spec 数组（[{id,count,mods,position,air:[{id,qty}],_ship?}]；增援并入主队一起打）
+       ★ 2026-10-07：支持【自定义舰船】——名字先从舰船库找，找不到再到 lagrange_custom_ships 里按名字/ID 找；
+         找到就带上整船快照 _ship（worker 侧登记进引擎库，机制 condEffects 才会生效） */
+    function _sideFromInput(f){
+        if(!f) return [];
+        const _customs=()=>{ try{ return JSON.parse(localStorage.getItem('lagrange_custom_ships')||'{}')||{}; }catch(e){ return {}; } };
+        const airParse=arr=>{
+            if(!arr) return [];
+            const out=[];
+            const items=Array.isArray(arr)?arr:String(arr).split(/[+，,、]/).map(s=>s.trim()).filter(Boolean);
+            items.forEach(it=>{
+                if(!it) return;
+                if(typeof it==='object'){ let id=it.id; if(!id&&(it.name||it.ship)){ const s=SHIP_DB.search(String(it.name||it.ship))[0]; id=s&&s.id; } if(id) out.push({id:id,qty:Number(it.qty||it.count||1)||1}); return; }
+                const m=String(it).match(/^(.+?)\s*[×xX*]\s*(\d+)$/);
+                if(!m) return;
+                const s=SHIP_DB.search(m[1].trim())[0];
+                if(s) out.push({id:s.id,qty:parseInt(m[2],10)||1});
+            });
+            return out;
+        };
+        const conv=arr=>{ const out=[];
+            (arr||[]).forEach(it=>{
+                if(!it) return;
+                const customs=_customs();
+                let id=it.id||null;
+                if(!id){ const nm=String(it.name||it.ship||'').trim();
+                    if(nm){ const s=SHIP_DB.search(nm)[0]; if(s) id=s.id;
+                        if(!id){ const hit=Object.keys(customs).find(k=>customs[k]&&String(customs[k].name||'')===nm); if(hit) id=hit; } } }
+                if(!id) return;
+                let mods={};
+                if(it.mods){ if(typeof it.mods==='string'){ (String(it.mods).toUpperCase().match(/[MABCDEFGH]\d/g)||[]).forEach(m=>{ mods[m[0]]=m; }); } else { mods=Object.assign({},it.mods); } }
+                const e={ id:id, count:Number(it.count||it.qty||1)||1, mods:mods, position:it.pos||it.position||null, air:airParse(it.air) };
+                if(customs[id]) e._ship=customs[id];                  // ★ 自定义舰：整船快照（含 condEffects）
+                out.push(e);
+            });
+            return out;
+        };
+        return conv(f.main||f.ally_ships).concat(conv(f.reinforcement||f.reinforce));
+    }
+    function _flagshipId(f){
+        if(!f||!f.flagship) return null;
+        const s=SHIP_DB.search(String(f.flagship))[0];
+        return s?s.id:null;
+    }
+    function _apOfSet(name){
+        if(!name) return null;
+        try{
+            const all=JSON.parse(localStorage.getItem('lagrange_addpoint_sets')||'[]');
+            const rec=(all||[]).find(x=>x&&x.name===String(name));
+            return (rec&&rec.addpoints)?rec.addpoints:null;
+        }catch(e){ return null; }
+    }
+    async function battleSim(args){
+        args=args||{};
+        await SHIP_DB.load();
+        const legacy=args.fleet_config||{};
+        const A=_sideFromInput(args.ally||{ally_ships:legacy.ally_ships});
+        const B=_sideFromInput(args.enemy||{ally_ships:legacy.enemy_ships});
+        if(!A.length||!B.length) return JSON.stringify({error:'请给我方(ally)与敌方(enemy)舰队：{main:[{ship:"舰名",count:数量,mods:"可选",air:"可选",pos:"可选"}]}（旧参数 fleet_config:{ally_ships,enemy_ships} 也兼容）'});
+        const opt={ A:A, B:B, maxSec:Number(args.seconds_limit)>0?Number(args.seconds_limit):4400, dt:0.5, stallSec:120 };
+        const Aesc=args.ally_escorted?_sideFromInput(args.ally_escorted):null;
+        const Besc=args.enemy_escorted?_sideFromInput(args.enemy_escorted):null;
+        if(Aesc&&Aesc.length) opt.AEscorted=Aesc;
+        if(Besc&&Besc.length) opt.BEscorted=Besc;
+        const flA=_flagshipId(args.ally); if(flA) opt.AFlagship=flA;
+        const flB=_flagshipId(args.enemy); if(flB) opt.BFlagship=flB;
+        const apA=_apOfSet(args.ally_set); if(apA) opt.AAddPoints=apA;
+        const apB=_apOfSet(args.enemy_set); if(apB) opt.BAddPoints=apB;
+        if(typeof args.seed==='number') opt.seed=args.seed;
+        try{
+            const res=await _runBattleReal(opt, 150000);
+            if(res&&res.ok){
+                return JSON.stringify({
+                    ok:true, 引擎:'真引擎（与「战斗模拟」页同源，非简化公式）',
+                    场景:args.scenario||'direct', 计算耗时毫秒:res.ms,
+                    胜负:res.胜负, 时长秒:Math.round(res.时长), 结束:res.结束, 僵局:res.僵局,
+                    机制触发数:(res.机制触发数!==undefined?res.机制触发数:undefined), 带机制实例数:(res.带机制实例数||undefined),
+                    我方:res.我方, 敌方:res.敌方, 逐型号:res.逐型号,
+                    加点: {我方:args.ally_set||'无', 敌方:args.enemy_set||'无'},
+                    说明:'胜负口径：win=我方全歼敌方 / timeout=到时未分 / loss=我方被全歼 / draw=同归于尽；打满 70 分钟未全歼按系统提示词的评分规则判 0 分。逐型号：数量=实例数，存活=存活实例数，对舰/对空=总输出（全队合计），生存占比=平均生存时间占比。'
+                },null,1);
+            }
+            /* 真引擎不可用 → 退回简化公式（保证还能估） */
+            const fb=JSON.parse(await battleSimLegacy({ally_ships:legacy.ally_ships||A.map(x=>({id:x.id,count:x.count})), enemy_ships:legacy.enemy_ships||B.map(x=>({id:x.id,count:x.count}))}, args.scenario||'direct'));
+            fb.真引擎不可用=String((res&&res.error)||'未知').substring(0,200);
+            fb.note='（真引擎不可用，以下为简化公式估算，仅供粗参考；请勿据此下最终结论）';
+            return JSON.stringify(fb,null,1);
+        }catch(e){
+            return JSON.stringify({error:'battle_simulate 失败: '+String(e.message||e).substring(0,200)});
+        }
+    }
+    /* ★ 2026-10-07：AI 给【自定义舰船】现场写机制（"当X之后X"）
+       - 存储：localStorage 'lagrange_custom_ships'[id].condEffects（模拟器 loadCustomShips → createShipInstance → processCondEffects 消费）
+       - 校验：when.kind 与 then 字段都走白名单（未知 kind 会被引擎当成"永远满足"=常驻，历史上坑过 16 个节点，必须堵）
+       - 只允许自定义舰（custom_ 前缀 / variant==='自定义'），原库 202 艘不动 */
+    function setShipMechanic(args){
+        const KINDS=['hpBelow','enemyHpBelow','battleStart','battleStartSec','firstRounds','everySec','everyRounds','onAttacked','onEnemyLoss','onKill','onTargetType'];
+        const SHIP_F=['evasion','hitBonus','enemyHitDown','aaLockDown','sysDmgReduce','hp','physResist','energyResist','repairEff','repairBonus','dmgBonus','interceptRate','siege','multiTarget','positionFix'];
+        const WEAPON_F=['singleDmg','cooldownReduction','crit','critDmg','lockReduction','atkReduction','lockEfficiency','antiIntercept','weaponDuration','hangarCd','hangarFlight'];
+        let all={}; try{ all=JSON.parse(localStorage.getItem('lagrange_custom_ships')||'{}')||{}; }catch(e){ all={}; }
+        const key=String(args.ship||'').trim();
+        let id=null;
+        if(all[key]) id=key;
+        else { const hit=Object.keys(all).find(k=>all[k]&&String(all[k].name||'')===key); if(hit) id=hit; }
+        if(!id) return JSON.stringify({ok:false, error:'找不到自定义舰船「'+key+'」。当前已有的：'+(Object.keys(all).map(k=>all[k].name||k).join('、')||'（一艘都没有，先去模拟器「⚙️ 自定义舰船」建一艘）')});
+        const obj=all[id]||{};
+        if(String(id).indexOf('custom_')!==0 && obj.variant!=='自定义') return JSON.stringify({ok:false, error:'只允许给自定义舰船写机制（原库舰船不动）'});
+        const built=[], rejected=[];
+        (Array.isArray(args.mechanics)?args.mechanics:[args.mechanics]).forEach((sp,i)=>{
+            if(!sp||!sp.when||!sp.then){ rejected.push('第'+(i+1)+'条：缺 when/then'); return; }
+            const kind=sp.when.kind;
+            if(KINDS.indexOf(kind)<0){ rejected.push('第'+(i+1)+'条：when.kind「'+kind+'」不在白名单（'+KINDS.join('/')+'）'); return; }
+            const cond={kind:kind};
+            ['threshold','sec','rounds','dur','cd'].forEach(k=>{ if(sp.when[k]!=null&&isFinite(+sp.when[k])) cond[k]=+sp.when[k]; });
+            if(sp.when.once!=null) cond.once=!!sp.when.once;
+            if(sp.when.targetKind!=null) cond.targetKind=String(sp.when.targetKind);
+            const keys=Object.keys(sp.then||{});
+            if(!keys.length){ rejected.push('第'+(i+1)+'条：then 为空'); return; }
+            keys.forEach(k=>{
+                const v=+sp.then[k];
+                if(!isFinite(v)||v===0){ rejected.push('第'+(i+1)+'条：then.'+k+' 数值非法'); return; }
+                if(SHIP_F.indexOf(k)<0&&WEAPON_F.indexOf(k)<0){ rejected.push('第'+(i+1)+'条：效果字段「'+k+'」不在白名单'); return; }
+                built.push({cond:cond, stat:k, val:v, note:sp.note?String(sp.note).substring(0,60):undefined, on:(sp.on===false?false:undefined)});
+            });
+        });
+        if(!built.length) return JSON.stringify({ok:false, error:'没有任何合法机制', 拒绝:rejected},null,1);
+        obj.condEffects = args.replace_all ? built : ((obj.condEffects||[]).concat(built));
+        all[id]=obj;
+        localStorage.setItem('lagrange_custom_ships', JSON.stringify(all));
+        const whenOf=w=>({hpBelow:'自身结构≤'+(w.threshold||0)+'%',enemyHpBelow:'敌方有单位≤'+(w.threshold||0)+'%',battleStart:'开场',battleStartSec:'开场'+(w.sec||0)+'秒内',firstRounds:'前'+(w.rounds||1)+'轮',everySec:'每'+(w.threshold||10)+'秒',everyRounds:'每'+(w.rounds||1)+'轮',onAttacked:'被打后',onEnemyLoss:'敌方有人被击毁后',onKill:'自己拿到击杀后',onTargetType:'锁定'+(w.targetKind||'目标')+'期间'}[w.kind]||w.kind);
+        const human=obj.condEffects.map(c=>{
+            const w=c.cond||{};
+            const extras=[w.dur?'持续'+w.dur+'s':'', w.cd?'CD'+w.cd+'s':'', w.once?'仅一次':''].filter(Boolean).join(' ');
+            return '· '+(c.note?'['+c.note+'] ':'')+'当'+whenOf(w)+' → '+c.stat+' +'+c.val+(extras?'（'+extras+'）':'');
+        }).join('\n');
+        return JSON.stringify({ok:true, 舰船:obj.name||id, 机制总条数:obj.condEffects.length, 本次写入:built.length,
+            拒绝:rejected.length?rejected:undefined, 机制清单:human,
+            说明:'已写入 localStorage，模拟器下次开战即生效（引擎条件触发系统每 tick 求值：条件成立加效果、失效撤效果）。要验证效果可用 battle_simulate 跑一场对比。'},null,1);
+    }
+    /* 旧版简化公式估算（兜底用；真引擎正常时不走这里） */
+    async function battleSimLegacy(fleetConfig, scenario){
         await SHIP_DB.load();
         const ally=calcPower(fleetConfig.ally_ships||[]);
         const enemy=calcPower(fleetConfig.enemy_ships||[]);
@@ -486,6 +1093,106 @@ const AgentEngine = (function(){
             }
         }
         return all;
+    }
+
+    /* ============================================================
+       ★★★ 2026-10-06 新架构执行器：主 Agent 派 0~12 个子 Agent
+       ------------------------------------------------------------
+       要点（对应 run_subagents 工具）：
+         · 上限 12 个（超出截断并在结果里说明）；
+         · 子 Agent 的系统提示词 = 公共底座 + 【主 Agent 注入的 prompt】；
+         · 每个子 Agent 是独立的 LLM 小循环（最多 SUBAGENT_ROUNDS 轮），
+           可自行调工具查资料（tools 三档：kb 默认 / all / none）；
+         · 并发 3（保护默认免费模型；429 由 callLLMRetry 自退避）；
+         · 进度用 emit('sub_agent', ...) 上报（聊天页已有该事件的显示逻辑）；
+         · 子 Agent 互相看不到对方（除非主 Agent 在 task 里写进去）。
+       ============================================================ */
+    const SUBAGENT_MAX = 12;        // 单次最多派几个子Agent（用户指定 0~12）
+    const SUBAGENT_ROUNDS = 6;      // 每个子Agent内部最多几轮工具循环
+    const SUBAGENT_CONC = 3;        // 并发数
+    const SUBAGENT_RESULT_CAP = 1200;   // ★ 子Agent回给主Agent的单条结果硬上限（字）。防上下文污染：只回结论+证据
+    const SUB_KB_TOOLS = ['search_knowledge_base','get_ship_data','get_ship_builds','get_user_ships','search_fleets','get_neuron_status','get_battle_reports'];
+    const SUB_BASE = '【子Agent公共底座（与主Agent注入的提示词冲突时，以主Agent注入的为准）】\n' +
+        '1. 你只做被指派的那件事；输出精简、直接可用（不要客套、不要复述任务、不要征询意见）。\n' +
+        '2. ★输出纪律（硬规则）：只回【最终结论 + 关键证据】。证据=来源文件名 + 小节/条目名；需要引数据时只引关键数字或短语。\n' +
+        '   【严禁】成段粘贴、逐条罗列、复述你检索到的原文或工具返回内容——检索原文留在你自己的上下文里，主 Agent 只看你的结论。\n' +
+        '3. ★长度：单条结果 600 字内为宜（硬上限 1200 字，超出会被程序截断）。装不下时只保留与本次任务结论直接相关的要点，并注明"其余已省略"。\n' +
+        '4. 引用知识库内容必须标注来源（文件名）；库中没有的数值/结论严禁编造，取不到就如实写"库中无记载"。\n' +
+        '5. 你不与用户直接对话；你的输出会被转交给主 Agent（这不是给用户看的回答，不需要寒暄和排版装饰）。';
+    /* ★ 结果统一出口：任何路径返回给主Agent的文本都过这里（超长截断+注明），保证主上下文不被灌爆 */
+    const capSubResult = s => {
+        const t = String(s == null ? '' : s).trim() || '(空输出)';
+        return t.length > SUBAGENT_RESULT_CAP
+            ? t.slice(0, SUBAGENT_RESULT_CAP) + '…（超长已截断：请让它压缩成"结论+证据"后重跑）'
+            : t;
+    };
+
+    async function runSubAgentOne(spec, llm, emit, idx){
+        const name = String(spec.name || ('子Agent' + (idx + 1))).substring(0, 40);
+        const toolsMode = ['kb','all','none'].indexOf(spec.tools) >= 0 ? spec.tools : 'kb';
+        const sys = SUB_BASE + '\n\n' + String(spec.prompt || '').substring(0, 6000);
+        const userTask = String(spec.task || '').substring(0, 6000);
+        let defs = [];
+        try{
+            const all = getTools();
+            if(toolsMode === 'all') defs = all.filter(t => t && t.function && ['run_subagents','ask_user','create_tool','create_skill'].indexOf(t.function.name) < 0);
+            else if(toolsMode !== 'none') defs = all.filter(t => t && t.function && SUB_KB_TOOLS.indexOf(t.function.name) >= 0);
+        }catch(e){}
+        const msgs = [{role:'system', content:sys}, {role:'user', content:userTask}];
+        let rounds = 0, toolCalls = 0;
+        while(rounds < SUBAGENT_ROUNDS){
+            rounds++;
+            const msg = await callLLMRetry(llm, msgs, 0.3, 3000, defs.length ? defs : undefined);
+            const tcs = msg.tool_calls || [];
+            if(!tcs.length) return { name, ok:true, result: capSubResult(msg.content), rounds, toolCalls };
+            for(const tc of tcs){
+                const fnName = tc.function && tc.function.name;
+                let args = {};
+                try{ args = JSON.parse((tc.function && tc.function.arguments) || '{}'); }catch(e){}
+                let out;
+                if(defs.length === 0 || !defs.some(d => d.function && d.function.name === fnName)){
+                    out = JSON.stringify({error:'子Agent不允许使用工具：' + fnName});
+                }else{
+                    try{ out = await executeTool(fnName, args, emit); }
+                    catch(e){ out = JSON.stringify({error:String(e)}); }
+                    toolCalls++;
+                }
+                msgs.push({role:'assistant', content:msg.content ?? null, tool_calls:[tc]});
+                msgs.push({role:'tool', tool_call_id:tc.id, content:String(out).substring(0, 4000)});
+            }
+        }
+        /* 轮数用尽：再要一次纯文本结论（并把"只回结论+证据、禁止贴原文"再说一遍） */
+        try{
+            const last = await callLLMRetry(llm, msgs.concat([{role:'user', content:'请直接给出你的最终结论（不要调用工具）。只写【结论 + 关键证据（来源文件名+小节/条目）】，禁止粘贴或成段复述检索到的原文，控制在 600 字内。'}]), 0.3, 2000);
+            return { name, ok:true, result: capSubResult(last.content), rounds, toolCalls };
+        }catch(e){
+            return { name, ok:false, result:'子Agent失败：' + String(e.message || e).substring(0,150), rounds, toolCalls };
+        }
+    }
+    async function runSubAgentTeam(specs, emit){
+        const llm = getActiveLLM();
+        const list = (Array.isArray(specs) ? specs : []).slice(0, SUBAGENT_MAX);
+        const trimmed = (Array.isArray(specs) ? specs.length : 0) - list.length;
+        emit('sub_agent', `🤖 派出 ${list.length} 个子Agent（并发 ${SUBAGENT_CONC}）...`);
+        const results = new Array(list.length);
+        let next = 0;
+        async function worker(){
+            while(next < list.length){
+                const i = next++;
+                const spec = list[i];
+                emit('sub_agent', `🤖 [${i+1}/${list.length}] ${spec.name || ('子Agent' + (i+1))} 工作中...`);
+                try{ results[i] = await runSubAgentOne(spec, llm, emit, i); }
+                catch(e){ results[i] = { name: String(spec.name||('子Agent'+(i+1))), ok:false, result:'异常：'+String(e.message||e).substring(0,150) }; }
+                emit('sub_agent', `✅ [${i+1}/${list.length}] ${results[i].name} 完成（${(results[i].result||'').length} 字）`);
+            }
+        }
+        await Promise.all(Array.from({length: Math.min(SUBAGENT_CONC, list.length)}, worker));
+        const report = {
+            count: results.length,
+            note: trimmed > 0 ? `（主Agent一次派了 ${specs.length} 个，超过上限 ${SUBAGENT_MAX}，只执行了前 ${SUBAGENT_MAX} 个）` : undefined,
+            agents: results.map((r, i) => ({ name: r.name, ok: r.ok, rounds: r.rounds, toolCalls: r.toolCalls, result: String(r.result || '').substring(0, SUBAGENT_RESULT_CAP) }))
+        };
+        return JSON.stringify(report, null, 1);
     }
 
     // ================================================================
@@ -716,6 +1423,12 @@ const AgentEngine = (function(){
                 max_tokens: maxTokens||4096,
             };
             if(tools) payload.tools=tools;
+            // ★ 2026-10-07：思考开关（设置页 💭）——关掉时对 DeepSeek 传 thinking:{type:'disabled'}（官方唯一有效方式）；
+            //   其它厂商不透传（避免未知参数报错）。默认开。
+            try{
+                const _c=getConfig();
+                if(_c && _c.thinking_on===false && /deepseek/i.test(String(llm.apiUrl||''))) payload.thinking={type:'disabled'};
+            }catch(e){}
             // 请求级超时（停滞监测）：默认免费模型按官方建议约40s；其它 120s。由 callLLMRetry 重试
             // 合并「暂停中断」signal 与「超时」signal：用户点暂停会 abort 当前请求
             let signal=null;
@@ -771,10 +1484,12 @@ const AgentEngine = (function(){
         try{
             const cfg=getConfig();
             const proxy=cfg.glm_proxy_url||'';
-            const visionBase=proxy || 'https://open.bigmodel.cn/api/paas/v4';
-            const visionKey=proxy ? 'proxy' : (cfg.glm_vision_api_key || cfg.glm_api_key || '');
+            /* ★ 2026-10-07（API 简化）：视觉模型留空时，默认用「模型设置」里的主模型（若它支持视觉） */
+            const m0=(cfg.models||[])[0]||null;
+            const visionBase=proxy || cfg.glm_vision_api_url || (m0&&m0.api_url) || cfg.llm_api_url || 'https://open.bigmodel.cn/api/paas/v4';
+            const visionKey=proxy ? 'proxy' : (cfg.glm_vision_api_key || cfg.glm_api_key || (m0&&m0.api_key) || cfg.llm_api_key || '');
             if(!visionKey) return null;
-            const visionModel=cfg.glm_vision_model||'glm-4.6v-flash';
+            const visionModel=cfg.glm_vision_model||((m0&&m0.model)||'glm-4.6v-flash');
             let base=normalizeApiUrl(visionBase);
             if(!/\/v\d+$/.test(base)) base+='/v1';
             const r=await fetch(base+'/chat/completions',{
@@ -1010,17 +1725,20 @@ const AgentEngine = (function(){
                     }
                     continue;
                 }
+                /* ★★★ 2026-10-06（用户架构变更）：【质检流水线（QA.qaPipeline）+ 监督Agent】停用 ——
+                   新架构 = 1 个主 Agent + 0~12 个子 Agent：要不要质检、派几个"核对员/打分员/反方辩手"、
+                   它们用什么提示词，全部由主 Agent 自己决定（用 run_subagents）。
+                   原质检分流代码整段注释保留，便于恢复（恢复：去掉本注释首尾，并注释掉下方"新逻辑"段）：
+
                 // 最终回答 → 质检（FACT-AUDIT 流水线：主张拆解→证据检索→多裁判辩论→五层审计→量化评分→链状回溯局部修正）
-                const answer=(fullAnswer+(msg.content||'')).trim();   // 拼接各续写段，避免只剩最后一段
+                const answer=(fullAnswer+(msg.content||'')).trim();
                 emit('status','🔬 质检中（主张拆解→证据检索→多裁判辩论→五层审计→量化评分）...');
                 const qc=await QA.qaPipeline(userMessage, answer, llm, emit);
                 if(qc.status==='PASS' || qc.status==='PARTIAL_FIX' || qcFailCount>=2){
                     if(qcFailCount>=2) emit('qc_pass','✅ 质检第2次未通过，强制放行');
                     else emit('qc_pass', qc.status==='PARTIAL_FIX'?`✅ 链状回溯局部修正后通过（评分 ${qc.score}）`:`✅ 质检通过（评分 ${qc.score}）`);
-                    // 空回答兜底：模型返回空内容时给出明确提示，避免前端误判"未收到回复"
                     let finalAnswer=(qc.final_answer||answer||'').trim();
                     if(!finalAnswer) finalAnswer='抱歉，本次未能生成有效回复（模型返回空内容），请重试或换一种问法。';
-                    // 轻量监督 Agent：核对面向用户的输出是否遵守提示词重点（默认Flash跳过；失败静默，不阻塞）
                     let complianceMeta=null;
                     try{
                         const sup=await supervisoryCheck(userMessage, finalAnswer, llm);
@@ -1035,7 +1753,6 @@ const AgentEngine = (function(){
                     emit('done','完成');
                     return;
                 }else{
-                    // FULL_REGEN：严重事实冲突（<60分），完整重跑工具链（主循环继续，模型可重新调用工具）
                     qcFailCount++;
                     emit('qc_fail', `🔄 质检不合格(${qcFailCount}/2) 评分${qc.score}：FULL_REGEN，请重新调用工具获取证据`);
                     const am={role:'assistant', content:answer};
@@ -1043,6 +1760,14 @@ const AgentEngine = (function(){
                     messages.push(am);
                     messages.push({role:'user', content:`【质检反馈】你的回答未通过质检（评分${qc.score}），需完整重新生成。错误清单：\n${JSON.stringify(qc.error_list||[]).substring(0,1500)}\n\n请重新调用工具获取证据后生成回答，舰船硬数值必须与资料库一致。`});
                 }
+                ================== 原代码结束 ================== */
+                // ★ 新逻辑（无质检流水线）：直接产出最终回答；质检/核对交给主Agent自行派子Agent
+                const answer=(fullAnswer+(msg.content||'')).trim();   // 拼接各续写段，避免只剩最后一段
+                let finalAnswer=answer;
+                if(!finalAnswer) finalAnswer='抱歉，本次未能生成有效回复（模型返回空内容），请重试或换一种问法。';
+                emit('answer', finalAnswer, {sources:(allDocs||[]).slice(0,10).map(d=>({file_name:d.source, snippet:d.content.substring(0,200)})), iterations:i+1, qc_feedback:'QC_DISABLED', qc_score:null, compliance:null});
+                emit('done','完成');
+                return;
             }catch(e){
                 if(agentInterrupted){   // 用户暂停导致的 abort/中断：不报错、不发兜底回答
                     emit('paused','⏸️ 已暂停本次思考');
@@ -1382,26 +2107,34 @@ const AgentEngine = (function(){
             if(userAnswer.selections&&userAnswer.selections.length) parts.push('用户选择：'+userAnswer.selections.join('、'));
             if(userAnswer.free_text&&String(userAnswer.free_text).trim()) parts.push('用户补充说明：'+String(userAnswer.free_text).trim());
             messages.push({role:'tool', tool_call_id:tcId, content:(parts.join('\n')||'用户未作答（跳过）').substring(0,4000)});
+            askState=null;   // ★ 2026-10-07 修复「同一提问可被重复续答」（旧 askState 不失效会再跑一遍，出现两份回答）
             await agentLoop(messages, '', [], '', llmR, emit);
             return {};
         }
         const llm=getActiveLLM();
 
+        /* ★ 2026-10-06（用户架构变更）：【拼装模式（快速）】已随顶部模式栏一并停用 —— 快速档已无处可开，
+           assemble_mode 恒为 false，本分支永不进入。原代码整段注释保留，便于恢复：
         // 拼装模式（快速）：开启时走代码检索+1次GLM拼装，不经主循环/质检/迭代
         try{
             if(getConfig().assemble_mode){
                 return await assembleFleet(userMessage, llm, emit);
             }
         }catch(e){ emit('error','拼装模式异常，退回推理模式：'+String(e.message||e).substring(0,80)); }
+           —— 恢复方法：把上一行注释符号去掉，并在 chat.html 取消「顶部模式栏」的注释。 */
+        // 兼容旧配置：如果检测到 assemble_mode 仍为 true，提醒一次并自动关闭（避免"设了却没人执行"）
+        try{ if(getConfig().assemble_mode){ const c=getConfig(); c.assemble_mode=false; localStorage.setItem('lagrange_static_config', JSON.stringify(c)); emit('status','ℹ️ 快速(拼装)模式已停用，自动切回普通模式'); } }catch(e){}
 
-        // 0. 需求理解 Agent（前端意图门）：明确需求 + 判断日常闲聊
-        //    判定为日常闲聊 → 禁止后续检索/工具/计划/质检，主Agent直接回答后结束
-        setMode(!!(getConfig().plan_mode));   // 先设置模式，让所有 Agent 感知计划/普通
+        setMode(!!(getConfig().plan_mode));   // ★ 保留：【底部】计划/普通开关仍生效——先设置模式，让本轮遵循计划/普通规则
         resetInterrupt();                     // 每轮对话重置暂停标志与 AbortController
         const isFlash = QA.isDefaultFlash(llm);
+        /* ★ 2026-10-06（用户架构变更）：【需求理解 Agent（意图门）】与【闲聊直通道】停用 ——
+           新架构 = 1 个主 Agent + 0~12 个子 Agent：是否闲聊、要不要澄清、怎么拆任务，
+           全部交给主 Agent 自己判断。原代码整段注释保留，便于恢复：
+        // 0. 需求理解 Agent（前端意图门）：明确需求 + 判断日常闲聊
+        //    判定为日常闲聊 → 禁止后续检索/工具/计划/质检，主Agent直接回答后结束
         let intent;
         if(isFlash){
-            // 默认 GLM-4.7-Flash：不启用意图门Agent（避免多一次LLM调用），改用已有规则判定闲聊
             intent = QA.isSimpleQuestion(userMessage)
                 ? {is_daily_chat:true, clarified_intent:userMessage, reason:'默认Flash：规则判定为日常闲聊'}
                 : {is_daily_chat:false, clarified_intent:userMessage, reason:'默认Flash：规则判定为非闲聊'};
@@ -1414,30 +2147,32 @@ const AgentEngine = (function(){
             emit('done','完成');
             return {};
         }
-        // 明确后的需求：与原问法不同则注入主Agent（保留原始消息以保证信息不丢失）
         const clarifiedIntent = (intent.clarified_intent && intent.clarified_intent!==userMessage) ? intent.clarified_intent : '';
+           —— 恢复方法：删掉本注释块的首尾两行（并把上面的 setMode/resetInterrupt/isFlash 三行合并回原顺序）。 */
 
+        /* ★ 2026-10-06（用户架构变更）：【固定的检索子代理群 + 主检索 + 混合检索 + 联网预取】整段停用 ——
+           新架构下，检索由【主 Agent 自己】决定：它可以直接调 search_knowledge_base / web_search / search_fleets…
+           也可以用 run_subagents 派"检索员"子 Agent 去查（提示词由主 Agent 注入）。
+           原代码整段注释保留，便于恢复：
         emit('status','🔍 正在检索知识库...');
         emit('cache', `📊 缓存命中率: ${KB.hitRate().rate}% (${KB.hitRate().hits}次命中/${KB.hitRate().total}次查询)`, KB.hitRate());
-
-        // 1. 子代理
         const subDocs=await runSubAgents(userMessage, emit);
+        await KB.load();   // 知识库仍预加载（主Agent调 search_knowledge_base 时零等待）；但不再自动检索
+        /* ★ 2026-10-06 停用的自动检索（原代码，保留备查）：
         // 2. 主检索（TF-IDF + 语义混合，向量+语义基础）
-        await KB.load();
         const mainDocs=await KB.search(userMessage,5);
         let hybridDocs=[];
         let gateInfo=null;
         try{
             emit('status','🧠 语义检索中（TF-IDF + Embedding 混合）...');
             const hy=await KB.hybridSearch(userMessage,{topK:5, skipApiEmbed: !!(QA.isDefaultFlash && QA.isDefaultFlash(llm))});
-            if(hy && hy.results && hy.results.length){
-                hybridDocs=hy.results;
-                gateInfo=hy.gate;
-                if(hy.denseCount>0) emit('status',`🧠 语义召回 ${hy.denseCount} 条，混合融合完成`);
-            }
+            if(hy && hy.results && hy.results.length){ hybridDocs=hy.results; gateInfo=hy.gate;
+                if(hy.denseCount>0) emit('status',`🧠 语义召回 ${hy.denseCount} 条，混合融合完成`); }
         }catch(e){ emit('status','⚠️ 语义检索跳过: '+String(e.message||e).substring(0,60)); }
         const allDocs=[...subDocs, ...mainDocs, ...hybridDocs].filter((v,i,a)=>a.findIndex(x=>x.source+'#'+(x.chunkIndex||0)===v.source+'#'+(v.chunkIndex||0))===i);
-        // 3. 联网
+        */
+        const allDocs=[];   // 新架构：预检索为空；资料由主Agent（及其子Agent）按需现取
+        /* ★ 2026-10-06 停用的【联网预取】（原代码，保留备查）——改为主Agent 自己调 web_search 工具（或派子Agent查）：
         emit('web_search','🌐 正在联网搜索...');
         let webText='';
         try{
@@ -1446,18 +2181,22 @@ const AgentEngine = (function(){
             if(wj.results&&wj.results.length){
                 emit('web_search', `🌐 联网搜索完成（${wj.engine} · ${wj.results.length} 条结果）`, {count:wj.results.length, engine:wj.engine});
                 webText=wj.results.map(r=>`- ${r.title}: ${r.content} (${r.url})`).join('\n');
-            } else {
-                emit('web_search', `🌐 联网搜索: ${wj.note||'无结果'}`);
-            }
+            } else { emit('web_search', `🌐 联网搜索: ${wj.note||'无结果'}`); }
         }catch(e){ emit('web_search','🌐 联网搜索失败: '+String(e).substring(0,50)); }
+        */
+        const webText='';
 
         // 4. 组装消息
+        /* ★ 2026-10-06（用户架构变更）：【检索舰队（检索总Agent + ≤3检索子Agent）】停用 ——
+           它的职责（检索/降噪/提炼素材包）并入新架构：主 Agent 用 run_subagents 派"检索员"子 Agent，
+           提示词由主 Agent 注入。原代码注释保留：
         let ragContext=allDocs.slice(0,12).map(d=>`【资料来源：${d.source}】\n${d.content.substring(0,600)}`).join('\n\n');
-        // 检索舰队：检索总Agent + ≤3检索子Agent 精炼素材包（默认Flash/无key/失败自动降级为原文）
         try{
             const fleet=await retrieveFleet(userMessage, allDocs.slice(0,18), llm, emit);
             if(fleet && fleet.trim()) ragContext='【检索素材包】\n'+fleet;
         }catch(e){}
+        */
+        const ragContext='';   // 新架构：不再预置素材包
         const messages=[{role:'system',content:systemPrompt}];
         // 4.1 上下文自动压缩：历史超阈值（maxTokens×60%）时，最旧轮次压成【对话摘要】，保留最近10轮全文
         let history2=(history||[]).slice(-20);
@@ -1506,14 +2245,16 @@ const AgentEngine = (function(){
         messages.push({role:'system',content: cfg.plan_mode ? PLAN_RULE : NORMAL_RULE});
         messages.push({role:'system',content:capability});
         if(isFlash) messages.push({role:'system',content:'【默认免费模型·精简模式】当前为 glm-4.7-flash（固定1并发、建议短超时）。请优先给出清晰、完整、一次到位的回答：配队/配置问题直接给结论+关键数据+必要理由即可；无需强制五轮迭代评测、无需反复检索/多次调用模拟器、不要为了“凑合规”发起大量工具调用——长链会超时导致“服务器繁忙”。'});
-        if(ragContext) messages.push({role:'system',content:`【本次检索到的知识库资料（含子代理汇总）】\n${ragContext.substring(0,8000)}`});
-        if(webText) messages.push({role:'system',content:`【互联网检索结果】\n${webText}`});
+        // ★ 2026-10-06 停用：预检索资料/联网结果注入（新架构由主Agent现取）——原两行注释保留：
+        // if(ragContext) messages.push({role:'system',content:`【本次检索到的知识库资料（含子代理汇总）】\n${ragContext.substring(0,8000)}`});
+        // if(webText) messages.push({role:'system',content:`【互联网检索结果】\n${webText}`});
         history2.forEach(h=>{
             if((h.role==='user'||h.role==='assistant')&&h.content) messages.push({role:h.role, content:String(h.content).substring(0,2000)});
             else if(h.role==='system'&&h.content) messages.push({role:'system', content:String(h.content).substring(0,2000)});
         });
         if(referencedContext) messages.push({role:'system',content:'【引用的历史对话】\n'+String(referencedContext).substring(0,3000)});
-        if(clarifiedIntent) messages.push({role:'system',content:'【需求理解Agent·已明确用户需求】'+clarifiedIntent});
+        // ★ 2026-10-06 停用：意图门澄清注入（意图门已注释）——原行注释保留：
+        // if(clarifiedIntent) messages.push({role:'system',content:'【需求理解Agent·已明确用户需求】'+clarifiedIntent});
         messages.push({role:'user', content:userMessage});
 
         // 5. Agent循环

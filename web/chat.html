@@ -562,6 +562,7 @@
                 <a href="settings.html"><span class="sb-ic">⚙️</span>设置 API</a>
                 <a href="skills.html"><span class="sb-ic">🧠</span>Skill 管理</a>
                 <a href="features.html"><span class="sb-ic">📖</span>项目介绍</a>
+                <a href="neuron.html"><span class="sb-ic">🧬</span>神经元实验室</a>
                 <a href="simulator.html"><span class="sb-ic">⚔️</span>战斗模拟</a>
                 <a href="addpoint.html"><span class="sb-ic">⚙️</span>舰船加点</a>
                 <a href="ships.html"><span class="sb-ic">🚀</span>舰船库</a>
@@ -582,13 +583,22 @@
                     <button onclick="toggleConvSearch()">🔍 搜索对话</button>
                 </div>
             </div>
-            <!-- 运行模式快速切换（快速/计划/普通） -->
+            <!-- ============================================================
+                 ★★★ 2026-10-06（用户指令）：【顶部运行模式栏】整块停用（快速/计划/普通三档）。
+                 为什么停：新架构 = 1 个主 Agent + 0~12 个子 Agent，「怎么干活」由主 Agent 自行编排；
+                           这里的三档（⚡快速=拼装、📋计划、🧠普通）是旧流水线的入口，全部注释掉。
+                 还保留哪个：聊天输入框【底部】的「普通/计划」两档开关（#modeToggle，见下方 input-tools），
+                           它只控制"是否先出执行计划书待批准"，不受本次改动影响。
+                 怎么恢复：删掉本注释块首尾两行（含这段说明），并把下面被注释的 HTML 放出来；
+                           同时恢复 chat.html 里 setRunMode()/paintMode() 两个函数（同文件内已注释保留）。
+                 —— 原 HTML（保留备查）：
             <div class="mode-bar" id="modeBar">
                 <span class="mb-lbl">模式</span>
                 <button class="mode-btn" data-m="fast" onclick="setRunMode('fast')">⚡ 快速</button>
                 <button class="mode-btn" data-m="plan" onclick="setRunMode('plan')">📋 计划</button>
                 <button class="mode-btn" data-m="normal" onclick="setRunMode('normal')">🧠 普通</button>
             </div>
+                 ============================================================ -->
             <div class="toast" id="chatToast"></div>
             <!-- 对话顶部提示 -->
             <div class="ai-tip" id="aiTip"><span>💡 配队已经比较完善了，但是部分细节还需多轮对话进行更正。目前最强的是关于护航的配队</span><button class="tip-close" onclick="closeAiTip()" title="关闭提示">✕</button></div>
@@ -642,6 +652,7 @@
                 <a href="settings.html">⚙️ 设置 API</a>
                 <a href="skills.html">🧠 Skill 管理</a>
                 <a href="features.html">📖 项目介绍</a>
+                <a href="neuron.html">🧬 神经元实验室</a>
                 <a href="simulator.html">⚔️ 战斗模拟</a>
                 <a href="addpoint.html">⚙️ 舰船加点</a>
                 <a href="ships.html">🚀 舰船库</a>
@@ -777,8 +788,12 @@ function init(){
     // 进入即直接是 AI 对话页（已移除项目介绍遮罩）
     try{ const s=localStorage.getItem('lagrange_conversations'); if(s) conversations=JSON.parse(s); }catch(e){}
     if(!Object.keys(conversations).length) newChat();
-    else switchConv(Object.keys(conversations).pop());
-    paintMode();
+    else{
+        // ★ 2026-10-07：优先恢复上次所在的会话（跳页/刷新不再跳回别的对话）；找不到再退回"最后创建"的
+        let want=null; try{ want=localStorage.getItem('lglr_active_conv'); }catch(e){}
+        switchConv((want&&conversations[want])?want:Object.keys(conversations).pop());
+    }
+    // paintMode();   // ★ 2026-10-06：顶部模式栏已停用（setRunMode/paintMode 已注释），此行一并注释
     updateTokenBar();
     loadModels();
     checkConfig();
@@ -853,7 +868,25 @@ function newChat(){
     if(prev) autoSkillCheck();
     const id='conv_'+Date.now();
     conversations[id]={id, title:'新对话',messages:[],createdAt:new Date().toISOString()};
+    /* ★ 2026-10-05 用户要求：第一次打开（本机第一个对话）由 AI 主动发一条消息，自我介绍 */
+    try{ maybeGreet(conversations[id]); }catch(e){}
     save(); switchConv(id);
+}
+/* 首次对话的自我介绍（只发一次；之后新建对话不再打扰） */
+function maybeGreet(conv){
+    if(!conv || conv.messages.length) return;
+    if(Object.keys(conversations).length>1) return;
+    if(localStorage.getItem('lglr_greeted')==='1') return;
+    conv.messages.push({role:'assistant', meta:{greeting:true}, content:
+        '👋 你好！我是《无尽的拉格朗日》AI 战术顾问，先做个自我介绍：\n\n'+
+        '**我能做什么**\n'+
+        '· 🚀 查舰船/加点/强化 —— 还会先看你【舰船库】里真有哪些船（设置里可开关），不推你没有的船。\n'+
+        '· ⚓ 配队 —— 按位置/人口/载机位出方案，会自动用战斗模拟器推演验证；答完可以一键「打开配队」。\n'+
+        '· 📊 战报与训练 —— 能读你保存的【战报库】分析得失；也能看「🧬 神经元实验室」跑到第几代、进化出来的最好配队。\n'+
+        '· 🔍 依据 —— 给数字前先查知识库；机制不清楚会先检索/联网核实，不凭空编。\n'+
+        '· 🧰 我能调用很多工具 —— 比如照着你【舰船库】里的信息给你出一份加点方案，然后直接帮你保存好（配队/模拟器里就能用）。所以想干什么，直接给我说就行。\n\n'+
+        '**怎么开始**：第一次用建议先去 ⚙️ 设置 填好模型 API Key；然后直接问我就行 —— 比如「帮我配一队护航」「大帝和永恒风暴谁强」「看看我最近保存的战报」「神经元训练得怎么样了」。'});
+    localStorage.setItem('lglr_greeted','1');
 }
 
 function switchConv(id){
@@ -872,15 +905,35 @@ function switchConv(id){
         el.innerHTML='<div class="empty"><div class="icon">🤖</div><div class="hint">开始新对话</div></div>';
     } else {
         conv.messages.forEach(m=>renderMsg(m.role,m.content,m.meta));
+        // ★ 2026-10-07：上一轮未完成（中途跳页/关页）→ 给一条提示 + 一键重发，不再无声无息
+        if(conv.pendingRound){
+            const w=document.createElement('div');
+            w.className='msg system';
+            w.innerHTML='⚠️ 上一轮没有完成（页面离开或被中断，本轮结果可能丢失）　<button class="act-btn" style="opacity:1" onclick="resendPendingRound()">🔄 重新发送</button>';
+            el.appendChild(w);
+        }
     }
     syncEmptyState();
     el.scrollTop=el.scrollHeight;
     renderConvList();
+    // ★ 2026-10-07：记住当前会话（跳转其它页面/刷新回来不再跳到别的对话）；lastUsed 供"最近"排序
+    try{ localStorage.setItem('lglr_active_conv', id); conv.lastUsed=Date.now(); }catch(e){}
     // Recalc tokens for this conversation
     tokenUsed=0;
     conv.messages.forEach(m=>{ tokenUsed+= (m.content||'').length; });
     updateTokenBar();
     closeMobileDrawer();  // 移动端切换后关闭抽屉
+}
+
+/* ★ 2026-10-07：重发"未完成轮次"（把该轮的用户消息原样再发一次） */
+async function resendPendingRound(){
+    const conv=conversations[activeConv]; if(!conv||!conv.pendingRound) return;
+    if(isStreaming){ toast('正在思考中，先等这一轮结束','err'); return; }
+    const idx=Math.max(0,(conv.pendingRound.startLen||1)-1);
+    const msg=conv.messages[idx];
+    if(!msg||msg.role!=='user'){ delete conv.pendingRound; save(); toast('找不到原消息，已清除标记','err'); return; }
+    toast('正在重新发送上一轮…','ok');
+    await sendText(msg.content);
 }
 
 function toggleMobileDrawer(){
@@ -916,6 +969,7 @@ function renderDrawerList(){
             <div class="md-conv-t"><div class="t">${x.c.pinned?'📌 ':''}${convTitle(x.c)}</div><div class="m">${new Date(x.last).toLocaleDateString('zh-CN')} · ${x.c.messages.length}条</div></div>
             <button class="ci-btn" onclick="event.stopPropagation();togglePinConv('${x.id}')" title="置顶 / 取消置顶">${x.c.pinned?'📌':'📍'}</button>
             <button class="ci-btn del" onclick="event.stopPropagation();deleteConv('${x.id}')" title="删除此对话">🗑</button>
+            <button class="ci-btn" onclick="event.stopPropagation();exportConvJSON('${x.id}')" title="导出此对话为 JSON">📤</button>
         </div>`).join('');
     let html='';
     if(pinned.length) html+=`<div class="md-group">📌 置顶</div>`+itemHtml(pinned);
@@ -924,6 +978,16 @@ function renderDrawerList(){
     box.innerHTML=html;
 }
 
+/* 2026-10-05：单个对话导出 JSON（用户要"塞进上下文"解决质量问题用） */
+function exportConvJSON(id){
+    const c=conversations[id]; if(!c){ try{ toast('会话不存在'); }catch(e){} return; }
+    const out={type:'lagrange_conversation',version:1,exportedAt:new Date().toISOString(),conversation:c};
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([JSON.stringify(out,null,1)],{type:'application/json'}));
+    a.download='conv_'+String(c.title||'对话').replace(/[\\/:*?"<>|\s]/g,'_').substring(0,40)+'_'+id+'.json';
+    a.click();
+    try{ toast && toast('已导出该对话的 JSON','ok'); }catch(e){}
+}
 function renderConvList(){
     const ids=Object.keys(conversations).reverse();
     const item=(id)=>{ const c=conversations[id];
@@ -935,6 +999,7 @@ function renderConvList(){
               </div>
               <button class="ci-btn" onclick="event.stopPropagation();togglePinConv('${id}')" title="置顶 / 取消置顶">${c.pinned?'📌':'📍'}</button>
               <button class="ci-btn del" onclick="event.stopPropagation();deleteConv('${id}')" title="删除此对话">🗑</button>
+              <button class="ci-btn" onclick="event.stopPropagation();exportConvJSON('${id}')" title="导出此对话为 JSON">📤</button>
             </div>
         </div>`;
     };
@@ -963,7 +1028,11 @@ function deleteConv(id){
     save(); renderConvList();
 }
 
-function save(){ localStorage.setItem('lagrange_conversations',JSON.stringify(conversations)); }
+function save(){
+    // ★ 2026-10-07：加保护——localStorage 超配额时不再静默丢消息（提示用户清理历史）
+    try{ localStorage.setItem('lagrange_conversations',JSON.stringify(conversations)); }
+    catch(e){ try{ toast('本地存储已满，本对话可能无法保存，请清理历史对话','err'); }catch(_e){} }
+}
 function clearAllChats(){
     if(!confirm('清空全部历史？')) return;
     conversations={}; activeConv=null; tokenUsed=0;
@@ -1068,6 +1137,22 @@ document.addEventListener('click', (e)=>{ const p=document.getElementById('quick
 // ======== 运行模式快速切换（快速/计划/普通） ========
 function toast(msg,type){ const t=document.getElementById('chatToast'); if(!t)return; t.textContent=msg; t.className='toast '+(type||'ok')+' show'; setTimeout(()=>t.classList.remove('show'),3000); }
 function currentRunMode(){ try{ const c=JSON.parse(localStorage.getItem('lagrange_static_config')||'{}'); return c.assemble_mode?'fast':(c.plan_mode?'plan':'normal'); }catch(e){ return 'normal'; } }
+/* ============================================================
+   ★★★ 2026-10-06（用户指令）：顶部模式栏的切换逻辑停用（随 #modeBar 一起）。
+   setRunMode 原本写两个开关：assemble_mode(快速=拼装) / plan_mode(计划)；
+   现在：计划/普通统一由【底部】switchMode() 控制（它只写 plan_mode），
+        快速(拼装)模式不再存在（agent.js 里对应分支也已注释）。
+   恢复方法：去掉本注释块的首尾两行，并恢复上面的 #modeBar HTML。
+   —— 原代码（保留备查）：
+/* ============================================================
+   ★★★ 2026-10-06（用户指令）：顶部模式栏的切换逻辑停用（随 #modeBar 一起）。
+   setRunMode 原本写两个开关：assemble_mode(快速=拼装) / plan_mode(计划)；
+   现在：计划/普通统一由【底部】switchMode() 控制（它只写 plan_mode），
+        快速(拼装)模式不再存在（agent.js 里对应分支也已注释）。
+   恢复方法：去掉本注释块的首行与末行（注释起止符号两行），并恢复上面的 #modeBar HTML。
+   ⚠️ 注意：本块内不可再出现注释起止符号，否则会提前闭合本注释导致整个 script 块语法错误
+        （2026-10-07 就是这样挂过一次：整块 JS 不解析，模式函数全丢）。
+   —— 原代码（保留备查）：
 function setRunMode(m){
     try{ let cfg={}; try{ cfg=JSON.parse(localStorage.getItem('lagrange_static_config')||'{}'); }catch(e){}
         cfg.assemble_mode=(m==='fast'); cfg.plan_mode=(m==='plan');
@@ -1077,6 +1162,7 @@ function setRunMode(m){
     toast((m==='fast'?'⚡ 已切换 快速模式(拼装)':m==='plan'?'📋 已切换 计划模式(逐艘审批)':'🧠 已切换 普通模式(推理)'),'ok');
 }
 function paintMode(){ const r=currentRunMode(); document.querySelectorAll('.mode-btn').forEach(b=>{ b.classList.toggle('active', b.getAttribute('data-m')===r); }); }
+   ============================================================ */
 
 // ======== 配队卡片：AI 调 make_fleet 输出 → 聊天里出方框，点进配队页 ========
 window.__fleetCards = window.__fleetCards || [];
@@ -1232,6 +1318,14 @@ async function send(){
         return;
     }
 
+    // ---- ★ 2026-10-07 修复「AI提问后消息变两份」：正在等待回答（#askCard 在场）时，
+    //      用户直接输入的内容按【回答】续答（resumeChat），不再新起一轮（否则同一问题会出现两份回答） ----
+    if(document.getElementById('askCard')){
+        input.value=''; input.style.height='auto';
+        await resumeChat('', [], msg);
+        return;
+    }
+
     // ---- @引用历史对话：扫描消息中所有 @会话id 标记，命中则注入其上下文并剥离标记 ----
     const refConvs=[];
     // ① 主动扫描（支持手输/多引用）
@@ -1249,9 +1343,12 @@ async function send(){
     referencedConvId='';
     msg = msg.replace(/\s+/g,' ').trim();
     const referencedConv = refConvs[0]||null;
+    // ★ 2026-10-07：注入内容口径 =【只给用户的输入 + AI 的最终回答】——
+    //   ① 只要 user/assistant 两种角色（system/摘要/状态行一律不进）
+    //   ② 空内容的（占位/半截）不要；续答产生的 "📝 选择:…" 前缀去掉，只留真正的输入
     const referencedContext = refConvs.map(c=>(c.messages||[])
-        .filter(m=>m.role==='user'||m.role==='assistant')
-        .map(m=>(m.role==='user'?'用户':'AI')+': '+String(m.content||'').substring(0,500))
+        .filter(m=>(m.role==='user'||m.role==='assistant') && String(m.content||'').trim())
+        .map(m=>(m.role==='user'?'用户':'AI')+': '+String(m.content||'').replace(/^📝\s*/,'').substring(0,500))
         .slice(-10).join('\n')).filter(s=>s).join('\n\n');
     // 引用了但无可用内容 → 明确提示，避免模型只看到剥离后的短句
     if(referencedConv && !referencedContext.trim()){
@@ -1273,14 +1370,18 @@ async function send(){
             attachText+='\n【附件文件: '+a.name+'】\n'+a.content;
         }
     }
-    const fullMsg=msg+attachText;
+    let fullMsg=msg+attachText;   // ★ let：下面"纯 @ 引用"分支可能要替换成占位文本
 
-    // 纯 @ 引用/空内容 → 不发送，保留输入，避免 streaming 卡死
+    // ★ 2026-10-07 修复「@ 选完不能直接发」：纯 @ 引用、没打字 → 也照发（用一个占位文本把引用上下文带过去），和正常消息一样；
+    //   只有「引用的会话没有可注入内容」或「什么都没输入」才拦住
     if(!fullMsg.trim()){
-        setStatus('idle','⚠️ 已选中引用，请输入你的问题内容');
-        if(referencedConvId) renderMsg('system','📎 已引用「'+((conversations[referencedConvId]||{}).title||'')+'」，请输入问题后发送');
-        input.focus();
-        return;
+        if(refConvs.length && referencedContext.trim()){
+            msg='（引用对话）'; fullMsg=msg;
+        }else{
+            setStatus('idle', refConvs.length ? '⚠️ 被引用的对话没有可注入的内容' : '⚠️ 请输入内容');
+            input.focus();
+            return;
+        }
     }
 
     input.value=''; input.style.height='auto';
@@ -1288,7 +1389,7 @@ async function send(){
 
     if(!activeConv || !conversations[activeConv]) newChat();
     const conv=conversations[activeConv];
-    if(!conv.messages.length) conv.title=msg.substring(0,30)+(msg.length>30?'...':'');
+    if(!conv.messages.some(m=>m.role==='user')) conv.title=msg.substring(0,30)+(msg.length>30?'...':'');   /* 自动自我介绍不挡标题 */
     if(referencedConv){
         // 标题取被引内容的原始标题（去掉已有 📎@ 前缀），避免叠加成 📎@📎@…
         const baseTitle=String(referencedConv.title||'').replace(/^📎@+/,'')||'引用对话';
@@ -1298,6 +1399,9 @@ async function send(){
     // Render user msg
     renderMsg('user',msg);
     conv.messages.push({role:'user',content:fullMsg, meta:{attachments:attachments.length?attachments.slice():undefined, referencedConv: referencedConv?referencedConv.id:undefined}});
+    // ★ 2026-10-07「未完成轮次」标记：本轮开始起点。正常结束（answer/paused）时清除；
+    //   若中途跳页/关页导致中断，回来时能看到"上一轮未完成 + 重新发送"，不再无声消失
+    conv.pendingRound={startLen:conv.messages.length, startedAt:Date.now()};
     tokenUsed += fullMsg.length;
     updateTokenBar();
     save();
@@ -1318,6 +1422,9 @@ async function send(){
     initAssistantRun(assistDiv, Date.now()); // 每轮独立：内嵌思考/状态折叠块 + 回答槽位
     let fullAnswer='';
     let sources=[];
+    // ★ 2026-10-07：每轮开始复位（此前 _agentFullAnswer 残留会让上一轮回答冒充本轮、旧气泡永不被标"未收到回复"）
+    window._agentFullAnswer=null; window._agentSources=null;
+    const roundStart=conv.messages.length - 1;   // 本轮起点（上面刚 push 的用户消息的下标），压缩时保住本轮新增
 
     try{
         const llm=AgentEngine.getActiveLLM();
@@ -1330,9 +1437,9 @@ async function send(){
         const ret=await AgentEngine.chat(fullMsg, conv.messages.slice(-30), (e,d,meta)=>{
             handleAgentEvent(e,d,meta,assistDiv,conv);
         }, null, referencedContext);
-        // 上下文自动压缩后持久化：把摘要写回会话（跨轮累积）
+        // 上下文自动压缩后持久化：把摘要写回会话（跨轮累积）；★带上 roundStart 保住本轮新消息（原来会把本轮卡片/回答整个覆盖掉）
         if(ret && ret.compressed && ret.compressed.summary){
-            persistCompression(ret.compressed);
+            persistCompression(ret.compressed, roundStart);
         }
         // 只要 Agent 引擎 emit 过 answer 事件即视为成功（agent.js 已保证兜底非空回复）
         if(window._agentFullAnswer != null){
@@ -1345,6 +1452,10 @@ async function send(){
             // msg was removed by error
         }else if(document.getElementById('askCard')){
             // AI 正在向用户提问（ask_user 暂停），保留提问卡片，不显示失败
+            // ★ 2026-10-07 修复「一问两气泡」：登记本轮气泡交给 resumeChat 复用（否则续答会再建一个，旧气泡永远转圈成幽灵）
+            assistDiv.dataset.pendingAsk='1';
+            window._pendingAskEl=assistDiv;
+            _runAnswerSlot(assistDiv).innerHTML='<span style="color:var(--t3)">⏸️ 等待你的回答…</span>';
         }else if(window._agentPaused){
             // 用户点了暂停：保留"已暂停"提示，不显示失败
         }else{
@@ -1477,7 +1588,12 @@ function handleAgentEvent(e,d,meta,assistDiv,conv){
         window._agentSources=meta&&meta.sources?meta.sources:[];
         finishRun(assistDiv, formatContent(d, window._agentSources));
         attachMsgActions(assistDiv, 'assistant', meta);  // 在思考/状态折叠块+回答之后挂操作条
-        if(conv) conv.messages.push({role:'assistant', content:d, meta:{sources:window._agentSources}});
+        // ★ 2026-10-07：把本轮的"已思考/AI运行状态"快照一起存进会话 → 跳转其它页面/切换会话回来仍能显示
+        const runSnap=_snapshotRun(assistDiv);
+        if(conv){
+            conv.messages.push({role:'assistant', content:d, meta:{sources:window._agentSources, run:runSnap}});
+            delete conv.pendingRound;   // 本轮正常收尾：清除未完成标记
+        }
         save(); renderConvList();
         // 计划审批操作栏：AI 输出【本次任务完整执行计划书】时弹出（批准/修改交互，类似ZCode计划模式）
         if(String(d).includes('本次任务完整执行计划书')){
@@ -1546,7 +1662,13 @@ async function resumeChat(askId, selections, freeText){
     clearThinkPanel();
     clearStatusPanel();
     ensureRunGroup();
-    const assistDiv=renderMsg('assistant','',null,true);
+    window._agentFullAnswer=null; window._agentSources=null;   // ★ 复位，防上一轮结果冒充本轮
+    // ★ 2026-10-07 修复「一问两气泡」：优先复用提问时留下的那个气泡（initAssistantRun 会重写 innerHTML，抹掉旧的转圈），没有才新建
+    let assistDiv=window._pendingAskEl; window._pendingAskEl=null;
+    if(!(assistDiv && document.getElementById('chatMsgs') && document.getElementById('chatMsgs').contains(assistDiv))){
+        assistDiv=renderMsg('assistant','',null,true);
+    }
+    try{ delete assistDiv.dataset.pendingAsk; }catch(e){}
     window._currentAssistEl=assistDiv;
     initAssistantRun(assistDiv, Date.now());
     setStatus('busy','继续处理...');
@@ -1594,6 +1716,11 @@ function finish(){
     updateSendBtn();
     setStatus('idle','就绪');
     collapseAllThinking();
+    // ★ 2026-10-07「未完成轮次」标记：正常收尾时清除；提问卡片还挂着（等用户回答才算半途）或页面中断时不删
+    try{
+        const c=conversations[activeConv];
+        if(c && c.pendingRound && !document.getElementById('askCard')){ delete c.pendingRound; save(); }
+    }catch(e){}
     document.getElementById('chatMsgs').scrollTop=document.getElementById('chatMsgs').scrollHeight;
     document.getElementById('chatInput').focus();
     // 每次对话结束后：自动考虑是否沉淀为 skill（后台、非阻塞、失败静默）
@@ -1743,6 +1870,32 @@ function collapseAllThinking(){
     return null;
 }
 
+/* ★ 2026-10-07：把本轮"已思考 / AI 运行状态"快照下来存进会话 meta —— 跳转其它页面/切换会话回来后不消失 */
+function _snapshotRun(div){
+    try{
+        const run=div&&div.__run; if(!run) return null;
+        const status=[...((run.statusBody&&run.statusBody.querySelectorAll('.sp-line'))||[])].map(x=>x.textContent||'').slice(-80);
+        const think=String(run.thinkText||'').slice(-12000);
+        if(!think.trim() && !status.length) return null;
+        return {sec:Math.max(1,Math.round((Date.now()-run.start)/1000)), think:think, status:status};
+    }catch(e){ return null; }
+}
+/* 用快照重建折叠块（默认折叠，结构与 initAssistantRun 一致），插到回答正文之前 */
+function hydrateRun(div, snap){
+    if(!snap||(!snap.think&&!(snap.status&&snap.status.length))) return;
+    const uid='run'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+    let html='';
+    if(snap.think && String(snap.think).trim()){
+        html+='<div class="run-acc think-acc" id="'+uid+'_t"><div class="acc-head" onclick="toggleAcc(this)"><span>已思考（用时 '+(snap.sec||1)+' 秒）</span><span class="caret">▾</span></div>'+
+              '<div class="acc-body" style="white-space:pre-wrap">'+escapeHtml(String(snap.think))+'</div></div>';
+    }
+    if(snap.status && snap.status.length){
+        html+='<div class="run-acc status-acc" id="'+uid+'_s"><div class="acc-head" onclick="toggleAcc(this)"><span>AI 运行状态（'+snap.status.length+' 条）</span><span class="caret">▾</span></div>'+
+              '<div class="acc-body">'+snap.status.map(t=>'<div class="sp-line"><span>'+escapeHtml(String(t))+'</span></div>').join('')+'</div></div>';
+    }
+    div.insertAdjacentHTML('afterbegin', html);
+}
+
 function addThinkingLine(text){
     // AI思考：优先写入本轮 assistant 消息内的思考折叠块；无本轮时兜底（已移除固定面板→空操作）
     const run=_curRun();
@@ -1873,6 +2026,8 @@ function renderMsg(role,text,meta,typing){
     }
     // 消息操作条：👍/👎/🔊（AI回答）+ 分叉/回溯到此（用户消息），悬停显示
     if(role==='assistant' && meta && meta.fleet_card){ try{ renderFleetCardInto(div, meta.fleet_card); }catch(e){} }
+    // ★ 2026-10-07：重渲染历史消息时，若存过"已思考/AI运行状态"快照就恢复出来（跳页/切会话不丢）
+    if(role==='assistant' && meta && meta.run){ try{ hydrateRun(div, meta.run); }catch(e){} }
     if(role==='assistant' || role==='user'){
         attachMsgActions(div, role, meta);
     }
@@ -2071,11 +2226,13 @@ function clearConv(){
 }
 
 // ---- 上下文压缩（自动压缩持久化 + /压缩 命令） ----
-function persistCompression(compressed){
+function persistCompression(compressed, roundStart){
     const conv=conversations[activeConv];
     if(!conv||!compressed||!compressed.summary) return;
+    // ★ 2026-10-07：保留本轮新增消息（卡片/回答在压缩之后 push 的不能丢）——原来整体覆盖会把它们删掉
+    const tail=(typeof roundStart==='number'&&roundStart>=0&&roundStart<conv.messages.length)?conv.messages.slice(roundStart):[];
     conv.messages=[{role:'system',content:'【对话摘要】'+compressed.summary},
-        ...(compressed.kept||[]).map(m=>({role:m.role, content:m.content, meta:m.meta}))];
+        ...(compressed.kept||[]).map(m=>({role:m.role, content:m.content, meta:m.meta})), ...tail];
     save();
     renderMsg('system','🧠 上下文已自动压缩（历史轮次合成摘要，节省token）');
 }

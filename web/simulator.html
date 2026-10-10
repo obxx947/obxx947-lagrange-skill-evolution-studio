@@ -563,82 +563,42 @@
     <!-- Top Navigation -->
     <button class="nav-toggle-btn" onclick="document.getElementById('topNav').classList.toggle('nav-open')">☰</button>
 	    <nav class="top-nav" id="topNav">
-	        <button class="nav-tab" onclick="location.href='index.html'" style="font-size:16px;padding:4px 10px;" title="返回主页">🏠</button>
-	        <button class="nav-tab active" data-page="page-menu" onclick="document.getElementById('topNav').classList.remove('nav-open')">🏠 主菜单</button>
-        <button class="nav-tab" data-page="page-fleet" onclick="document.getElementById('topNav').classList.remove('nav-open')">⚓ 舰队配队</button>
+	        <button class="nav-tab" onclick="location.href='chat.html'" style="font-size:16px;padding:4px 10px;" title="返回 AI 对话">🏠</button>
+	        <button class="nav-tab active" data-page="page-fleet" onclick="document.getElementById('topNav').classList.remove('nav-open')">⚓ 舰队配队</button>
         <button class="nav-tab" data-page="page-battle" onclick="document.getElementById('topNav').classList.remove('nav-open')">⚔️ 战斗模拟</button>
         <button class="nav-tab" data-page="page-encyclopedia" onclick="document.getElementById('topNav').classList.remove('nav-open')">📚 舰船图鉴</button>
         <a class="nav-tab" href="addpoint.html" style="text-decoration:none;background:rgba(255,215,0,0.12);">⚙️ 舰船加点</a>
         <a class="nav-tab" href="chat.html" style="text-decoration:none;background:rgba(0,212,255,0.08);">🤖 AI对话</a>
+        <a class="nav-tab" href="neuron.html" style="text-decoration:none;background:rgba(255,215,0,0.08);">🧬 神经元</a>
         <a class="nav-tab" href="settings.html" style="text-decoration:none;">⚙️ 设置</a>
         <button class="nav-tab" onclick="openModal('aboutModal');document.getElementById('topNav').classList.remove('nav-open')" style="background:rgba(255,215,0,0.1);">ℹ️ 关于</button>
     </nav>
 
     <div class="main-content">
         <!-- ==========================================
-             PAGE 0: Main Menu (主菜单)
+             PAGE 0（主菜单）已按用户要求删除（2026-10-07）。
+             默认落地页 = 舰队配队（page-fleet）。原主菜单里的"关于本模拟器"说明在顶部导航 ℹ️ 关于 弹窗里。
              ========================================== -->
-        <div class="page active" id="page-menu">
-            <div style="text-align:center;padding:60px 20px 20px;">
-                <h1 style="font-size:clamp(2rem,5vw,3rem);font-weight:800;background:linear-gradient(135deg,#4a9eff 0%,#00d4ff 50%,#ffd700 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">无尽的拉格朗日</h1>
-                <p style="color:var(--text-secondary);letter-spacing:3px;margin-bottom:10px;">配舰星港模拟器 v7</p>
-                <p style="color:var(--text-muted);font-size:10px;">游戏名:能二 | 编号:10636401507</p>
-            </div>
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px;max-width:1100px;margin:0 auto;padding:0 20px;">
-                <div class="menu-card" onclick="navigateTo('page-fleet')" style="background:linear-gradient(145deg,rgba(26,35,50,0.95),rgba(17,24,39,0.98));border:1px solid var(--border-color);border-radius:16px;padding:30px;cursor:pointer;text-align:center;transition:all 0.4s;"
-                     onmouseover="this.style.borderColor='var(--accent-cyan)';this.style.transform='translateY(-8px)';this.style.boxShadow='0 20px 40px rgba(74,158,255,0.3)'"
-                     onmouseout="this.style.borderColor='var(--border-color)';this.style.transform='';this.style.boxShadow=''">
-                    <div style="font-size:3rem;margin-bottom:12px;">⚓⚔️</div>
-                    <div style="font-size:1.4rem;font-weight:700;color:var(--text-primary);margin-bottom:8px;">配队与战斗</div>
-                    <div style="color:var(--text-secondary);font-size:0.9rem;">舰队配置 → 护航战斗 → 战报</div>
-                </div>
-                <div class="menu-card" onclick="navigateTo('page-encyclopedia')" style="background:linear-gradient(145deg,rgba(26,35,50,0.95),rgba(17,24,39,0.98));border:1px solid var(--border-color);border-radius:16px;padding:30px;cursor:pointer;text-align:center;transition:all 0.4s;"
-                     onmouseover="this.style.borderColor='var(--accent-purple)';this.style.transform='translateY(-8px)';this.style.boxShadow='0 20px 40px rgba(168,85,247,0.3)'"
-                     onmouseout="this.style.borderColor='var(--border-color)';this.style.transform='';this.style.boxShadow=''">
-                    <div style="font-size:3rem;margin-bottom:12px;">📚</div>
-                    <div style="font-size:1.4rem;font-weight:700;color:var(--text-primary);margin-bottom:8px;">舰船图鉴</div>
-                    <div style="color:var(--text-secondary);font-size:0.9rem;">全部舰船数据 | 模块参数 | 武器详情</div>
-                </div>
-            </div>
-            <div style="max-width:1100px;margin:20px auto;padding:0 20px;">
-                <div class="card" style="padding:14px 18px;font-size:11px;line-height:1.6;color:var(--text-secondary);">
-                    <b style="color:var(--accent-cyan);">📖 关于本模拟器</b><br>
-                    基于《无尽的拉格朗日》游戏数据构建的配舰星港模拟器。包含<b>138+艘舰船</b>完整数据，17艘超主力舰支持<b>A/B/C/D/E多槽模块独立切换</b>。
-                    <span style="color:var(--accent-gold);">战斗引擎</span>：锁定→冷却→攻击三阶段循环，直射/投射区分，实弹破甲/能量穿盾，暴击/拦截/系统损毁/维修。
-                    <span style="color:var(--accent-green);">护航</span>：护航舰队存活时被护航免疫伤害。
-                    <span style="color:var(--accent-red);">旗舰</span>：普鲁图斯之盾旗舰减伤30%。
-                    每武器<b>独立强化</b>（单发/锁定/冷却/暴击/HP/能量抗性），<b>模块方案</b>保存/加载/切换。
-                    战斗引擎基于严格公式：能量武器穿盾公式、实弹破甲/保底公式、系统损毁、维修。
-                    <a href="#" onclick="navigateTo('page-fleet');return false;" style="color:var(--accent-cyan);">→ 开始配队</a>
-                </div>
-            </div>
-        </div>
 
         <!-- ==========================================
              PAGE 1: Fleet Builder (舰队配队)
              ========================================== -->
-        <div class="page" id="page-fleet">
+        <div class="page active" id="page-fleet">
             <!-- Fleet Panels -->
             <div class="fleet-grid" id="fleetPanels">
                 <!-- Generated by JS -->
             </div>
-            <div style="text-align:center;margin-bottom:12px;">
+            <div style="text-align:center;margin-bottom:12px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;align-items:center;">
                 <button class="btn btn-sm" style="background:var(--accent-gold);" onclick="syncFleetsToBattle()">🔄 同步配队到战斗模拟</button>
+                <!-- ★ 2026-10-07：原「📦 舰船库」卡片删除（用户要求）；加船入口移到「点开舰队 → 下方编辑区」的
+                     整宽按钮（同「战舰配队」页：列表下方一个 ➕ 增加战舰/增加增援）。自定义舰船管理放这里。 -->
+                <button class="btn btn-sm" style="background:var(--accent-gold);" onclick="CustomShip.open()">⚙️ 自定义舰船管理</button>
+                <label style="font-size:11px;cursor:pointer;color:var(--text-secondary);"><input type="checkbox" id="stitchCb" onchange="stitchMode=this.checked;showToast(stitchMode?'🪡 缝合模式:忽略服役上限':'✅ 正常模式')"> 🪡 缝合模式</label>
             </div>
             <!-- Inline Fleet Editor -->
             <div id="inlineFleetEditor" style="display:none;"></div>
             <!-- Ship Manager (click ship chip) -->
             <div id="shipManager" style="display:none;"></div>
-            <!-- Ship Selection（改为弹窗式选船，同「战舰配队」页交互） -->
-            <div class="card ship-selection" id="shipSelection">
-                <div class="card-title">📦 舰船库 <button class="btn btn-sm" style="background:var(--accent-gold);margin-left:8px;font-size:11px;" onclick="openCustomShipForm()">⚙️ 自定义舰船</button>
-                <label style="margin-left:12px;font-size:11px;cursor:pointer;"><input type="checkbox" id="stitchCb" onchange="stitchMode=this.checked;showToast(stitchMode?'🪡 缝合模式:忽略服役上限':'✅ 正常模式')"> 🪡 缝合模式</label></div>
-                <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;line-height:1.6;">
-                    点「添加舰船」打开选船弹窗（3 列 · 舰种筛选 · 可多选），确认后加入当前正在编辑的舰队。<br>
-                    请先在上方点开要编辑的舰队（我方/敌方 · 护航/被护航），或直接在弹窗里切换目标舰队。
-                </div>
-                <button class="btn btn-primary" id="openShipPickerBtn" onclick="openShipPicker()">➕ 添加舰船</button>
-            </div>
         </div>
 
         <!-- 选船弹窗 -->
@@ -876,6 +836,7 @@
                 <div style="margin-top:8px;"><b style="font-size:12px;">⚔️ 武器系统</b> <button class="btn btn-xs" onclick="addCustomWeapon()" style="font-size:9px;">+ 添加武器</button></div>
                 <div id="csWeapons" style="max-height:250px;overflow-y:auto;"></div>
                 <div style="margin-top:12px;text-align:right;display:flex;gap:6px;justify-content:flex-end;">
+                    <button class="btn btn-sm" style="background:#3a2f5c;" onclick="aiDesignMechanic()" title="把这艘船的数据发给 AI（带战斗机制.md 口径），让它现场设计「当X之后X」的机制并写入">🤖 让AI设计机制</button>
                     <button class="btn btn-sm" onclick="closeModal('customShipModal')">取消</button>
                     <button class="btn btn-sm btn-primary" onclick="createCustomShip()">✅ 创建舰船</button>
                 </div>
@@ -929,6 +890,8 @@
 
     <!-- 载机位/模块/校验逻辑与「战舰配队」页共用同一份实现 -->
     <script src="js/fleet_check.js"></script>
+    <script src="js/mech_spec.js"></script>
+    <script src="js/custom_ship.js"></script>
     <script>
     // ============================================================
     //  DATA LAYER - Complete Ship Database
@@ -1266,7 +1229,10 @@
             ratings:{antiShip:'B',antiAir:'C',siege:'C',survival:'C',strategy:'C'},
             superCapital: (type==='battleship'||type==='aircraftcarrier'||type==='battlecruiser'||type==='support'),
             isCarrier, aircraftSlots: isCarrier?{fighter:parseInt($('csFighterSlots').value)||2,corvette:parseInt($('csCorvSlots').value)||2}:undefined,
-            modules, _systems:['能源系统','装甲系统','动力系统']
+            modules, _systems:['能源系统','装甲系统','动力系统'],
+            /* ★ 2026-10-07：自定义机制（"当X之后X"）—— 由 AI 工具 set_ship_mechanic 或 __engineAddMechanic 写入，
+               引擎条件触发系统 processCondEffects 每 tick 求值（与加点里 119 个条件节点同一套机制） */
+            condEffects: []
         };
         
         SHIP_DATABASE[id] = shipObj;
@@ -1326,6 +1292,91 @@
             }
         } catch(e) {}
     }
+
+    /* ★ 2026-10-07：一键把"当前这艘自定义舰"发给 AI 设计机制。
+       流程：收集表单/已存船的数据 → FleetIO.toChat(文本) → 跳 chat.html?prefill=1（那边会自动发出去）。
+       AI 侧用工具 set_ship_mechanic 写回 lagrange_custom_ships[].condEffects，本页下次开战即生效。 */
+    function aiDesignMechanic(){
+        try{
+            const name=$('csName')?$('csName').value.trim():'';
+            if(!name){ showToast('先给舰船起个名字'); return; }
+            const all=JSON.parse(localStorage.getItem('lagrange_custom_ships')||'{}');
+            const id=Object.keys(all).find(k=>all[k]&&all[k].name===name);
+            if(!id){ showToast('请先点「✅ 创建舰船」保存这艘船，再让 AI 设计机制'); return; }
+            const s=all[id]||{};
+            const wpn=[];
+            Object.values(s.modules||{}).forEach(m=>{ (m&&m.weapons||[]).forEach(w=>wpn.push(
+                (w.name||'武器')+'（'+(w.dmgType==='energy'?'能量':'实弹')+' 单发'+(w.singleDmg||0)+' 冷却'+(w.cooldown||0)+'s 锁定'+(w.lockTime||0)+'s）')); });
+            const cur=(s.condEffects||[]).map(c=>'· '+(c.note?'['+c.note+'] ':'')+(c.cond&&c.cond.kind)+' → '+c.stat+' +'+c.val).join('\n')||'（暂无）';
+            const text='给「自定义舰船」设计机制（"当X之后X"），然后用 set_ship_mechanic 写进去。\n'+
+                '舰船：'+name+'（id='+id+'）｜'+(s.type||'')+'｜站位'+(s.position||'')+'｜指挥值'+(s.commandValue||0)+'｜服役上限'+(s.serviceLimit||0)+'\n'+
+                '结构值 '+(s.hp||0)+'｜物理护甲 '+(s.physicalArmor||0)+'｜能量护甲 '+(s.energyArmor||0)+'%\n'+
+                '武器：'+(wpn.join('；')||'（无）')+'\n'+
+                '当前机制：\n'+cur+'\n'+
+                '要求：先按《战斗机制.md》（含"自定义舰船机制系统"附录）核对条件/效果白名单与数值口径，'+
+                '再给 1~3 条机制（每条写清"触发条件+效果+冷却/持续"和设计理由），调 set_ship_mechanic 写入，最后把机制清单复述给我。';
+            if(window.FleetIO&&FleetIO.toChat) FleetIO.toChat(text);
+            showToast('正在把舰船发给 AI…');
+            setTimeout(()=>{ location.href='chat.html?prefill=1'; },500);
+        }catch(e){ showToast('发送失败：'+e.message); }
+    }
+
+    /* ★ 2026-10-07：给自定义舰船"现场写机制"的引擎侧入口（"当X之后X"）。
+       —— 机制 = 条件触发条目 {cond:{kind,...}, stat:'效果键', val:数值}，与加点里 119 个条件节点同一套系统，
+          由 processCondEffects 每 tick 求值；只允许挂到【自定义舰船】上（不动原库 202 艘）。
+       spec 形如：{ when:{kind:'hpBelow', threshold:50, dur:10, cd:20, once:false}, then:{dmgBonus:30, evasion:5}, note:'半血狂暴' }
+       - when.kind 白名单见 COND_KIND_OK；then 的键见 __MECH_SHIP_FIELDS / __MECH_WEAPON_FIELDS
+       - 未知 kind/字段一律拒绝（引擎的 condWants 对未知 kind 返回 true=常驻，历史上把 16 个节点判错，必须堵住）
+       返回 {ok, 已写入, 拒绝[], 说明} */
+    const __MECH_KINDS = ['hpBelow','enemyHpBelow','battleStart','battleStartSec','firstRounds','everySec','everyRounds','onAttacked','onEnemyLoss','onKill','onTargetType'];
+    const __MECH_SHIP_FIELDS = ['evasion','hitBonus','enemyHitDown','aaLockDown','sysDmgReduce','hp','physResist','energyResist','repairEff','repairBonus','dmgBonus','interceptRate','siege','multiTarget','positionFix'];
+    const __MECH_WEAPON_FIELDS = ['singleDmg','cooldownReduction','crit','critDmg','lockReduction','atkReduction','lockEfficiency','antiIntercept','weaponDuration','hangarCd','hangarFlight'];
+    window.__engineAddMechanic = function(shipKey, specs, replace){
+        const out = { ok:false, 已写入:[], 拒绝:[], 说明:'' };
+        try{
+            let id = null, obj = null;
+            if (SHIP_DATABASE[shipKey]) { id = shipKey; obj = SHIP_DATABASE[shipKey]; }
+            else {
+                const hit = Object.values(SHIP_DATABASE).find(x => x && x.name === shipKey);
+                if (hit) { id = hit.id; obj = hit; }
+            }
+            if (!id || !obj) { out.说明 = '找不到舰船：' + shipKey; return out; }
+            if (String(id).indexOf('custom_') !== 0 && obj.variant !== '自定义') { out.说明 = '只允许给【自定义舰船】写机制（原库舰船不动）'; return out; }
+            const list = Array.isArray(specs) ? specs : [specs];
+            const built = [];
+            list.forEach((sp, i) => {
+                if (!sp || !sp.when || !sp.then) { out.拒绝.push('第'+(i+1)+'条：缺 when/then'); return; }
+                const kind = sp.when.kind;
+                if (__MECH_KINDS.indexOf(kind) < 0) { out.拒绝.push('第'+(i+1)+'条：when.kind「'+kind+'」不在白名单（'+__MECH_KINDS.join('/')+'）'); return; }
+                const cond = { kind: kind };
+                if (sp.when.threshold != null) cond.threshold = +sp.when.threshold;
+                if (sp.when.sec != null) cond.sec = +sp.when.sec;
+                if (sp.when.rounds != null) cond.rounds = +sp.when.rounds;
+                if (sp.when.dur != null) cond.dur = +sp.when.dur;
+                if (sp.when.cd != null) cond.cd = +sp.when.cd;
+                if (sp.when.once != null) cond.once = !!sp.when.once;
+                if (sp.when.targetKind != null) cond.targetKind = String(sp.when.targetKind);
+                const keys = Object.keys(sp.then || {});
+                if (!keys.length) { out.拒绝.push('第'+(i+1)+'条：then 为空'); return; }
+                keys.forEach(k => {
+                    const v = +sp.then[k];
+                    if (!isFinite(v) || v === 0) { out.拒绝.push('第'+(i+1)+'条：then.'+k+' 数值非法'); return; }
+                    if (__MECH_SHIP_FIELDS.indexOf(k) < 0 && __MECH_WEAPON_FIELDS.indexOf(k) < 0) { out.拒绝.push('第'+(i+1)+'条：效果字段「'+k+'」不在白名单'); return; }
+                    built.push({ cond: cond, stat: k, val: v, note: sp.note ? String(sp.note).substring(0,60) : undefined, on: (sp.on === false ? false : undefined) });
+                });
+            });
+            if (!built.length) { out.说明 = '没有任何合法机制被写入'; return out; }
+            obj.condEffects = replace ? built : ((obj.condEffects || []).concat(built));
+            out.已写入 = built.map(b => b.note || (b.cond.kind + '→' + b.stat));
+            try {
+                const cs = JSON.parse(localStorage.getItem('lagrange_custom_ships') || '{}');
+                if (cs[id]) { cs[id].condEffects = obj.condEffects; localStorage.setItem('lagrange_custom_ships', JSON.stringify(cs)); }
+            } catch(e) {}
+            out.ok = true;
+            out.说明 = '已写 ' + built.length + ' 条机制到「' + (obj.name||id) + '」（下次开战生效；正在跑的这场不回溯）';
+        } catch(e){ out.说明 = '异常：' + String(e.message||e); }
+        return out;
+    };
     function initFleetBuilder() {
         renderFleetPanels();
         setupEventListeners();
@@ -1396,8 +1447,6 @@
         {id:'cruiser',name:'巡洋舰'},
         {id:'destroyer',name:'驱逐舰'},
         {id:'frigate',name:'护卫舰'},
-        {id:'fighter',name:'战机'},
-        {id:'corvette',name:'护航艇'},
         {id:'custom',name:'⚙️ 自定义'}
     ];
 
@@ -1422,6 +1471,13 @@
         }
         renderShipPicker();
         openModal('shipPickerModal');
+    }
+    /* ★ 2026-10-07：面板上的「增加战舰/增加增援」按钮 → 指定舰队+段落打开选船弹窗（同「战舰配队」页） */
+    function openShipPickerFor(fleetType, tab){
+        currentFleetType = fleetType;
+        currentFleetTab = (tab === 'reinforcement') ? 'reinforcement' : 'main';
+        try{ renderFleetPanels(); }catch(e){}          // 让面板高亮/「正在编辑」跟随目标舰队
+        openShipPicker();
     }
     function closeShipPicker(){ closeModal('shipPickerModal'); }
     // 自定义舰船增删后刷新相关视图（选船弹窗若开着也刷新）
@@ -1461,13 +1517,16 @@
         // 舰种筛选按钮
         const fb = $('spkFilters');
         if(fb){
-            fb.innerHTML = SPK_CATS.map(c=>
+            fb.innerHTML = '<button class="btn btn-sm" style="margin-left:6px;background:var(--accent-gold);font-size:10px;" onclick="closeShipPicker();CustomShip.open()">⚙️ 自定义舰船管理</button>' + SPK_CATS.map(c=>
                 `<button class="category-btn${spkFilter===c.id?' active':''}" onclick="spkSetFilter('${c.id}')">${c.name}</button>`).join('');
         }
 
         // 列表
         let ships = Object.values(SHIP_DATABASE);
+        /* ★ 2026-10-07（用户要求）：战机/护航艇【只能从母舰的机库（载机位）选】，不放进舰队列表、不占人口 */
+        ships = ships.filter(s=>s.type!=='fighter' && s.type!=='corvette');
         if(spkFilter==='supercap') ships = ships.filter(s=>s.size==='large'||s.superCapital);
+        else if(spkFilter==='custom') ships = ships.filter(s=>s.variant==='自定义'||String(s.id).indexOf('custom_')===0);   // ★ 修复：原来按 s.type==='custom' 判永远为空
         else if(spkFilter!=='all') ships = ships.filter(s=>s.type===spkFilter);
         // 稳定排序：超主力优先，再按人口降序
         const rank = t => (t==='battlecruiser'||t==='battleship'||t==='aircraftcarrier'||t==='support')?0
@@ -1631,7 +1690,6 @@
                 </div>
                 ${moduleHTML ? `<div style="margin-bottom:8px;"><b style="font-size:11px;">⚙️ 模块选择</b>${moduleHTML}</div>` : ''}
                 <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:6px;">
-                    <button class="btn btn-sm" style="font-size:10px;background:var(--accent-gold);" onclick="openStrengthen('${shipId}');document.getElementById('shipManager').style.display='none'">⚡ 强化</button>
                     ${simHasAirSlot(fleetType,shipId)?`<button class="btn btn-sm" style="font-size:10px;" onclick="document.getElementById('shipManager').style.display='none';openSimAirPickerFirst('${fleetType}','${shipId}')">✈️ 舰载机</button>`:''}
                     <label style="font-size:10px;display:flex;align-items:center;gap:4px;cursor:pointer;">
                         <input type="checkbox" ${prioSC?'checked':''} onchange="toggleShipPrioSC('${shipId}','${fleetType}',this.checked)" style="accent-color:var(--accent-gold);">
@@ -1721,40 +1779,44 @@
     
     function renderInlineFleetEditor() {
         const fleet = fleetData[currentFleetType];
-        const list = currentFleetTab === 'main' ? fleet.main : fleet.reinforcement;
         const cmdVal = fleet.main.reduce((s,sh)=>s+(sh.commandValue||0)*sh.count,0);
         const editorEl = $('inlineFleetEditor');
         editorEl.style.display = 'block';
-        
+        /* ★ 2026-10-07（用户要求·第二版）：与「战舰配队」页【完全一样】——
+           增援卡片 + 主舰队卡片【两段同屏各一个整宽「➕ 增加战舰」】，不做段落切换。 */
+        const cardStyle = 'background:var(--bg-card);border:1px solid var(--border-color);border-radius:8px;padding:10px;margin-bottom:10px;';
+        const addBtnStyle = 'width:100%;margin-top:8px;background:var(--accent-cyan);color:#06263a;font-weight:700;';
         editorEl.innerHTML = `
             <div style="background:var(--bg-card);border:1px solid var(--accent-blue);border-radius:8px;padding:12px;margin-top:8px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
                     <b>编辑: ${FLEET_TYPE_NAMES[currentFleetType]}</b>
-                    <div>
-                        <button class="btn btn-sm${currentFleetTab==='main'?' active':''}" style="font-size:10px;" onclick="currentFleetTab='main';renderInlineFleetEditor();renderFleetPanels();">主力舰队</button>
-                        <button class="btn btn-sm${currentFleetTab==='reinforcement'?' active':''}" style="font-size:10px;" onclick="currentFleetTab='reinforcement';renderInlineFleetEditor();renderFleetPanels();">增援舰队(${fleet.reinforcement.length}/9)</button>
-                        <span style="font-size:11px;margin-left:8px;">指挥值:${cmdVal}/500</span>
-                        ${currentFleetTab==='main'?`
-                        <span style="font-size:11px;margin-left:4px;">旗舰: 
+                    <span style="font-size:11px;">指挥值:${cmdVal}/500</span>
+                </div>
+                <div style="${cardStyle}">
+                    <div style="color:var(--accent-green);font-weight:700;font-size:12px;margin-bottom:6px;">🛡️ 增援（${(fleet.reinforcement||[]).length} 种）</div>
+                    <div style="max-height:240px;overflow-y:auto;">${renderInlineShipList(fleet.reinforcement||[], fleet, 'reinforcement')}</div>
+                    <button class="btn btn-sm" style="${addBtnStyle}" onclick="openShipPickerFor('${currentFleetType}','reinforcement')">➕ 增加战舰</button>
+                </div>
+                <div style="${cardStyle}">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:6px;">
+                        <span style="color:var(--accent-gold);font-weight:700;font-size:12px;">⚔️ 主舰队（${fleet.main.length} 种）</span>
+                        <span style="font-size:11px;">旗舰: 
                             <select id="flagshipSelectInline" onchange="setShipAsFlagship(this.value)" style="font-size:10px;padding:1px 3px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border-color);border-radius:3px;">
                                 <option value="">未设置</option>
                                 ${fleet.main.map(s=>`<option value="${s.id}"${fleet.flagship===s.id?' selected':''}>${s.name}</option>`).join('')}
                             </select>
-                        </span>`:''}
+                        </span>
+                    </div>
+                    <div style="max-height:300px;overflow-y:auto;">${renderInlineShipList(fleet.main, fleet, 'main')}</div>
+                    <button class="btn btn-sm" style="${addBtnStyle}" onclick="openShipPickerFor('${currentFleetType}','main')">➕ 增加战舰</button>
+                    <div style="margin-top:8px;">
+                        <label style="font-size:10px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;cursor:pointer;">
+                            <input type="checkbox" id="prioSuperCapCb" onchange="togglePrioSuperCap(this.checked)" style="accent-color:var(--accent-gold);">
+                            优先打击超主力舰船
+                        </label>
                     </div>
                 </div>
-                <div id="inlineShipList" style="max-height:300px;overflow-y:auto;">${renderInlineShipList(list, fleet)}</div>
-                <div style="margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                    <label style="font-size:10px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;cursor:pointer;">
-                        <input type="checkbox" id="prioSuperCapCb" onchange="togglePrioSuperCap(this.checked)" style="accent-color:var(--accent-gold);">
-                        优先打击超主力舰船
-                    </label>
-                </div>
-                <div style="margin-top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                    <button class="btn btn-sm btn-primary" onclick="openShipPicker()">➕ 添加舰船</button>
-                    <span style="font-size:10px;color:var(--text-muted);">弹窗里可多选，确认后加入「${FLEET_TYPE_NAMES[currentFleetType]} · ${currentFleetTab==='main'?'主力':'增援'}」</span>
-                </div>
-                <div style="margin-top:8px;display:flex;gap:6px;justify-content:flex-end;">
+                <div style="display:flex;justify-content:flex-end;">
                     <button class="btn btn-sm btn-danger" onclick="toggleFleetPanel(currentFleetType)">关闭编辑</button>
                 </div>
             </div>
@@ -1770,15 +1832,14 @@
     }
     function simPosOf(s){ const p=s.position; return (p==='前排'||p==='中排'||p==='后排')?p:((SHIP_DATABASE[s.id]||{}).position||'中排'); }
     function simCyclePos(shipId){
-        const fleet=fleetData[currentFleetType];
-        const list=currentFleetTab==='main'?fleet.main:fleet.reinforcement;
-        const s=findRow(list, shipId); if(!s) return;
+        const hit=findRowAny(shipId); if(!hit) return;
+        const s=hit.row;
         const order=['前排','中排','后排'];
         s.position = order[(order.indexOf(simPosOf(s))+1)%3];
         refreshFleetViews();
     }
-    function renderInlineShipList(list, fleet) {
-        if(!list.length) return '<div style="color:var(--text-muted);text-align:center;padding:12px;">暂无舰船，点下方「➕ 添加舰船」</div>';
+    function renderInlineShipList(list, fleet, tab) {
+        if(!list.length) return '<div style="color:var(--text-muted);text-align:center;padding:12px;">暂无舰船，点下方按钮添加</div>';
         return list.map(s=>{
             const origShip = SHIP_DATABASE[s.id] || {};
             const slots = FleetCheck.slotsOf(origShip);                 // 可选模块槽位（有变体才算）
@@ -1797,14 +1858,12 @@
                 <button class="fpos" onclick="simCyclePos('${rowKey(s)}')" title="点击切换站位">${pos}</button>
                 ${showMods?`<button class="fbtn gold" onclick="openSimMods('${rowKey(s)}')">${modStr||'模块'}</button>`:''}
                 ${showMods?`<button class="fbtn" onclick="simAddConfig('${rowKey(s)}')" title="再配一套不同的模块组合（服役上限仍按该舰合计）">⧉</button>`:''}
-                ${apBuildSelect(s, rowKey(s))}
                 <div class="fqty ${over?'over':''}">
                     <button onclick="changeFleetShipCount('${rowKey(s)}',-1);refreshFleetViews();">−</button>
                     <span>${s.count}</span>
                     <button onclick="changeFleetShipCount('${rowKey(s)}',1);refreshFleetViews();">＋</button>
                 </div>
-                <button class="fbtn" onclick="openStrengthen('${rowKey(s)}')" title="强化">⚡</button>
-                ${currentFleetTab==='main'&&fleet&&s.id!==fleet.flagship?`<button class="fbtn gold" onclick="setShipAsFlagship('${rowKey(s)}');refreshFleetViews();" title="设为旗舰">⭐</button>`:''}
+                ${tab==='main'&&fleet&&s.id!==fleet.flagship?`<button class="fbtn gold" onclick="setShipAsFlagship('${rowKey(s)}');refreshFleetViews();" title="设为旗舰">⭐</button>`:''}
                 <button class="fbtn red" onclick="removeShipFromFleet('${rowKey(s)}');refreshFleetViews();" title="移出舰队">✕</button>
             </div>${airRows}`;
         }).join('');
@@ -1883,9 +1942,8 @@
     /* 再配一套（同一艘舰的另一种模块组合）：新增一条独立条目，数量 1，
        服役上限仍按该舰在「主力+增援」的合计来卡 */
     function simAddConfig(key){
-        const fleet=fleetData[currentFleetType];
-        const list=currentFleetTab==='main'?fleet.main:fleet.reinforcement;
-        const src=findRow(list,key); if(!src) return;
+        const hit=findRowAny(key); if(!hit) return;
+        const src=hit.row;
         const orig=SHIP_DATABASE[src.id]||{};
         const lim=orig.serviceLimit||99;
         if(!stitchMode && simUsedTotal(currentFleetType, src.id)+1>lim){
@@ -1996,10 +2054,9 @@
     /* 模块选择弹窗（与配队页一致：逐槽单选，并标出该模块带来的载机位） */
     let simModShipId=null, simModDraft={};
     function openSimMods(shipId){
-        const fleet=fleetData[currentFleetType];
-        const list=currentFleetTab==='main'?fleet.main:fleet.reinforcement;
-        const s=findRow(list, shipId); if(!s) return;
-        const orig=SHIP_DATABASE[shipId]; const slots=FleetCheck.slotsOf(orig);
+        const hit=findRowAny(shipId); if(!hit) return;
+        const s=hit.row;
+        const orig=SHIP_DATABASE[s.id]; const slots=FleetCheck.slotsOf(orig);
         if(!slots.length){ showToast('该舰没有可选模块（武器为固定配置）'); return; }
         simModShipId=shipId;
         simModDraft=Object.assign({}, s.selectedModules||{});
@@ -2008,10 +2065,9 @@
         openModal('simModModal');
     }
     function renderSimModBody(){
-        const fleet=fleetData[currentFleetType];
-        const list=currentFleetTab==='main'?fleet.main:fleet.reinforcement;
-        const s=list.find(x=>x.id===simModShipId); if(!s) return;
-        const orig=SHIP_DATABASE[simModShipId];
+        const hit=findRowAny(simModShipId); if(!hit) return;
+        const s=hit.row;
+        const orig=SHIP_DATABASE[s.id];
         $('simModBody').innerHTML=FleetCheck.slotsOf(orig).map(g=>`
             <div class="mslot">
                 <div class="mst"><em>${g.slot}</em>${g.name}</div>
@@ -2031,10 +2087,9 @@
         renderSimModBody();
     }
     function simModSave(){
-        const fleet=fleetData[currentFleetType];
-        const list=currentFleetTab==='main'?fleet.main:fleet.reinforcement;
-        const s=list.find(x=>x.id===simModShipId); if(!s){ closeModal('simModModal'); return; }
-        const orig=SHIP_DATABASE[simModShipId];
+        const hit=findRowAny(simModShipId); if(!hit){ closeModal('simModModal'); return; }
+        const s=hit.row;
+        const orig=SHIP_DATABASE[s.id];
         const newKeys=FleetCheck.airSlots(orig, simModDraft, s.count).map(x=>x.key);
         const lost=(s.aircraft||[]).filter(a=>a.slot && newKeys.indexOf(a.slot)<0);
         if(lost.length){
@@ -2143,7 +2198,6 @@
                             <button class="qty-btn" onclick="changeFleetShipCount('${s.id}',1)">+</button>
                         </div>
                         ${simHasAirSlot(currentFleetType,s.id)?`<button class="btn btn-sm" style="font-size:10px;" onclick="openSimAirPickerFirst('${currentFleetType}','${rowKey(s)}')">✈️ 舰载机</button>`:''}
-                        <button class="btn btn-sm" style="font-size:10px;background:var(--accent-gold);" onclick="openStrengthen('${rowKey(s)}')">⚡强化</button>
                         ${currentFleetTab==='main'&&s.id!==fleet.flagship?`<button class="btn btn-sm btn-gold" style="font-size:10px;" onclick="setShipAsFlagship('${s.id}')">⭐旗舰</button>`:''}
                         <button class="btn btn-sm btn-danger" style="font-size:10px;" onclick="removeShipFromFleet('${s.id}')">✕</button>
                     </div>
@@ -2160,6 +2214,13 @@
     function rowKey(row){ return row ? (row.uid||row.id) : ''; }
     function rowMatch(row, key){ return !!row && (row.uid===key || row.id===key); }
     function findRow(list, key){ return (list||[]).find(x=>rowMatch(x,key))||null; }
+    /* ★ 2026-10-07：按行 uid/id 在当前舰队的【两段】里定位（主舰队+增援同屏显示时，各行按钮要作用于自己那一段） */
+    function findRowAny(key){
+        const f=fleetData[currentFleetType]; if(!f) return null;
+        const tabs=['main','reinforcement'];
+        for(const tab of tabs){ const list=tab==='main'?f.main:(f.reinforcement||[]); const i=findRowIdx(list,key); if(i>=0) return {tab:tab,list:list,idx:i,row:list[i]}; }
+        return null;
+    }
     function findRowIdx(list, key){ return (list||[]).findIndex(x=>rowMatch(x,key)); }
 
     /* 载机位容量：统一用 FleetCheck.airSlots（与「战舰配队」页同一套逻辑）
@@ -2223,10 +2284,10 @@
 
     function changeFleetShipCount(shipId, delta) {
         const fleet = fleetData[currentFleetType];
-        const list = currentFleetTab === 'main' ? fleet.main : fleet.reinforcement;
-        const idx = findRowIdx(list, shipId);
-        if(idx<0) return;
-        const ship = list[idx];
+        const hit = findRowAny(shipId);
+        if(!hit) return;
+        const list = hit.list, idx = hit.idx;
+        const ship = hit.row;
         const orig = SHIP_DATABASE[ship.id] || {};
         const lim = orig.serviceLimit || 99;
         const newCount = ship.count + delta;
@@ -2257,9 +2318,9 @@
 
     function removeShipFromFleet(shipId) {
         const fleet = fleetData[currentFleetType];
-        const list = currentFleetTab === 'main' ? fleet.main : fleet.reinforcement;
-        const idx = findRowIdx(list, shipId);
-        if(idx>=0){
+        const hit = findRowAny(shipId);
+        if(hit){
+            const list = hit.list, idx = hit.idx;
             const ship=list[idx];
             if((ship.aircraft||[]).length &&
                !confirm('「'+ship.name+'」还挂着 '+ship.aircraft.reduce((a,x)=>a+(x.count||0),0)+' 架载机，确认一并移除？')) return;
@@ -2290,10 +2351,9 @@
     }
 
     function openStrengthen(shipId) {
-        const fleet = fleetData[currentFleetType];
-        const list = currentFleetTab === 'main' ? fleet.main : fleet.reinforcement;
-        const shipEntry = findRow(list, shipId);
-        if(!shipEntry) return;
+        const hit = findRowAny(shipId);
+        if(!hit) return;
+        const shipEntry = hit.row;
         openModal('strengthenModal');
         // ⚠️ 参数是【行 key】(uid)，查舰船数据必须用条目的舰船 id（否则弹窗一片空白）
         const origShip = SHIP_DATABASE[shipEntry.id];
@@ -3929,6 +3989,14 @@
         s.bursts = (shipEntry.bursts || []).map(k => Object.assign({}, k, { active: false, until: 0, readyAt: 0 }));
         // ★ 加点自动生效（船级部分，必须在算 maxHp 之前）
         applyAddPointShip(s);
+        /* ★ 2026-10-07：自定义舰船机制（条目上直接带 condEffects）——加点没有 conds 时用条目的（自定义舰走这条）。
+           与加点机制同一套条件触发系统，运行期状态 applied/done/until 逐实例独立。 */
+        /* ★ 2026-10-07：以【条目】上的 condEffects 为准重建一次：① on:false（已关闭）的不进战斗；
+           ② 每个实例独立一份运行态（applied/until）——克隆带来的那份是同一批对象，不重建会互相串状态。
+           加点提供的（applyAddPointShip 会设 s.condEffects.src）则不覆盖。 */
+        if (!(s.condEffects && s.condEffects.src)) {
+            s.condEffects = (shipEntry.condEffects || []).filter(c => c && c.on !== false).map(c => Object.assign({}, c, { applied: false, done: false, until: 0 }));
+        }
         /* ★★ 第68轮：【信息伪装】加点节点 → 实例字段（必须放在 applyAddPointShip 之后，fleetMechs 那时才收齐）
            节点原文：「开启伪装系统，在战斗开始后{T}秒内，会被敌方识别为战机」（如 207010304=120s） */
         try {
@@ -4650,9 +4718,127 @@
         let s = 0; (e.weaponStates || []).forEach(ws => { s += ((ws.weapon.dpm || {}).antiAir || 0); });
         return s;
     }
+    /* ============================================================
+       ★★★ 动作接口（opt-in，**默认关**）—— 2026-10-05 移植自另一台设备的「方案二A 神经元系统」
+       ------------------------------------------------------------
+       目的：把"选目标 / 选维修对象"这两个决策交给外部（进化出来的神经网络）。
+       铁律：**不设钩子时，本函数行为与改动前逐位一致** —— 验收 13/18 不受影响。
+       用法：
+         Node:  E.setActionHook(state => 0);            // 返回候选下标，-1 = 不开火
+                E.runBattle({..., actionHook: fn});     // 也可按场传（未实现按场传，统一用 setActionHook）
+         浏览器: window.__setActionHook(fn)
+       状态向量（定长 87 维）= 自身 16 + 战场 6 + 上下文 1 + 候选 8 槽 × 8
+       ============================================================ */
+    let __actionHook = null;
+    function __engineSetActionHook(fn) { __actionHook = (typeof fn === 'function') ? fn : null; }
+    /* ★ 决策节流（性能关键）：真网络会让决策次数暴增（85.8 万次/场，单场 97.6 秒；纯引擎只要 2.9 秒）。
+       86 维状态向量是在这里、**调钩子之前**建的 —— 所以节流必须做在引擎层，
+       在建状态之前就把"这一秒内已经决定过的"拦掉。__actionThrottle = 0 表示不节流（严格原版行为）。 */
+    let __actionThrottle = 0;
+    const __actionCache = new Map();
+    function __engineSetActionThrottle(sec) { __actionThrottle = (sec > 0) ? sec : 0; __actionCache.clear(); }
+    const __AK = 8;                                  // 候选槽位数（网络输出层 = __AK+1）
+    function __actionStateSize() { return 23 + __AK * 8; }
+    function __actionState(ship, cands, weapon, ws, ctx) {
+        const v = new Array(23 + __AK * 8).fill(0);
+        const put = (i, x) => { v[i] = (typeof x === 'number' && isFinite(x)) ? x : 0; };
+        const b = (typeof battleState !== 'undefined') ? battleState : null;
+        /* --- 自身 0..15 --- */
+        put(0, (ship.hp || 0) / Math.max(1, ship.maxHp || 1));
+        put(1, (ship.physicalArmor || 0) / 100);
+        put(2, (ship.energyArmor || 0) / 100);
+        put(3, ship.position === '前排' ? 1 : 0);
+        put(4, ship.position === '中排' ? 1 : 0);
+        put(5, ship.position === '后排' ? 1 : 0);
+        put(6, ship.isEscort ? 1 : 0);
+        put(7, ship.isEscorted ? 1 : 0);
+        put(8, ship.isFlagship ? 1 : 0);
+        const wss = ship.weaponStates || [];
+        put(9, wss.length / 10);
+        put(10, wss.filter(x => x && (x.cooldownRemaining || 0) <= 0).length / 10);
+        put(11, ((weapon && weapon.dpm && weapon.dpm.antiShip) || 0) / 100000);
+        put(12, ((weapon && weapon.dpm && weapon.dpm.antiAir) || 0) / 100000);
+        put(13, (weapon && weapon.weaponType === 'direct') ? 1 : 0);
+        {   /* 本门武器是否"对空主用"（沿用引擎自己的判据写法） */
+            const _aw = /战机|护航艇|载机|无人机|登陆舰/;
+            const _t0 = (weapon && weapon.targets && weapon.targets[0] && weapon.targets[0].types) || [];
+            put(14, _t0.some(x => _aw.test(String(x))) ? 1 : 0);
+        }
+        put(15, b ? (b.time || 0) / 3600 : 0);
+        /* --- 战场 16..21 --- */
+        if (b) {
+            const mine = (ship.side === 'ally') ? (b.allyShips || []) : (b.enemyShips || []);
+            const foe = (ship.side === 'ally') ? (b.enemyShips || []) : (b.allyShips || []);
+            const cnt = arr => arr.filter(x => x && x.alive && x.hp > 0);
+            const mAl = cnt(mine), fAl = cnt(foe);
+            const shipsOf = arr => arr.filter(x => x && x.position !== 'aircraft').length;
+            const airOf = arr => arr.filter(x => x && x.position === 'aircraft').length;
+            put(16, shipsOf(mAl) / Math.max(1, shipsOf(mine)));
+            put(17, shipsOf(fAl) / Math.max(1, shipsOf(foe)));
+            put(18, airOf(mAl) / Math.max(1, airOf(mine)));
+            put(19, airOf(fAl) / Math.max(1, airOf(foe)));
+            put(20, (b.time || 0) / 3600);
+            put(21, ((ship.side === 'ally') ? b.allyEscortAlive : b.enemyEscortAlive) ? 1 : 0);
+        }
+        /* --- 22：上下文（0=攻击决策 / 1=维修决策） --- */
+        put(22, ctx === 'repair' ? 1 : 0);
+        /* --- 候选 23..(23+__AK*8) --- */
+        for (let k = 0; k < __AK; k++) {
+            const e = cands[k]; const o = 23 + k * 8;
+            if (!e) continue;
+            put(o + 0, (e.hp || 0) / Math.max(1, e.maxHp || 1));
+            put(o + 1, e.position === 'aircraft' ? 1 : 0);
+            put(o + 2, e.isEscorted ? 1 : 0);
+            put(o + 3, (e.physicalArmor || 0) / 500);
+            put(o + 4, ['battleship', 'aircraftcarrier', 'battlecruiser', 'support'].indexOf(e.type) >= 0 ? 1 : 0);
+            put(o + 5, (e.type === 'cruiser') ? 1 : 0);
+            put(o + 6, antiAirScore(e) / 5000);
+            put(o + 7, -(e.hp || 0) / 1000000);
+        }
+        return v;
+    }
+    /* 候选顺序：直接用引擎给的数组顺序（同局面 ⇒ 同顺序 ⇒ 可复现）。
+       ⚠️ 这里**不能**再排序：钩子每场被调用几万~上百万次，一次 localeCompare 排序
+       就能把单场从 2 秒拖到几分钟（另一台设备 2026-10-03 实测踩过）。 */
+    function __actionCandidates(enemies) { return enemies; }
+    try { if (typeof window !== 'undefined') { window.__setActionHook = __engineSetActionHook; window.__setActionThrottle = __engineSetActionThrottle; window.__actionStateSize = __actionStateSize; } } catch (e) { }
+
     function findTarget(ship, enemies, weapon, ws) {
         const aliveEnemies = enemies.filter(e=>e.alive && e.hp>0 && !escortProtected(e));
         if(aliveEnemies.length===0) return null;
+
+        /* ★ 动作接口（opt-in）：设了钩子就把"选谁打"交给它
+             返回 数字 → 用该候选；返回 -1/越界 → 本门明确不开火；
+             返回 null/undefined（或抛错）→ **交回原规则**（供"预算烧完=失去控制"用，避免死锁） */
+        if (__actionHook) {
+            /* ★ 节流：同一单位+同一门武器，在 __actionThrottle 秒内复用上次的目标身份（目标还在就用） */
+            if (__actionThrottle > 0) {
+                const _t = (typeof battleState !== 'undefined' && battleState) ? (battleState.time || 0) : 0;
+                const _k = ((ship.instId != null ? ship.instId : ship.id) + '|' + ((weapon && weapon.id) || ''));
+                const _r = __actionCache.get(_k);
+                if (_r && (_t - _r.t) < __actionThrottle) {
+                    if (_r.targetId === -1) return null;                       // 上次决定"不开火"
+                    for (let i = 0; i < aliveEnemies.length; i++)
+                        if (aliveEnemies[i].instId === _r.targetId) return aliveEnemies[i];
+                    /* 目标没了 → 往下重新决策 */
+                }
+            }
+            const cands = __actionCandidates(aliveEnemies);
+            const K = Math.min(__AK, cands.length);
+            const st = __actionState(ship, cands.slice(0, K), weapon, ws, 'attack');
+            let idx;
+            try { idx = __actionHook(st, { ship: ship, enemies: cands, weapon: weapon, ws: ws, K: K }); } catch (e) { idx = undefined; }
+            if (typeof idx === 'number') {
+                if (__actionThrottle > 0) {
+                    const _t = (typeof battleState !== 'undefined' && battleState) ? (battleState.time || 0) : 0;
+                    const _k = ((ship.instId != null ? ship.instId : ship.id) + '|' + ((weapon && weapon.id) || ''));
+                    __actionCache.set(_k, { t: _t, targetId: (idx >= 0 && idx < K) ? ((cands[idx] || {}).instId) : -1 });
+                }
+                if (idx >= 0 && idx < K) return cands[idx];
+                return null;                       // -1 或越界 = 明确不开火
+            }
+            /* 否则落到下面走原规则 */
+        }
 
         // 「打击」窗口内：本系统武器改用指定规则选目标（防空最高 / 血量较低 / 物抗最高）
         const strike = (ws && typeof activeStrike === 'function') ? activeStrike(ship, ws) : null;
@@ -5519,6 +5705,37 @@
                     }
                 }
 
+                /* ★★★ 动作接口扩展：维修目标也交给网络（kind='repair'）。
+                   原来写死"修血量百分比最低的那个"，现在网络可以自己决定先修谁。
+                   候选 = 所有受损友军；返回下标=修它，返回 -1=本门不修。
+                   ⚠️ 维修是每 tick 都判的，必须走同一套引擎层节流（否则调用次数爆炸）。 */
+                if (__actionHook) {
+                    const _canR = friendlies.filter(f => f.alive && f.hp < f.maxHp);
+                    if (_canR.length) {
+                        const _K = Math.min(__AK, _canR.length);
+                        let _idx;
+                        let _cached = false;
+                        const _rk = 'R' + (ship.instId != null ? ship.instId : ship.id) + '|' + ((w && w.name) || '');
+                        const _rt = (bs && bs.time) || 0;
+                        if (__actionThrottle > 0) {
+                            const _r0 = __actionCache.get(_rk);
+                            if (_r0 && (_rt - _r0.t) < __actionThrottle) {
+                                _cached = true;
+                                if (_r0.targetId === -1) _idx = -1;
+                                else { _idx = -1; for (let i = 0; i < _K; i++) if (_canR[i].instId === _r0.targetId) { _idx = i; break; } }
+                            }
+                        }
+                        if (!_cached) {
+                            const _st2 = __actionState(ship, _canR.slice(0, _K), w, null, 'repair');
+                            try { _idx = __actionHook(_st2, { ship: ship, enemies: _canR, weapon: w, ws: null, K: _K, kind: 'repair' }); } catch (e) { _idx = undefined; }
+                            if (typeof _idx === 'number' && __actionThrottle > 0) {
+                                __actionCache.set(_rk, { t: _rt, targetId: (_idx >= 0 && _idx < _K) ? ((_canR[_idx] || {}).instId) : -1 });
+                            }
+                        }
+                        if (typeof _idx === 'number') bestTarget = (_idx >= 0 && _idx < _K) ? _canR[_idx] : null;
+                    }
+                }
+
                 if(bestTarget) {
                     const _hpBefore = bestTarget.hp;
                     bestTarget._healed = (bestTarget._healed || 0) + actualRepair;   // 受维修量（详情页用）
@@ -5955,6 +6172,45 @@
         document.body.appendChild(a); a.click(); document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(a.href), 3000);
     }
+    /* ★ 2026-10-05：战报入库 / 发给 AI 分析（用户要求"保存的战报放到网页里，可发给 AI Agent 分析"）
+       —— 数据另存 localStorage['lagrange_battle_reports']（只为 AI 工具 get_battle_reports 准备，最多留 10 条） */
+    function _reportData() {
+        const bs = battleState; if (!bs) return null;
+        const clean = rows => (rows || []).map(r => ({ 舰船: r.name, 数量: r.n, 存活: r.alive,
+            对舰: Math.round(r.antiShip || 0), 对空: Math.round(r.antiAir || 0), 维修: Math.round(r.repair || 0),
+            系统伤害: Math.round(r.sysDmg || 0), 击毁系统: r.sysKill || 0, 殉爆: Math.round(r.blastHp || 0),
+            生存占比: +((r.life || 0)).toFixed(2) }));
+        let ally = [], enemy = [];
+        try { ally = clean(_rowsOf('ally', bs, bs.time)); enemy = clean(_rowsOf('enemy', bs, bs.time)); } catch (e) { }
+        return { kind: 'battle', savedAt: new Date().toISOString(), duration: +(bs.time || 0).toFixed(0), 结束: !!bs.ended,
+            ally: ally, enemy: enemy,
+            舰队: { 我方护航: (bs.allyEscort || []).map(s => s.name), 我方被护航: (bs.allyEscorted || []).map(s => s.name),
+                    敌方护航: (bs.enemyEscort || []).map(s => s.name), 敌方被护航: (bs.enemyEscorted || []).map(s => s.name) } };
+    }
+    function _saveReportToLib(silent) {
+        const rep = _reportData(); if (!rep) { alert('还没有战斗数据 —— 先点「开始战斗」'); return false; }
+        let arr = []; try { arr = JSON.parse(localStorage.getItem('lagrange_battle_reports') || '[]'); } catch (e) { }
+        arr.unshift(rep);
+        try { localStorage.setItem('lagrange_battle_reports', JSON.stringify(arr.slice(0, 10))); }
+        catch (e) { alert('存储失败（可能太大）：' + e.message); return false; }
+        if (!silent) alert('已存入战报库 ✓\n（在 AI 对话里说"分析我保存的战报"就行）');
+        return true;
+    }
+    function _sendReportToAI() {
+        const rep = _reportData(); if (!rep) { alert('还没有战斗数据 —— 先点「开始战斗」'); return; }
+        _saveReportToLib(true);
+        const lines = [];
+        lines.push('【模拟器战报 · 请帮我分析】时长 ' + rep.duration + 's' + (rep.结束 ? '（打完了）' : '（到时间上限）'));
+        const tab = (rows, label) => {
+            lines.push('== ' + label + ' ==');
+            rows.forEach(r => lines.push(r.舰船 + '×' + r.数量 + '｜对舰 ' + r.对舰 + '｜对空 ' + r.对空 + '｜维修 ' + r.维修 + '｜系统伤害 ' + r.系统伤害 + '(击毁' + r.击毁系统 + ')｜殉爆 ' + r.殉爆 + '｜存活 ' + r.存活 + '｜生存占比 ' + r.生存占比));
+            lines.push('');
+        };
+        tab(rep.ally, '我方'); tab(rep.enemy, '敌方');
+        lines.push('请：① 找出双方输出/生存的关键差距；② 指出我方配队的问题；③ 给改进方案（可用 make_fleet 输出）。');
+        try { localStorage.setItem('lagrange_chat_prefill', lines.join('\n')); location.href = 'chat.html?prefill=1'; }
+        catch (e) { alert('发送失败：' + e.message); }
+    }
 
     function renderBattleReport() {
         const bs = battleState;
@@ -5997,7 +6253,9 @@
             + (hasTwoFleets() ? '<span style="font-size:11px;color:var(--text-secondary);margin-left:8px;">只看在打：</span>'
                 + tab('F:护航队', '护航队') + tab('F:被护航队', '被护航队') : '')
             + '<span style="flex:1"></span>'
-            + '<button class="btn btn-sm" style="font-size:11px;" onclick="_reportSave()">💾 保存战报</button></div>'
+            + '<button class="btn btn-sm" style="font-size:11px;" onclick="_reportSave()">💾 保存战报</button>'
+            + '<button class="btn btn-sm" style="font-size:11px;" onclick="_saveReportToLib()" title="存进网页里的战报库（AI 对话可以读它分析）">💾 存入战报库</button>'
+            + '<button class="btn btn-sm" style="font-size:11px;" onclick="_sendReportToAI()" title="存进战报库并打开 AI 对话，让它分析这场">📤 发给AI分析</button></div>'
             + '<div style="color:var(--text-muted);font-size:10.5px;margin-bottom:6px;">点任意舰船行可展开详情；详情里「结构值伤害」与「系统伤害」分列，破坏系统扣的 5% 血量已计入结构值伤害（括号里是殉爆部分）。</div>'
             + '<div style="display:flex;gap:14px;">';
         if (V !== 'enemy') html += _statTable('ally', bs, duration);
@@ -6157,7 +6415,15 @@
             var f=JSON.parse(raw);
             if(!SHIP_DB_READY){ alert('舰船数据未加载成功，无法导入配队。请用 http 服务打开本页。'); return; }
             var build=function(arr){ return (arr||[]).map(function(s){
-                var base=SHIP_DATABASE[s.id]; if(!base) return null;
+                var base=SHIP_DATABASE[s.id];
+                /* ★ 2026-10-07：配队页带过来的自定义舰船快照（exportFleet 的 _ship）——本机库里没有就现场补登记，
+                   否则整船被静默丢弃（原行为：base 找不到直接 return null） */
+                if(!base && s._ship){
+                    base=s._ship; SHIP_DATABASE[s.id]=base;
+                    try{ var cs=JSON.parse(localStorage.getItem('lagrange_custom_ships')||'{}');
+                         cs[s.id]=base; localStorage.setItem('lagrange_custom_ships', JSON.stringify(cs)); }catch(e){}
+                }
+                if(!base) return null;
                 var e=ensureUid(JSON.parse(JSON.stringify(base)));
                 e.count=s.qty||1; e.selectedModules={};
                 if(s.mods) Object.keys(s.mods).forEach(function(k){ e.selectedModules[k]=s.mods[k]; });

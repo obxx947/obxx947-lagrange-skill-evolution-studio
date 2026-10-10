@@ -136,12 +136,15 @@ textarea{min-height:52px;resize:vertical}
     <div class="tabs">
         <button id="tabEditor" class="on" onclick="switchTab('editor')">🛠️ 配队</button>
         <button id="tabMine" onclick="switchTab('mine')">📁 我的配队</button>
+        <!-- ★ 2026-10-07：自定义舰船管理（列表/新建/编辑/删 + 页内和 AI 设计机制）——两个 Tab 下都可见 -->
+        <button onclick="CustomShip.open()" title="新建/编辑自定义舰船，并在弹窗里让 AI 设计「当X之后X」机制">⚙️ 自定义舰船</button>
     </div>
     <div class="links">
         <a href="chat.html">🤖 AI对话</a>
+        <a href="neuron.html">🧬 神经元</a>
         <a href="ships.html">🚀 舰船库</a>
         <a href="addpoint.html">⚙️ 舰船加点</a>
-        <a href="index.html">⚓ 模拟器</a>
+        <a href="simulator.html">⚓ 模拟器</a>
     </div>
 </div>
 
@@ -182,14 +185,14 @@ textarea{min-height:52px;resize:vertical}
                 <button class="btn red" style="flex:0 0 auto" onclick="delAllPlans()">删除全部</button>
             </div>
             <div class="row" style="margin-top:8px">
-                <button class="btn gold" onclick="exportAllPlans()">📤 导出全部配队（JSON）</button>
+                <button class="btn cyan" onclick="CustomShip.open()">⚙️ 自定义舰船管理</button>
                 <button class="btn" onclick="document.getElementById('impFile').click()">📥 导入配队</button>
                 <button class="btn" onclick="exportLib()">📚 导出配队库</button>
                 <button class="btn" onclick="document.getElementById('impLibFile').click()">📚 导入配队库</button>
             </div>
             <input type="file" id="impFile" accept=".json" style="display:none" onchange="doImport(this)">
             <input type="file" id="impLibFile" accept=".json" style="display:none" onchange="doImportLib(this)">
-            <div class="hint" style="margin-top:6px">配队库=给AI检索用的知识（单独导出/导入）；「导出全部配队」会把"我的配队"全部导出成一个 JSON，可发给我入库。</div>
+            <div class="hint" style="margin-top:6px">「➕ 新增自定义舰船」= 自己造一艘船（可编辑数据），并在同页和 AI 对话给它设计「当X之后X」机制；配队库=给AI检索用的知识（单独导出/导入）。</div>
         </div>
         <div class="sec">📚 配队库（AI 可检索） <span class="cnt" id="libCnt"></span></div>
         <div id="libList"></div>
@@ -281,11 +284,13 @@ textarea{min-height:52px;resize:vertical}
 <script src="js/fleet_io.js"></script>
 <script src="js/fleet_check.js"></script>
 <script src="js/fleet_lib.js"></script>
+<script src="js/mech_spec.js"></script>
+<script src="js/custom_ship.js"></script>
 <script>
 /* ================= 数据层 ================= */
 const KEY='lagrange_fleets';
-const TYPES=[['frigate','护卫舰'],['destroyer','驱逐舰'],['cruiser','巡洋舰'],['battlecruiser','战巡'],['battleship','战列'],['aircraftcarrier','航母'],['support','支援']];
-const TYPE_LABEL={frigate:'护卫舰',destroyer:'驱逐舰',cruiser:'巡洋舰',corvette:'护航艇',fighter:'战机',battlecruiser:'战列巡洋舰',battleship:'战列舰',aircraftcarrier:'航空母舰',support:'支援舰'};
+const TYPES=[['frigate','护卫舰'],['destroyer','驱逐舰'],['cruiser','巡洋舰'],['battlecruiser','战巡'],['battleship','战列'],['aircraftcarrier','航母'],['support','支援'],['custom','⚙️ 自定义']];
+const TYPE_LABEL={frigate:'护卫舰',destroyer:'驱逐舰',cruiser:'巡洋舰',corvette:'护航艇',fighter:'战机',battlecruiser:'战列巡洋舰',battleship:'战列舰',aircraftcarrier:'航空母舰',support:'支援舰',custom:'自定义'};
 const SUPER=['battlecruiser','battleship','aircraftcarrier','support'];
 let ALL=[], ALLMAP={};
 let store={plans:[]};
@@ -727,7 +732,7 @@ function openPicker(sec){
     pickMode='ship';
     pickSection=sec; pickSel=[]; pickFilter='';
     document.getElementById('pkTitle').textContent=(sec==='reinforce'?'选择舰船 · 增援':'选择舰船 · 主舰队');
-    document.getElementById('pkFilters').innerHTML='<button class="on" onclick="setPickFilter(\'\',this)">全部</button>'+TYPES.map(t=>`<button onclick="setPickFilter('${t[0]}',this)">${t[1]}</button>`).join('');
+    document.getElementById('pkFilters').innerHTML='<button class="on" onclick="setPickFilter(\'\',this)">全部</button>'+TYPES.map(t=>`<button onclick="setPickFilter('${t[0]}',this)">${t[1]}</button>`).join('')+'<button style="margin-left:6px" onclick="document.getElementById(&quot;pickModal&quot;).classList.remove(&quot;show&quot;);CustomShip.open()">⚙️ 自定义舰船管理</button>';
     renderPickGrid(); document.getElementById('pickModal').classList.add('show');
 }
 /* ================= 载机数量弹窗（1..min(载机位, 服役上限)；缝合开启则不受服役上限） ================= */
@@ -829,7 +834,9 @@ function renderPickGrid(){
         return;
     }
     // —— 舰船模式：只列舰船（排除战机/护航艇）；角标=整队已用/服役上限 ——
-    const list=ALL.filter(s=>s.type!=='fighter'&&s.type!=='corvette').filter(s=>!pickFilter||s.type===pickFilter);
+    // ★ 2026-10-07：「⚙️ 自定义」分类按 variant/id 前缀判定（自定义舰的 type 仍是护卫舰/巡洋舰等，不能按 type 筛）
+    const list=ALL.filter(s=>(pickFilter==='custom') ? (s.variant==='自定义'||String(s.id).indexOf('custom_')===0)
+            : (s.type!=='fighter'&&s.type!=='corvette')&&(!pickFilter||s.type===pickFilter));
     document.getElementById('pkGrid').innerHTML=list.map(s=>{
         const sel=pickSel.indexOf(s.id)>=0;
         const u=usedTotal(s.id), lim=s.serviceLimit||99;
@@ -975,8 +982,21 @@ function renderMine(){
 /* ================= 联动：模拟器 / AI ================= */
 function exportFleet(){
     const af=activeFleet();
-    const dump=arr=>arr.map(s=>({id:s.id,name:s.name,pos:s.pos||'',qty:s.qty,mods:s.mods||{},apBuild:s.apBuild||'',apSet:s.apSet||af.apSet||'',
-        air:(s.air||[]).map(a=>({id:a.id,name:a.name,kind:a.kind,slot:a.slot||'',qty:a.qty}))}));
+    const dump=arr=>arr.map(s=>{
+        const o={id:s.id,name:s.name,pos:s.pos||'',qty:s.qty,mods:s.mods||{},apBuild:s.apBuild||'',apSet:s.apSet||af.apSet||'',
+            air:(s.air||[]).map(a=>({id:a.id,name:a.name,kind:a.kind,slot:a.slot||'',qty:a.qty}))};
+        /* ★ 2026-10-07：自定义舰船带【整船快照】——模拟器导入时以它兜底补登记（否则整船被静默丢弃），
+           并把 AI 现场写的机制 condEffects 一起带过去 */
+        if(String(s.id).indexOf('custom_')===0){
+            const b=ALLMAP[s.id]||{};
+            o._ship={ id:s.id, name:b.name||s.name, variant:'自定义', type:b.type, size:b.size, position:b.position,
+                hp:b.hp, physicalArmor:b.physicalArmor, energyArmor:b.energyArmor, commandValue:b.commandValue,
+                serviceLimit:b.serviceLimit, superCapital:b.superCapital, isCarrier:b.isCarrier,
+                aircraftSlots:b.aircraftSlots, modules:b.modules, condEffects:b.condEffects||[],
+                speed:b.speed, ratings:b.ratings };
+        }
+        return o;
+    });
     return { name:cur.name||'未命名方案', desc:cur.desc||'',
         main:dump(af.main), reinforcement:dump(af.reinforce), flagship:flagshipShipId() };
 }
@@ -1224,6 +1244,16 @@ function switchTab(t){
         await SHIP_DB.load();
         ALL=SHIP_DB.all();
         ALL.forEach(s=>{ ALLMAP[s.id]=s; });
+        /* ★ 2026-10-07：把「模拟器→⚙️ 自定义舰船」建的船也接进配队页
+           （同源 localStorage 键 lagrange_custom_ships；同时给 FleetCheck 打补丁：它只认 window.SHIP_DB.get） */
+        try{
+            const cs=JSON.parse(localStorage.getItem('lagrange_custom_ships')||'{}');
+            Object.keys(cs).forEach(id=>{
+                if(!ALLMAP[id]){ ALLMAP[id]=cs[id]; ALL.push(cs[id]); }
+            });
+            const _get=SHIP_DB.get.bind(SHIP_DB);
+            SHIP_DB.get=id=>_get(id)||ALLMAP[id]||null;   // 不改 kb.js，就地补一层
+        }catch(e){}
     }catch(e){ toast('舰船数据加载失败','err'); }
     let imported=false;
     if(/[?&]import=1/.test(location.search)) imported=importFromAI();

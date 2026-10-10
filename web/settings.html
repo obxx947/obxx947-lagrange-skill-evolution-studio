@@ -68,23 +68,35 @@ body.mobile-ui .nav{display:none}
 <p class="sub">支持所有 OpenAI 兼容接口（DeepSeek / OpenAI / 硅基流动 / 本地模型等）</p>
 
 <div class="card">
-<div class="ct">🗂️ 多模型管理 <span style="font-size:0.65rem;color:var(--t3)">(添加多个API/模型，聊天时一键切换)</span></div>
+<div class="ct">🤖 模型设置 <span style="font-size:0.65rem;color:var(--t3)">（一个就够：填一次，全部功能都用它；随时可改）</span></div>
 <div id="modelsList" style="margin-bottom:10px"></div>
-<div style="background:rgba(255,255,255,0.03);border:1px dashed var(--border);border-radius:8px;padding:10px;">
-    <label>显示名称 <span style="color:var(--t3);font-size:0.6rem;">(在聊天页显示的名字，如: GM l5)</span></label>
-    <input type="text" id="nm_name" placeholder="如: GM l5">
-    <label>API Key</label>
-    <input type="text" id="nm_key" placeholder="sk-...">
-    <label>API 地址 <span style="color:var(--red);font-size:0.6rem;">(只填基础地址，不要带/v1等后缀)</span></label>
-    <input type="text" id="nm_url" placeholder="https://api.deepseek.com">
-    <label>模型ID <span style="color:var(--t3);font-size:0.6rem;">(API提供商要求的模型名，如: deepseek-chat)</span></label>
-    <input type="text" id="nm_model" placeholder="deepseek-chat">
-    <button class="btn btn-p" onclick="addModel()" style="width:100%">➕ 添加此模型</button>
+<label>API 地址 <span style="color:var(--red);font-size:0.6rem;">(只填基础地址，不要带 /v1 等后缀)</span></label>
+<input type="text" id="m1_url" placeholder="https://api.deepseek.com">
+<label>API Key</label>
+<input type="text" id="m1_key" placeholder="sk-...">
+<label>模型 ID <span style="color:var(--t3);font-size:0.6rem;">(提供商要求的模型名，如 deepseek-chat / glm-4.7-flash)</span></label>
+<input type="text" id="m1_model" placeholder="deepseek-chat">
+<div style="display:flex;gap:8px;margin-top:10px;">
+    <button class="btn btn-p" style="flex:1" onclick="saveOneModel()">💾 保存并使用</button>
+    <button class="btn" onclick="testOneModel()">🔍 测试连接</button>
 </div>
+<div class="hint" style="margin-top:6px">聊天对话 · 配队分析 · 自定义舰机制 AI · 战报分析…… 全部功能都用这一个模型。想换模型：改上面的地址/Key/模型名再点保存即可。</div>
 </div>
 
-<details class="card" style="cursor:pointer" open>
+<details class="card">
 <summary class="ct" style="cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;">
+    <span>🎁 只用智谱免费模型？（可选 · 不填就走上面的模型）</span>
+    <span style="font-size:0.65rem;color:var(--t3)">展开/收起 ▾</span>
+</summary>
+<div style="padding-top:10px">
+<div style="background:rgba(46,213,115,0.08);border:1px solid rgba(46,213,115,0.25);border-radius:8px;padding:8px 12px;font-size:0.68rem;color:var(--green);margin-bottom:8px;">
+💡 智谱 GLM-4.7-Flash / GLM-4-Flash 永久免费（支持工具调用）。若要使用它：在<b>上面</b>的「模型设置」里把 API 地址填 <code>https://open.bigmodel.cn/api/paas/v4</code>、模型 ID 填 <code>glm-4.7-flash</code>、Key 填智谱免费 Key 即可（无需其它配置）。
+</div>
+</div>
+</details>
+
+<details class="card" style="display:none"><!-- 旧 GLM 专用配置（已并入上面的模型设置，保留做兼容） -->
+<summary class="ct">
     <span>🧿 智谱 GLM 默认模型（免费 · 原生默认）</span>
     <span style="font-size:0.65rem;color:var(--t3)">展开/收起 ▾</span>
 </summary>
@@ -124,7 +136,7 @@ body.mobile-ui .nav{display:none}
 </details>
 
 <div class="card">
-<div class="ct">🖼️ 视觉模型（可选 · 附件图片识别）</div>
+<div class="ct">🖼️ 视觉模型（可选 · 附件图片识别）<span style="font-size:0.62rem;color:var(--t3)">留空 = 用上面的主模型（需它支持视觉）</span></div>
 <label>API Key <span style="color:var(--t3);font-size:0.6rem;">(留空则复用上方智谱 Key；代理模式下自动走代理)</span></label>
 <input type="text" id="glm_vision_api_key" placeholder="留空复用默认">
 <label>模型 <span style="color:var(--t3);font-size:0.6rem;">(GLM-4.6V-Flash 免费视觉模型)</span></label>
@@ -156,10 +168,26 @@ body.mobile-ui .nav{display:none}
 </div>
 
 <div class="card">
+<!-- ★★★ 2026-10-06（用户指令）：设置页【运行模式】三档停用（与聊天页顶部模式栏同源）。
+     现在：计划/普通由聊天输入框【底部】的小开关控制；快速(拼装)模式已不存在。
+     恢复：去掉本注释，并把下面 saveCfg 里"运行模式"两行恢复（见其处注释）。
+<!-- ★★★ 2026-10-06（用户指令）：设置页【运行模式】三档停用（与聊天页顶部模式栏同源）。
+     现在：计划/普通由聊天输入框【底部】的小开关控制；快速(拼装)模式已不存在。
+     恢复：去掉本注释，并把下面 saveCfg 里"运行模式"两行恢复（见其处注释）。
 <div class="ct">⚙️ 运行模式</div>
 <label style="display:flex;align-items:center;gap:8px;font-size:0.78rem;margin:4px 0;"><input type="radio" name="run_mode" value="fast"> ⚡ 快速模式（拼装：代码检索思路→现成配置→1次LLM拼装，&lt;60s，不做质检/迭代）</label>
 <label style="display:flex;align-items:center;gap:8px;font-size:0.78rem;margin:4px 0;"><input type="radio" name="run_mode" value="plan"> 📋 计划模式（按计划审批规则，逐艘确认后入队）</label>
 <label style="display:flex;align-items:center;gap:8px;font-size:0.78rem;margin:4px 0;"><input type="radio" name="run_mode" value="normal" checked> 🧠 普通模式（推理：多Agent迭代评测+质检A/B，较慢但深度）</label>
+-->
+-->
+
+<div class="card">
+<div class="ct">💭 AI 思考（推理模型）</div>
+<label style="display:flex;align-items:center;gap:8px;font-size:0.8rem;margin:6px 0;">
+  <input type="checkbox" id="cfgThinking" checked>
+  <span>开启思考 —— 让推理模型先"想"再答（更准，但更慢更贵）</span>
+</label>
+<div class="hint" style="margin-top:-2px">关掉后：对 DeepSeek 会传 <code>thinking:{type:"disabled"}</code>（官方唯一有效的方式），回答更快更省；其它厂商不受影响。关掉后对话里也不会出现"已思考"折叠块。</div>
 </div>
 
 <div class="card">
@@ -186,7 +214,7 @@ body.mobile-ui .nav{display:none}
 <button class="btn btn-p" onclick="saveCfg()">💾 保存配置</button>
 </div>
 <div class="nav">
-<a href="index.html">⚓ 模拟器</a> · <a href="chat.html">🤖 AI对话</a> · <a href="ships.html">🚀 舰船</a> · <a href="fleet.html">⚓ 配队</a> · <a href="addpoint.html">⬆ 舰船加点</a> · <a href="features.html">🗺️ 功能</a> · <a href="#" onclick="return false">📖 项目介绍</a>
+<a href="index.html">⚓ 模拟器</a> · <a href="chat.html">🤖 AI对话</a> · <a href="neuron.html">🧬 神经元</a> · <a href="ships.html">🚀 舰船</a> · <a href="fleet.html">⚓ 配队</a> · <a href="addpoint.html">⬆ 舰船加点</a> · <a href="features.html">🗺️ 功能</a> · <a href="#" onclick="return false">📖 项目介绍</a>
 </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -235,7 +263,14 @@ async function load(){
         mt.dispatchEvent(new Event('input'));
         const rv=c.assemble_mode?'fast':(c.plan_mode?'plan':'normal');
         const rsel=document.querySelector('input[name=run_mode][value="'+rv+'"]'); if(rsel) rsel.checked=true;
+        // ★ 2026-10-07：思考开关（未设置过=默认开）
+        const cth=document.getElementById('cfgThinking'); if(cth) cth.checked = (c.thinking_on!==false);
         window._savedModels = c.models || [];
+        /* ★ 2026-10-07（用户要求·API 简化）：单一模型表单回填（优先 models[0]，其次旧的 llm_* 单模型字段） */
+        try{
+            const m0=(c.models||[])[0] || (c.llm_api_key?{api_key:c.llm_api_key,api_url:c.llm_api_url,model:c.llm_model}:null);
+            if(m0){ const g=id=>document.getElementById(id); if(g('m1_key')) g('m1_key').value=m0.api_key||''; if(g('m1_url')) g('m1_url').value=m0.api_url||''; if(g('m1_model')) g('m1_model').value=m0.model||''; }
+        }catch(e){}
         renderModels();
         try{ renderStats(); }catch(e){}
     }catch(e){}
@@ -256,71 +291,37 @@ function renderStats(){
     }catch(e){ const el=document.getElementById('statsPanel'); if(el) el.innerHTML='统计读取失败'; }
 }
 
-// ======== 多模型管理 ========
+// ======== 模型设置（★ 2026-10-07 用户要求：一个模型，全部功能都用它；填了后可随时更改） ========
 function renderModels(){
-    const list=document.getElementById('modelsList');
-    const models=window._savedModels||[];
-    if(!models.length){
-        list.innerHTML='<div style="font-size:0.7rem;color:var(--t3);padding:6px 0;">暂无已保存的模型</div>';
-        return;
-    }
-    list.innerHTML=models.map((m,i)=>`
-        <div style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:rgba(0,0,0,0.2);">
-            <div style="flex:1;min-width:0;">
-                <div style="font-size:0.78rem;font-weight:600;color:var(--t1);">${m.name||m.model}</div>
-                <div style="font-size:0.62rem;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${m.model||''} · ${m.api_url||''}</div>
-            </div>
-            <button class="btn btn-s" style="padding:4px 10px;font-size:0.65rem;" onclick="testModel(${i})">🔍</button>
-            <button class="btn btn-s" style="padding:4px 10px;font-size:0.65rem;color:var(--red);border-color:var(--red);" onclick="delModel(${i})">✕</button>
-        </div>`).join('');
+    const list=document.getElementById('modelsList'); if(!list) return;
+    const m=(window._savedModels||[])[0];
+    list.innerHTML = m
+        ? '<div style="font-size:0.72rem;color:var(--green);padding:2px 0;">\u2705 \u5f53\u524d\u4f7f\u7528\uff1a<b>'+(m.model||'')+'</b> \u0040 '+(m.api_url||'')+'</div>'
+        : '<div style="font-size:0.72rem;color:var(--t3);padding:2px 0;">\u8fd8\u6ca1\u914d\u7f6e\u6a21\u578b \u2014\u2014 \u586b\u4e0b\u9762\u4e09\u9879\u5373\u53ef\uff08\u6216\u8d70\u5185\u7f6e\u514d\u8d39 GLM \u9ed8\u8ba4\uff09</div>';
 }
-
-async function addModel(){
-    const name=document.getElementById('nm_name').value.trim();
-    const key=document.getElementById('nm_key').value.trim();
-    const url=document.getElementById('nm_url').value.trim()||'https://api.deepseek.com';
-    const model=document.getElementById('nm_model').value.trim();
-    if(!key||!model){toast('请填写API Key和模型名','err');return;}
-    const models=window._savedModels||[];
-    models.push({
-        id:'m'+Date.now(),
-        name:name||model,
-        api_key:key,
-        api_url:url,
-        model:model,
-        provider:'custom'
-    });
-    window._savedModels=models;
-    document.getElementById('nm_name').value='';
-    document.getElementById('nm_key').value='';
-    document.getElementById('nm_model').value='';
+function saveOneModel(){
+    const key=document.getElementById('m1_key').value.trim();
+    const url=document.getElementById('m1_url').value.trim()||'https://api.deepseek.com';
+    const model=document.getElementById('m1_model').value.trim();
+    if(!key||!model){toast('请填写 API Key 和模型 ID','err');return;}
+    window._savedModels=[{id:'main', name:model, api_key:key, api_url:url, model:model, provider:'custom'}];
+    try{ const cfg=JSON.parse(localStorage.getItem('lagrange_static_config')||'{}'); cfg.active_model_id='main'; localStorage.setItem('lagrange_static_config',JSON.stringify(cfg)); }catch(e){}
+    saveModels();          // 写 models
+    saveCfg();             // 连同其它设置一起保存
     renderModels();
-    await saveModels();
-    toast('✅ 模型已添加','ok');
+    toast('✅ 已保存：全部功能都使用 '+model,'ok');
 }
-
-function delModel(i){
-    const models=window._savedModels||[];
-    models.splice(i,1);
-    window._savedModels=models;
-    renderModels();
-    saveModels();
-}
-
-async function testModel(i){
-    const m=(window._savedModels||[])[i];
-    if(!m)return;
-    toast('⏳ 测试 '+m.name+'...','ok');
-    let base=(m.api_url||'https://api.deepseek.com').replace(/\/+$/,'');
-    if(!/\/v\d+$/.test(base)) base+='/v1';
+async function testOneModel(){
+    const key=document.getElementById('m1_key').value.trim();
+    const url=document.getElementById('m1_url').value.trim()||'https://api.deepseek.com';
+    const model=document.getElementById('m1_model').value.trim();
+    if(!key||!model){toast('请先填写 API Key 和模型 ID','err');return;}
+    let base=url.replace(/\/+$/,''); if(!/\/v\d+$/.test(base)) base+='/v1';
+    toast('⏳ 测试中…','ok');
     try{
-        const r=await fetch(base+'/chat/completions',{
-            method:'POST',
-            headers:{'Content-Type':'application/json','Authorization':'Bearer '+m.api_key},
-            body:JSON.stringify({model:m.model,messages:[{role:'user',content:'hi'}],max_tokens:5})
-        });
-        if(r.ok) toast('✅ '+m.name+' 连接成功','ok');
-        else{const e=await r.json().catch(()=>({}));toast('❌ '+(e.error?.message||r.status).toString().substring(0,60),'err');}
+        const r=await fetch(base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:model,messages:[{role:'user',content:'hi'}],max_tokens:8})});
+        if(r.ok) toast('✅ 连接成功','ok');
+        else{const e=await r.json().catch(()=>({}));toast('❌ '+String((e.error&&e.error.message)||r.status).substring(0,60),'err');}
     }catch(e){toast('❌ 网络不通','err');}
 }
 
@@ -353,9 +354,13 @@ async function saveCfg(){
         glm_model:document.getElementById('glm_model').value,
         glm_vision_api_key:document.getElementById('glm_vision_api_key').value.trim(),
         glm_vision_model:document.getElementById('glm_vision_model').value,
-        // 运行模式：快速(拼装) / 计划(审批) / 普通(推理)
-        assemble_mode:rmv==='fast',
-        plan_mode:rmv==='plan',
+        // ★ 2026-10-06（用户指令）：运行模式三档停用——快速(拼装)恒关；计划/普通沿用用户当前选择（由聊天页底部开关控制），
+        // 保存设置时【不再覆盖】它（原来这里会把 plan_mode 重置为 false，等于悄悄改掉用户的模式）。
+        // 恢复方法：把下面两行换成 // assemble_mode:rmv==='fast', / // plan_mode:rmv==='plan',
+        assemble_mode:false,
+        plan_mode:(typeof old!=='undefined' && old && typeof old.plan_mode!=='undefined') ? !!old.plan_mode : false,
+        // ★ 2026-10-07：思考开关（默认开；关掉=对 DeepSeek 传 thinking:{type:disabled}，更快更省）
+        thinking_on:(function(){ const el=document.getElementById('cfgThinking'); return el?!!el.checked:((typeof old!=='undefined'&&old&&typeof old.thinking_on!=='undefined')?!!old.thinking_on:true); })(),
     };
     try{
         localStorage.setItem('lagrange_static_config',JSON.stringify(cfg));

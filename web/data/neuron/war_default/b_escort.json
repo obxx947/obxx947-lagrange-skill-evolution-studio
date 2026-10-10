@@ -1,0 +1,116 @@
+{
+  "type": "plans",
+  "plans": [
+    {
+      "id": "plan_1790873480878",
+      "name": "方案 10/02 01:15",
+      "desc": "",
+      "createdAt": 1790873480878,
+      "updatedAt": 1790874914297,
+      "fleets": [
+        {
+          "name": "舰队1",
+          "flagship": "reinforce|0",
+          "addPoint": false,
+          "stitch": false,
+          "reinforce": [
+            {
+              "id": "plutus-shield",
+              "name": "普鲁图斯之盾级-防护战列巡洋舰",
+              "pos": "中排",
+              "qty": 4,
+              "mods": {
+                "M": "M1",
+                "A": "A1",
+                "B": "B2"
+              },
+              "air": []
+            },
+            {
+              "id": "eternal-storm",
+              "name": "永恒风暴级-攻击战列巡洋舰",
+              "pos": "中排",
+              "qty": 1,
+              "mods": {
+                "M": "M2",
+                "A": "A2",
+                "D": "D2",
+                "C": "C2"
+              },
+              "air": []
+            }
+          ],
+          "main": [
+            {
+              "id": "eternal-storm",
+              "name": "永恒风暴级-攻击战列巡洋舰",
+              "pos": "中排",
+              "qty": 1,
+              "mods": {
+                "D": "D2",
+                "C": "C2",
+                "A": "A2",
+                "M": "M2"
+              },
+              "air": []
+            },
+            {
+              "id": "ST59",
+              "name": "ST59级-防御战列巡洋舰",
+              "pos": "中排",
+              "qty": 6,
+              "mods": {
+                "M": "M3",
+                "A": "A1",
+                "B": "B3",
+                "C": "C3"
+              },
+              "air": []
+            },
+            {
+              "id": "lightcone-B",
+              "name": "光锥级-区域防空巡洋舰",
+              "pos": "中排",
+              "qty": 1,
+              "mods": {},
+              "air": []
+            },
+            {
+              "id": "CAS066-D",
+              "name": "CAS066级-支援巡洋舰",
+              "pos": "中排",
+              "qty": 8,
+              "mods": {},
+              "air": []
+            },
+            {
+              "id": "kaiyang-A",
+              "name": "开阳级-机动驱逐舰",
+              "pos": "前排",
+              "qty": 6,
+              "mods": {},
+              "air": []
+            },
+            {
+              "id": "gushenxing-B",
+              "name": "谷神星级-支援驱逐舰",
+              "pos": "后排",
+              "qty": 6,
+              "mods": {},
+              "air": []
+            },
+            {
+              "id": "yaoguang-A",
+              "name": "瑶光级-通用护卫舰",
+              "pos": "后排",
+              "qty": 2,
+              "mods": {},
+              "air": []
+            }
+          ]
+        }
+      ],
+      "active": 0
+    }
+  ]
+}

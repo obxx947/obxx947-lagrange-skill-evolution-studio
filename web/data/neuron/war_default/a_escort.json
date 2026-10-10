@@ -1,0 +1,195 @@
+{
+  "type": "plans",
+  "plans": [
+    {
+      "id": "plan_1790401673908",
+      "name": "方案 09/26 13:47",
+      "desc": "",
+      "createdAt": 1790401673908,
+      "updatedAt": 1790401673908,
+      "active": 0,
+      "fleets": [
+        {
+          "name": "主队",
+          "flagship": "",
+          "main": [
+            {
+              "id": "CV3000",
+              "name": "CV3000级-快速航空母舰",
+              "pos": "后排",
+              "qty": 4,
+              "mods": {
+                "M": "M1",
+                "A": "A2",
+                "B": "B2"
+              },
+              "apBuild": "",
+              "apSet": "",
+              "air": [
+                {
+                  "id": "lizhi",
+                  "name": "理智A101-战斗攻击机-B",
+                  "kind": "fighter",
+                  "slot": "M1|fighter",
+                  "qty": 2
+                },
+                {
+                  "id": "sc002",
+                  "name": "SC002型-量子侦察机",
+                  "kind": "fighter",
+                  "slot": "M1|fighter",
+                  "qty": 10
+                },
+                {
+                  "id": "leihuoV022-A",
+                  "name": "雷火V022-轻型战斗机",
+                  "kind": "fighter",
+                  "slot": "M1|fighter",
+                  "qty": 8
+                },
+                {
+                  "id": "hayabusa-B",
+                  "name": "海尔波普-维修支援护航艇",
+                  "kind": "corvette",
+                  "slot": "M1|corvette",
+                  "qty": 10
+                },
+                {
+                  "id": "hayabusa-corvette",
+                  "name": "海尔波普-系统支援护航艇",
+                  "kind": "corvette",
+                  "slot": "M1|corvette",
+                  "qty": 2
+                },
+                {
+                  "id": "hayabusa-corvette",
+                  "name": "海尔波普-系统支援护航艇",
+                  "kind": "corvette",
+                  "slot": "B2|corvette",
+                  "qty": 8
+                },
+                {
+                  "id": "cv-t800",
+                  "name": "CV-T800型-脉冲炮艇",
+                  "kind": "corvette",
+                  "slot": "B2|corvette",
+                  "qty": 2
+                },
+                {
+                  "id": "tianji-A",
+                  "name": "天玑-重型护航艇",
+                  "kind": "corvette",
+                  "slot": "B2|corvette",
+                  "qty": 2
+                }
+              ]
+            },
+            {
+              "id": "plutus-shield",
+              "name": "普鲁图斯之盾级-防护战列巡洋舰",
+              "pos": "中排",
+              "qty": 1,
+              "mods": {
+                "M": "M1",
+                "A": "A1",
+                "B": "B1"
+              },
+              "apBuild": "",
+              "apSet": "",
+              "air": []
+            },
+            {
+              "id": "uranus-spear",
+              "name": "乌拉诺斯之矛",
+              "pos": "前排",
+              "qty": 6,
+              "mods": {
+                "A": "A1",
+                "M": "M1",
+                "B": "B2"
+              },
+              "apBuild": "",
+              "apSet": "",
+              "air": [
+                {
+                  "id": "tianji-A",
+                  "name": "天玑-重型护航艇",
+                  "kind": "corvette",
+                  "slot": "B2|corvette",
+                  "qty": 8
+                },
+                {
+                  "id": "tianji",
+                  "name": "天玑-攻击护航艇（攻击B型）",
+                  "kind": "corvette",
+                  "slot": "B2|corvette",
+                  "qty": 10
+                }
+              ]
+            },
+            {
+              "id": "FG300-C",
+              "name": "FG300型-侦察护卫舰",
+              "pos": "中排",
+              "qty": 1,
+              "mods": {},
+              "apBuild": "",
+              "apSet": "",
+              "air": []
+            },
+            {
+              "id": "kaiyang-A",
+              "name": "开阳级-机动驱逐舰",
+              "pos": "前排",
+              "qty": 1,
+              "mods": {},
+              "apBuild": "",
+              "apSet": "",
+              "air": []
+            }
+          ],
+          "reinforce": [
+            {
+              "id": "tianshu",
+              "name": "天枢级-支援航空母舰",
+              "pos": "中排",
+              "qty": 5,
+              "mods": {
+                "A": "A1",
+                "M": "M1",
+                "B": "B0",
+                "C": "C2",
+                "D": "D0"
+              },
+              "apBuild": "",
+              "apSet": "",
+              "air": [
+                {
+                  "id": "mistral",
+                  "name": "米斯特拉-战斗攻击机",
+                  "kind": "fighter",
+                  "slot": "M1|fighter",
+                  "qty": 8
+                },
+                {
+                  "id": "br050",
+                  "name": "BR050-多用途轰炸机-B（防御型）",
+                  "kind": "fighter",
+                  "slot": "M1|fighter",
+                  "qty": 4
+                },
+                {
+                  "id": "lizhi",
+                  "name": "理智A101-战斗攻击机-B",
+                  "kind": "fighter",
+                  "slot": "M1|fighter",
+                  "qty": 8
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

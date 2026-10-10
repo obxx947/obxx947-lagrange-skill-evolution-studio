@@ -1,0 +1,187 @@
+{
+ "source": "方案二A-完整状态-2026-10-05（另一台设备，停机时）",
+ "note": "每岛最新一份快照 + 行为档案 + 最近 120 代精简日志；E8 图不带（会自行重建）。装入后勾\"有本机存档就续跑\"即可接着训练。",
+ "builtAt": "2026-10-06T06:30:33.789Z",
+ "islands": [
+  {
+   "isle": 0,
+   "gen": 1100,
+   "fscoreA": 9178,
+   "winsA": 1,
+   "nodesA": 17,
+   "connsA": 322,
+   "hasArc": true,
+   "logN": 120,
+   "files": {
+    "snap": "snap_isle00.json",
+    "arc": "arc_isle00.json",
+    "log": "log_isle00.json"
+   }
+  },
+  {
+   "isle": 1,
+   "gen": 850,
+   "fscoreA": 8997,
+   "winsA": 1,
+   "nodesA": 23,
+   "connsA": 335,
+   "hasArc": true,
+   "logN": 120,
+   "files": {
+    "snap": "snap_isle01.json",
+    "arc": "arc_isle01.json",
+    "log": "log_isle01.json"
+   }
+  },
+  {
+   "isle": 2,
+   "gen": 1000,
+   "fscoreA": 9186,
+   "winsA": 1,
+   "nodesA": 17,
+   "connsA": 320,
+   "hasArc": true,
+   "logN": 120,
+   "files": {
+    "snap": "snap_isle02.json",
+    "arc": "arc_isle02.json",
+    "log": "log_isle02.json"
+   }
+  },
+  {
+   "isle": 3,
+   "gen": 1000,
+   "fscoreA": 9174,
+   "winsA": 1,
+   "nodesA": 17,
+   "connsA": 321,
+   "hasArc": true,
+   "logN": 120,
+   "files": {
+    "snap": "snap_isle03.json",
+    "arc": "arc_isle03.json",
+    "log": "log_isle03.json"
+   }
+  },
+  {
+   "isle": 4,
+   "gen": 950,
+   "fscoreA": 9113,
+   "winsA": 1,
+   "nodesA": 19,
+   "connsA": 321,
+   "hasArc": true,
+   "logN": 120,
+   "files": {
+    "snap": "snap_isle04.json",
+    "arc": "arc_isle04.json",
+    "log": "log_isle04.json"
+   }
+  },
+  {
+   "isle": 5,
+   "gen": 1050,
+   "fscoreA": 9146,
+   "winsA": 1,
+   "nodesA": 17,
+   "connsA": 329,
+   "hasArc": true,
+   "logN": 120,
+   "files": {
+    "snap": "snap_isle05.json",
+    "arc": "arc_isle05.json",
+    "log": "log_isle05.json"
+   }
+  },
+  {
+   "isle": 6,
+   "gen": 50,
+   "fscoreA": 8642,
+   "winsA": 1,
+   "nodesA": 9,
+   "connsA": 281,
+   "hasArc": true,
+   "logN": 120,
+   "files": {
+    "snap": "snap_isle06.json",
+    "arc": "arc_isle06.json",
+    "log": "log_isle06.json"
+   }
+  },
+  {
+   "isle": 7,
+   "gen": 100,
+   "fscoreA": 9092,
+   "winsA": 1,
+   "nodesA": 20,
+   "connsA": 328,
+   "hasArc": true,
+   "logN": 120,
+   "files": {
+    "snap": "snap_isle07.json",
+    "arc": "arc_isle07.json",
+    "log": "log_isle07.json"
+   }
+  },
+  {
+   "isle": 8,
+   "gen": 100,
+   "fscoreA": 9184,
+   "winsA": 1,
+   "nodesA": 17,
+   "connsA": 320,
+   "hasArc": true,
+   "logN": 120,
+   "files": {
+    "snap": "snap_isle08.json",
+    "arc": "arc_isle08.json",
+    "log": "log_isle08.json"
+   }
+  },
+  {
+   "isle": 9,
+   "gen": 150,
+   "fscoreA": 9174,
+   "winsA": 1,
+   "nodesA": 17,
+   "connsA": 318,
+   "hasArc": true,
+   "logN": 120,
+   "files": {
+    "snap": "snap_isle09.json",
+    "arc": "arc_isle09.json",
+    "log": "log_isle09.json"
+   }
+  },
+  {
+   "isle": 10,
+   "gen": 150,
+   "fscoreA": 9169,
+   "winsA": 1,
+   "nodesA": 17,
+   "connsA": 327,
+   "hasArc": true,
+   "logN": 120,
+   "files": {
+    "snap": "snap_isle10.json",
+    "arc": "arc_isle10.json",
+    "log": "log_isle10.json"
+   }
+  },
+  {
+   "isle": 11,
+   "gen": 100,
+   "fscoreA": 9181,
+   "winsA": 1,
+   "nodesA": 17,
+   "connsA": 319,
+   "hasArc": true,
+   "logN": 120,
+   "files": {
+    "snap": "snap_isle11.json",
+    "arc": "arc_isle11.json",
+    "log": "log_isle11.json"
+   }
+  }
+ ]
+}

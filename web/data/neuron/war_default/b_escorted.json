@@ -1,0 +1,173 @@
+{
+  "type": "plans",
+  "plans": [
+    {
+      "id": "plan_1790874936477",
+      "name": "方案 10/02 01:32",
+      "desc": "",
+      "createdAt": 1790874936477,
+      "updatedAt": 1790875968213,
+      "fleets": [
+        {
+          "name": "舰队1",
+          "flagship": "",
+          "addPoint": false,
+          "stitch": true,
+          "reinforce": [
+            {
+              "id": "sun-whale",
+              "name": "太阳鲸-武装战略航空母舰",
+              "pos": "中排",
+              "qty": 5,
+              "mods": {
+                "C": "C1",
+                "B": "B1",
+                "M": "M1",
+                "A": "A1"
+              },
+              "air": [
+                {
+                  "id": "nebula-pulse-B",
+                  "name": "星云追逐者-脉冲炮艇",
+                  "kind": "corvette",
+                  "slot": "M1|corvette",
+                  "qty": 10
+                },
+                {
+                  "id": "somme-shadow",
+                  "name": "索姆河之影-装甲飞行坦克",
+                  "kind": "corvette",
+                  "slot": "M1|corvette",
+                  "qty": 9
+                },
+                {
+                  "id": "tianqiang-tactical",
+                  "name": "天枪-战术护航艇",
+                  "kind": "corvette",
+                  "slot": "M1|corvette",
+                  "qty": 10
+                },
+                {
+                  "id": "cv-t800",
+                  "name": "CV-T800型-脉冲炮艇",
+                  "kind": "corvette",
+                  "slot": "M1|corvette",
+                  "qty": 1
+                },
+                {
+                  "id": "vitas-B010",
+                  "name": "维塔斯-B010-轰炸机",
+                  "kind": "fighter",
+                  "slot": "C1|fighter",
+                  "qty": 10
+                },
+                {
+                  "id": "stingray",
+                  "name": "刺鳐-鱼雷轰炸机",
+                  "kind": "fighter",
+                  "slot": "C1|fighter",
+                  "qty": 5
+                },
+                {
+                  "id": "BR050-A",
+                  "name": "BR050-标准轰炸机",
+                  "kind": "fighter",
+                  "slot": "C1|fighter",
+                  "qty": 10
+                }
+              ]
+            }
+          ],
+          "main": [
+            {
+              "id": "CV3000",
+              "name": "CV3000级-快速航空母舰",
+              "pos": "后排",
+              "qty": 1,
+              "mods": {
+                "M": "M1",
+                "A": "A1",
+                "B": "B2"
+              },
+              "air": [
+                {
+                  "id": "cv-t800",
+                  "name": "CV-T800型-脉冲炮艇",
+                  "kind": "corvette",
+                  "slot": "M1|corvette",
+                  "qty": 3
+                },
+                {
+                  "id": "s-levi9",
+                  "name": "S-列维9号-重型鱼雷艇",
+                  "kind": "corvette",
+                  "slot": "B2|corvette",
+                  "qty": 3
+                },
+                {
+                  "id": "mistral",
+                  "name": "米斯特拉-战斗攻击机",
+                  "kind": "fighter",
+                  "slot": "M1|fighter",
+                  "qty": 5
+                }
+              ]
+            },
+            {
+              "id": "eternal-storm",
+              "name": "永恒风暴级-攻击战列巡洋舰",
+              "pos": "中排",
+              "qty": 4,
+              "mods": {
+                "M": "M2",
+                "A": "A2",
+                "C": "C2",
+                "D": "D2"
+              },
+              "air": []
+            },
+            {
+              "id": "callisto-C",
+              "name": "卡利斯托-重型无人机巡洋舰",
+              "pos": "后排",
+              "qty": 11,
+              "mods": {},
+              "air": []
+            },
+            {
+              "id": "hunter-A",
+              "name": "狩猎者级-载机巡洋舰",
+              "pos": "后排",
+              "qty": 6,
+              "mods": {},
+              "air": [
+                {
+                  "id": "linxiao",
+                  "name": "林鸮A100型-联合攻击机",
+                  "kind": "fighter",
+                  "slot": "base|fighter",
+                  "qty": 8
+                },
+                {
+                  "id": "haishi",
+                  "name": "海氏追随者型-脉冲攻击机",
+                  "kind": "fighter",
+                  "slot": "base|fighter",
+                  "qty": 8
+                },
+                {
+                  "id": "vitas-A021",
+                  "name": "维塔斯A021-重型攻击机",
+                  "kind": "fighter",
+                  "slot": "base|fighter",
+                  "qty": 8
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "active": 0
+    }
+  ]
+}

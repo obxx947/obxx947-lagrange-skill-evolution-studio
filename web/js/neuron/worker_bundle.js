@@ -1,0 +1,7383 @@
+/* ★ 本文件是构建产物：node _build_neuron_worker.js 生成，请勿手改（改源见脚本头部注释）。 */
+/* ============================================================
+   Worker 垫片：把浏览器/Node 都能跑的最小环境给引擎用
+   ============================================================ */
+self.window = self;
+self.global = self;
+/* localStorage：内存版（引擎用它存加点方案；Worker 里没有真 localStorage） */
+(function () { const M = new Map(); self.localStorage = {
+    getItem: k => (M.has(String(k)) ? M.get(String(k)) : null),
+    setItem: (k, v) => { M.set(String(k), String(v)); },
+    removeItem: k => { M.delete(String(k)); },
+    clear: () => M.clear(),
+    get length() { return M.size; },
+    key: i => Array.from(M.keys())[i] || null
+}; })();
+/* 万能"空元素"：UI 代码对它的任何读写都安静地成功 */
+function __mkEl(tag) {
+    const el = {
+        tagName: (tag || 'div').toUpperCase(), style: {}, dataset: {}, classList: {
+            add() { }, remove() { }, toggle() { }, contains() { return false; }
+        },
+        children: [], childNodes: [], value: '', innerHTML: '', innerText: '', textContent: '',
+        checked: false, disabled: false, selectedIndex: 0, options: [],
+        appendChild(c) { return c; }, removeChild() { }, insertBefore(c) { return c; },
+        insertAdjacentHTML() { }, setAttribute() { }, getAttribute() { return null; },
+        removeAttribute() { }, addEventListener() { }, removeEventListener() { },
+        dispatchEvent() { return true; }, focus() { }, blur() { }, click() { }, remove() { },
+        querySelector() { return null; }, querySelectorAll() { return []; },
+        getBoundingClientRect() { return { top: 0, left: 0, width: 0, height: 0, bottom: 0, right: 0 }; },
+        closest() { return null; }, contains() { return false; }, scrollIntoView() { },
+        getContext() { return null; }, toDataURL() { return ''; }, play() { }, pause() { },
+        width: 0, height: 0
+    };
+    el.parentNode = null; el.firstChild = null; el.lastChild = null; el.nextSibling = null;
+    return el;
+}
+const __elCache = new Map();
+const __el = id => { if (!__elCache.has(id)) __elCache.set(id, __mkEl('div')); return __elCache.get(id); };
+self.document = {
+    getElementById: id => (id ? __el(id) : null),
+    querySelector: sel => (sel ? __el('sel:' + sel) : null),
+    querySelectorAll: () => [],
+    createElement: t => __mkEl(t),
+    createTextNode: t => ({ nodeValue: t }),
+    createDocumentFragment: () => __mkEl('frag'),
+    addEventListener() { }, removeEventListener() { },
+    get body() { return __el('body'); },
+    get documentElement() { return __el('html'); },
+    get head() { return __el('head'); },
+    get readyState() { return 'complete'; },
+    get title() { return ''; }, set title(v) { }
+};
+self.navigator = self.navigator || { userAgent: 'worker', language: 'zh-CN' };
+try { self.screen = self.screen || { width: 1920, height: 1080 }; } catch (e) { }
+self.alert = () => { };
+self.confirm = () => true;
+self.prompt = () => null;
+self.requestAnimationFrame = cb => setTimeout(() => cb(Date.now()), 16);
+self.cancelAnimationFrame = id => clearTimeout(id);
+self.scrollTo = () => { };
+self.getComputedStyle = () => ({ getPropertyValue: () => '' });
+self.Image = function () { return __mkEl('img'); };
+self.Audio = function () { return { play() { }, pause() { }, addEventListener() { } }; };
+self.XMLHttpRequest = function () { };
+self.speechSynthesis = { speak() { }, cancel() { }, getVoices: () => [] };
+self.SpeechSynthesisUtterance = function () { };
+self.Notification = function () { };
+self.ResizeObserver = function () { return { observe() { }, disconnect() { } }; };
+self.IntersectionObserver = function () { return { observe() { }, disconnect() { } }; };
+/* fetch：相对路径 → 项目根（worker 在 js/neuron/ 下 ⇒ 根 = ../../） */
+(function () {
+    const __orig = self.fetch.bind(self);
+    const BASE = new URL('../../', self.location.href).href;
+    self.fetch = function (u, o) {
+        const s = String(u == null ? '' : u);
+        if (!/^(https?:)?\/\//.test(s) && !s.startsWith('/') && !s.startsWith('data:')) return __orig(BASE + s, o);
+        return __orig(u, o);
+    };
+})();
+/* console：转发给主线程（页面日志面板；同时保留本地输出） */
+(function () {
+    const fwd = (lv) => { const o = console[lv].bind(console); console[lv] = function () { const s = Array.prototype.map.call(arguments, x => { try { return typeof x === 'string' ? x : JSON.stringify(x); } catch (e) { return String(x); } }).join(' '); try { self.postMessage({ type: 'console', msg: s }); } catch (e) { } o.apply(null, arguments); }; };
+    ['log', 'warn', 'error'].forEach(fwd);
+})();
+
+/* ========================================
+   FleetCheck —— 舰队校验器（唯一权威口径）
+   「战舰配队」页 = 检查器：舰船数据一律以 data/ship_database.json 重算为准，
+   任何来源（AI / 导入 / 手填）给的数字与它不一致时，以本模块算出的为准。
+
+   提供：
+     airSlots(ship,mods,qty)  载机位 = 【模块来源】×【机型】，各自独立容量/机型限制
+     slotsOf(ship)            超主力可选模块槽位与变体
+     assignSlots(entry,ship)  给没有 slot 的载机补载机位（能补则补，补不上留空）
+     stats(fleet)             权威统计：人口/指挥值、增援数、载机数、载机位总量、模块数
+     check(fleet,opts)        全面校验 → {ok, errors, warnings, fixed, stats}
+
+   校验内容：
+     1) 舰船是否存在于舰船库
+     2) 载机是否合法：船/所选模块必须真的提供对应该机型的载机位（否则报错，不允许强塞）
+     3) 服役上限：同一型舰「主舰队+增援」合计 ≤ 服役上限
+     4) 增援 ≤ 9 艘
+     5) 启用「允许AI检索舰船库」时：用到的舰船与模块必须是用户拥有的
+   ======================================== */
+(function(){
+
+    function DB(){ return (window.SHIP_DB && typeof SHIP_DB.get==='function') ? SHIP_DB : null; }
+    function getShip(id){ const db=DB(); return db ? db.get(id) : null; }
+    function normSlots(mods){ return (mods&&typeof mods==='object') ? mods : {}; }
+
+    /* ---------- 模块槽位（超主力）：{slot: {name, variants:[v,...]}} ---------- */
+    function slotsOf(ship){
+        const out=[];
+        if(!ship||!ship.modules) return out;
+        Object.keys(ship.modules).forEach(k=>{
+            const g=ship.modules[k];
+            if(g && g.type==='moduleGroup' && g.variants){
+                out.push({slot:k, name:g.name||k,
+                    variants:Object.keys(g.variants).map(v=>({v, name:(g.variants[v]&&g.variants[v].name)||''}))});
+            }
+        });
+        return out;
+    }
+    // 所有槽位变体码集合（含非 moduleGroup 的固定槽，用于判断"是否存在这个模块码"）
+    function allVariantCodes(ship){
+        const set={};
+        slotsOf(ship).forEach(g=>g.variants.forEach(v=>{ set[v.v]=true; }));
+        return set;
+    }
+
+    /* ---------- 载机位：模块来源 × 机型，各自独立 ---------- */
+    function airSlots(ship, mods, qty){
+        const out=[];
+        const push=(srcKey, rec)=>{
+            if(!rec) return;
+            const kind=rec.kind; if(kind!=='fighter'&&kind!=='corvette') return;
+            const key=srcKey+'|'+kind;
+            let s=out.find(x=>x.key===key);
+            if(!s){ s={key, mod:srcKey, label:(srcKey==='base'?'基础':srcKey), kind, allow:'S', cap:0}; out.push(s); }
+            s.cap += (rec.cap||0);
+            if(rec.size==='ALL') s.allow='ALL';
+        };
+        const as=ship&&ship.airSlots;
+        if(as){
+            (as.base||[]).forEach(r=>push('base', r));
+            const bm=as.byModule||{};
+            Object.keys(bm).forEach(mod=>{
+                const sl=mod[0];
+                // 只算「已被选中的模块」带来的载机位
+                if(((mods||{})[sl]||'')===mod) (bm[mod]||[]).forEach(r=>push(mod, r));
+            });
+        }
+        // 兼容旧船级 aircraftSlots（仅当完全没有 airSlots 数据时）
+        if(!as && ship&&ship.aircraftSlots){
+            if(ship.aircraftSlots.fighter) push('base',{kind:'fighter',cap:ship.aircraftSlots.fighter,size:'S'});
+            if(ship.aircraftSlots.corvette) push('base',{kind:'corvette',cap:ship.aircraftSlots.corvette});
+        }
+        const q=Math.max(1, qty||1);
+        out.forEach(s=>{ s.cap = s.cap*q; });
+        return out;
+    }
+    function slotOf(ship,mods,qty,key){ return airSlots(ship,mods,qty).find(s=>s.key===key)||null; }
+    function usedIn(entry,key){ return (entry.air||[]).filter(a=>a.slot===key).reduce((n,a)=>n+(a.qty||0),0); }
+    function hasAir(ship,mods,qty){ return airSlots(ship,mods,qty).length>0; }
+
+    /* 给没有 slot（或 slot 已失效）的载机补位：能补则补，补不上留 '' */
+    function assignSlots(entry, ship){
+        if(!entry||!Array.isArray(entry.air)||!entry.air.length) return entry;
+        const slots=airSlots(ship, normSlots(entry.mods), entry.qty);
+        entry.air.forEach(a=>{
+            if(a.slot && slots.some(x=>x.key===a.slot)) return;
+            const s=slots.find(x=>x.kind===a.kind && usedIn(entry,x.key)<x.cap);
+            a.slot = s ? s.key : '';
+        });
+        return entry;
+    }
+
+    /* 某模块变体带来的载机位文字（模块弹窗用） */
+    function modAirInfo(ship, mod, qty){
+        const bm=ship&&ship.airSlots&&ship.airSlots.byModule; if(!bm||!bm[mod]) return '';
+        const q=Math.max(1,qty||1);
+        return (bm[mod]||[]).map(r=>{
+            const n=r.cap||0, tot=n*q;
+            return '+'+n+(r.kind==='fighter'?(' 战机位'+(r.size==='ALL'?'(可大型)':'(仅中小型)')):' 护航艇位')
+                + (q>1 ? ('，'+q+'艘共 '+tot) : '');
+        }).join('；');
+    }
+
+    /* ---------- 权威统计 ---------- */
+    function stats(fleet){
+        const main=(fleet&&fleet.main)||[], rein=(fleet&&fleet.reinforcement)||[];
+        let pop=0, reinShips=0, airCnt=0, airCap=0, mods=0;
+        const byShip={};   // id → {qty, limit, name}
+        const byAir={};    // airId → qty
+        const scan=(arr, isRein)=>arr.forEach(s=>{
+            const ship=getShip(s.id);
+            const q=Math.max(0, parseInt(s.qty,10)||0);
+            const cv=(ship&&ship.commandValue)||0;
+            if(!isRein) pop += cv*q;            // 增援不计人口
+            else reinShips += q;
+            if(ship){
+                byShip[s.id]=byShip[s.id]||{name:ship.name||s.name||s.id, qty:0, limit:ship.serviceLimit||99};
+                byShip[s.id].qty += q;
+                airSlots(ship, normSlots(s.mods), q).forEach(sl=>{ airCap += sl.cap; });
+            }
+            (s.air||[]).forEach(a=>{
+                const n=(a.qty||0); airCnt+=n;
+                if(a.id) byAir[a.id]=(byAir[a.id]||0)+n;
+            });
+            mods += Object.keys(normSlots(s.mods)).filter(k=>s.mods[k]).length;
+        });
+        scan(main,false); scan(rein,true);
+        return {pop, reinShips, airCnt, airCap, mods, byShip, byAir,
+                mainKinds:main.length, reinKinds:rein.length};
+    }
+
+    /* ---------- 校验 ---------- */
+    /* opts: {stitch:false, checkUser:true} */
+    function check(fleet, opts){
+        opts=opts||{};
+        const stitch=!!opts.stitch;
+        const errors=[], warnings=[];
+        const db=DB();
+        if(!db) return {ok:false, errors:['舰船库尚未加载'], warnings, fixed:fleet, stats:null};
+        if(!fleet) return {ok:false, errors:['空配队'], warnings, fixed:fleet, stats:null};
+
+        const FS=window.FleetIO;
+        const fixed=JSON.parse(JSON.stringify({
+            name:fleet.name||'', desc:fleet.desc||'', reason:fleet.reason||'',
+            main:(fleet.main||[]).map(x=>Object.assign({},x)),
+            reinforcement:(fleet.reinforcement||[]).map(x=>Object.assign({},x)),
+            flagship:fleet.flagship||''
+        }));
+
+        // 0) 规整：补 id / 补 pos / 规整 mods 与 air
+        ['main','reinforcement'].forEach(sec=>fixed[sec].forEach((s,idx)=>{
+            s.qty=Math.max(1, parseInt(s.qty,10)||1);
+            s.mods=normSlots(s.mods);
+            s.air=Array.isArray(s.air)?s.air:[];
+            s.pos=s.pos||(sec==='reinforcement'?'增援':((getShip(s.id)||{}).position||'中排'));
+            if(!s.id && FS && FS.matchShip && s.name){
+                const m=FS.matchShip(s.name); if(m) s.id=m.id;
+            }
+            if(!s.id){ errors.push(`第${idx+1}艘（${s.name||'未命名'}）不是舰船库里的舰船，无法配入舰队`); }
+            else if(!getShip(s.id)){ errors.push(`未知舰船「${s.name||s.id}」：舰船库中没有这条数据`); }
+        }));
+
+        // 1) 服役上限（整队口径）+ 舰船库校验（舰船）
+        const shipQty={};
+        ['main','reinforcement'].forEach(sec=>fixed[sec].forEach(s=>{
+            if(!s.id) return;
+            shipQty[s.id]=(shipQty[s.id]||0)+s.qty;
+        }));
+        const userOn = !!(window.UserShipDB && UserShipDB.aiEnabled && UserShipDB.aiEnabled());
+        const wantUser = opts.checkUser!==false && userOn;
+
+        /* ★ 2026-10-04 修（移植自另一台设备的同源修复）：服役上限是【整队口径】（主舰队+增援），
+           原实现只在 fixed.main 的条目上检查 —— 于是"只用增援装的船"超限**不报错**
+           （另一台设备实测：某船 增援 4 艘 / 上限 1，check() 却判"合法"）。
+           改成对全部船型统一检查（每个船型只报一条）。 */
+        if(!stitch) Object.keys(shipQty).forEach(id=>{
+            const ship=getShip(id); if(!ship) return;
+            const lim=ship.serviceLimit||99;
+            if(shipQty[id]>lim)
+                errors.push(`「${ship.name}」服役超上限：主舰队+增援合计 ${shipQty[id]} 艘 > 上限 ${lim} 艘`);
+        });
+
+        fixed.main.forEach(s=>{
+            const ship=getShip(s.id); if(!ship) return;
+            if(wantUser && !UserShipDB.isOwned(s.id))
+                errors.push(`用户没有「${ship.name}」这艘船（舰船库未记录）`);
+            // 模块必须是该船真实存在 + 用户拥有
+            const codes=allVariantCodes(ship);
+            Object.keys(s.mods).forEach(slot=>{
+                const v=s.mods[slot]; if(!v) return;
+                if(!codes[v]){ errors.push(`「${ship.name}」没有模块 ${v}（该模块不属于这艘船）`); return; }
+                if(wantUser){
+                    const owned=(UserShipDB.getShipMods(s.id)||{})[slot]||[];
+                    if(owned.indexOf(v)<0) errors.push(`用户没有「${ship.name}」的模块 ${v}（拥有：${owned.length?owned.join('/'):'无'}）`);
+                }
+            });
+        });
+        fixed.reinforcement.forEach(s=>{
+            const ship=getShip(s.id); if(!ship) return;
+            if(wantUser && !UserShipDB.isOwned(s.id))
+                errors.push(`用户没有「${ship.name}」这艘船（增援，舰船库未记录）`);
+            const codes=allVariantCodes(ship);
+            Object.keys(s.mods).forEach(slot=>{
+                const v=s.mods[slot]; if(!v) return;
+                if(!codes[v]){ errors.push(`「${ship.name}」没有模块 ${v}`); return; }
+                if(wantUser){
+                    const owned=(UserShipDB.getShipMods(s.id)||{})[slot]||[];
+                    if(owned.indexOf(v)<0) errors.push(`用户没有「${ship.name}」的模块 ${v}（增援）`);
+                }
+            });
+        });
+
+        // 2) 增援 ≤ 9 艘
+        const reinShips=fixed.reinforcement.reduce((n,s)=>n+s.qty,0);
+        if(!stitch && reinShips>9) errors.push(`增援编队 ${reinShips} 艘 > 上限 9 艘`);
+
+        // 3) 载机合法性（核心：不允许把载机强塞进没有载机位的船/模块）
+        const airQty={};
+        ['main','reinforcement'].forEach(sec=>fixed[sec].forEach(s=>{
+            const ship=getShip(s.id); if(!ship) return;
+            const slots=airSlots(ship, s.mods, s.qty);
+            const tag=sec==='reinforcement'?'（增援）':'';
+            // 先把能补的位补上
+            s.air.forEach(a=>{
+                if(a.slot && slots.some(x=>x.key===a.slot)) return;
+                if(a.slot){   // slot 指向的载机位已不存在（模块被改）
+                    const s2=slots.find(x=>x.kind===a.kind && usedIn(s,a.kind===x.kind?x.key:'')<x.cap);
+                    a.slot = s2 ? s2.key : '';
+                }
+                if(!a.slot){
+                    const s2=slots.find(x=>x.kind===a.kind && usedIn(s,x.key)<x.cap);
+                    a.slot = s2 ? s2.key : '';
+                }
+            });
+            s.air = s.air.filter(a=>{
+                const n=Math.max(1, parseInt(a.qty,10)||1);
+                a.qty=n;
+                if(!slots.length){
+                    errors.push(`「${ship.name}」不能携带载机${tag}：该舰没有载机位（也没有可提供载机位的模块）→ 移除 ${a.name||a.id}×${n}`);
+                    return false;
+                }
+                const sameKind=slots.filter(x=>x.kind===a.kind);
+                if(!sameKind.length){
+                    errors.push(`「${ship.name}」没有可用的${a.kind==='fighter'?'战机':'护航艇'}载机位${tag}（所选模块不提供该机型载机位）→ 移除 ${a.name||a.id}×${n}`);
+                    return false;
+                }
+                if(!a.slot){
+                    const cap=sameKind.reduce((t,x)=>t+x.cap,0);
+                    errors.push(`「${ship.name}」的${a.kind==='fighter'?'战机':'护航艇'}载机位已满（容量 ${cap}）${tag} → 移除 ${a.name||a.id}×${n}`);
+                    return false;
+                }
+                // 大型机限制：该载机位允许的机型
+                const sl=slots.find(x=>x.key===a.slot);
+                const ac=getShip(a.id);
+                if(sl && sl.kind==='fighter' && sl.allow!=='ALL' && ac && ac.airSize==='large'){
+                    errors.push(`「${ship.name}」的 ${sl.mod} 载机位只能带中小型战机${tag} → 移除大型机 ${a.name||a.id}×${n}`);
+                    return false;
+                }
+                // 单一位容量
+                if(usedIn(s,a.slot)>sl.cap){
+                    errors.push(`「${ship.name}」的 ${sl.mod} 载机位超容量（${usedIn(s,a.slot)}/${sl.cap}）${tag} → 移除 ${a.name||a.id}×${n}`);
+                    return false;
+                }
+                if(a.id) airQty[a.id]=(airQty[a.id]||0)+n;
+                return true;
+            });
+        }));
+
+        // 4) 载机服役上限（整队口径）
+        if(!stitch) Object.keys(airQty).forEach(id=>{
+            const ac=getShip(id); if(!ac) return;
+            const lim=ac.serviceLimit||99;
+            if(airQty[id]>lim) errors.push(`载机「${ac.name}」服役超上限：整队 ${airQty[id]} 架 > 上限 ${lim} 架`);
+        });
+
+        // 5) 旗舰必须在该舰队内
+        if(fixed.flagship){
+            const fk=String(fixed.flagship);
+            const id=fk.indexOf('|')>=0?fk.split('|')[1]:fk;
+            const inMain=fixed.main.some(s=>s.id===id);
+            const inRein=fixed.reinforcement.some(s=>s.id===id);
+            if(!inMain && !inRein){ warnings.push('设定的旗舰不在本舰队内，已清除'); fixed.flagship=''; }
+        }
+
+        const st=stats(fixed);
+        return {ok:errors.length===0, errors, warnings, fixed, stats:st, userChecked:wantUser};
+    }
+
+    window.FleetCheck={ airSlots, slotOf, usedIn, hasAir, assignSlots, slotsOf, allVariantCodes,
+                        modAirInfo, stats, check, getShip };
+})();
+
+    // ============================================================
+    //  DATA LAYER - Complete Ship Database
+    // ============================================================
+    /* ★★★ 2026-10-02 第18轮：可播种伪随机数（mulberry32）
+       为什么：同一份配队的单场时长在 347s~1143s 之间摆动（3.3 倍），
+       而进化算法（NEAT / 混沌生长）唯一的信号就是“存活时间”——
+       随机摆动会把适应度信号淹没。固定种子后“同配队 + 同种子 = 同结果”，
+       适应度变成可复现的确定量。
+       默认 RNG === Math.random（不播种时行为与之前完全一致）；只有显式 seedRNG(s) 才切换。 */
+    let RNG = Math.random;
+    let battleSeed = null;   // 设为数字则战斗可复现（供演示/进化算法用）
+    /* ★★ 2026-10-02 第56轮：【溶解弹 DOT】开关。
+       依据：舰船资料「前6轮每轮附加溶解，目标每秒损失 10 点结构值，
+       持续 60 秒，最高 30 层」（天璇/理智A101/天玠-攻击b/开阳/瑶光 5 门武器）。
+       机制已完整实现（叠层 + 每 tick 结算 + 记账），但**实测验收 12/18 → 10/18**
+       （战报1 A对空 -9.7%→-15.1%、B对舰 +4.3%→+20.1% 均跟线）——待基准更准后一行启用。 */
+    const DISSOLVE_ON = false;
+    let _rngSeed = null;
+    function seedRNG(seed) {
+        _rngSeed = (seed >>> 0) || 1;
+        let a = _rngSeed;
+        RNG = function () {
+            a |= 0; a = (a + 0x6D2B79F5) | 0;
+            let t = Math.imul(a ^ (a >>> 15), 1 | a);
+            t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+    }
+    function unseedRNG() { RNG = Math.random; _rngSeed = null; }
+
+    const SHIP_TYPES = {
+        battleship:      { name:'战列舰', size:'large', superCapital:true, icon:'🚢' },
+        aircraftcarrier: { name:'航空母舰', size:'large', superCapital:true, icon:'🛫' },
+        battlecruiser:   { name:'战列巡洋舰', size:'large', superCapital:true, icon:'🛡️' },
+        support:         { name:'支援舰', size:'large', superCapital:true, icon:'🏥' },
+        cruiser:         { name:'巡洋舰', size:'small', superCapital:false, icon:'🚀' },
+        destroyer:       { name:'驱逐舰', size:'small', superCapital:false, icon:'🔺' },
+        frigate:         { name:'护卫舰', size:'small', superCapital:false, icon:'🔹' },
+        fighter:         { name:'战机', size:'aircraft', superCapital:false, icon:'✈️' },
+        corvette:        { name:'护航艇', size:'aircraft', superCapital:false, icon:'🛸' }
+    };
+
+    // Type name resolution for targeting (Chinese ↔ English)
+    function resolveTypeName(typeOrName) {
+        // If it's an English type key, convert to Chinese
+        if(SHIP_TYPES[typeOrName]) return SHIP_TYPES[typeOrName].name;
+        // If it's already Chinese, find the English key
+        for(const [k,v] of Object.entries(SHIP_TYPES)) {
+            if(v.name === typeOrName) return k;
+        }
+        return typeOrName;
+    }
+
+    /* ★★ 2026-09-27 载机「挨打暗序列」（知识库《战斗机制·三》+ 诺玛空战课实录）：
+         · 轰炸机挨打优先级最高（上来就死）；但【维塔斯B】是轰炸机里的特例，死得比攻击机还晚
+         · 【维塔斯A】在这套序列里是替维塔斯B 挡刀的 —— 别的轰炸机死完 → 死维A → 才轮到维B
+         · 死完轰炸机 → 死攻击机（林鸮/米斯特拉）→ 才轮到战斗机/拦截机这些防空机
+         · 护航艇走另一套：星云追逐者（持续输出）往往第一个挨打，其余随机分摊
+         · 【海氏追随者】是"披着战机外壳的护航艇"（独立式、永不回机库）→ 别的战机回机库后
+           场上只剩它 → 这就是它常年第一死的原因。这一条已由 acInHangar（机库内不可锁定）覆盖，
+           不必再给优先级。
+       返回 0-6，越小越先挨打。 */
+    function airHitPriority(e) {
+        const n = String((e && e.name) || '');
+        if (/维塔斯\s*-?\s*B0?10/i.test(n)) return 4;      // 维B：轰炸机里最后
+        if (/维塔斯\s*A0?21/i.test(n)) return 2;            // 维A：替维B 挡刀
+        if (/轰炸机/.test(n)) return 1;                      // 一般轰炸机
+        if (/攻击机|强击机/.test(n)) return 3;               // 攻击机
+        if (e && e.type === 'corvette') return 6;            // 护航艇
+        return 5;                                            // 战斗机 / 拦截机
+    }
+    /* 在候选里按暗序列取「最该挨打」的那一档，再按 ÷2.5 分伤随机 */
+    function pickByAirOrder(list) {
+        if (!list || !list.length) return null;
+        let best = Infinity;
+        list.forEach(e => { const p = airHitPriority(e); if (p < best) best = p; });
+        const top = list.filter(e => airHitPriority(e) === best);
+        const sc = Math.max(1, Math.round(top.length / 2.5));
+        return top[Math.floor(RNG() * Math.min(top.length, sc))];
+    }
+
+    function matchesType(ship, typeStr) {
+        /* ★★ 2026-10-02 第61轮：【伪装】—— 被判定成另一个舰种。
+           依据（KB）：A资料29「天权能掩护护航艇，把针对护航艇的伤害转移到自身」、
+           A资料149「B3模块+点满战场信号伪装后，在舰队作战中就会被判定为【小型舰船】，
+           精准吸引敌方所有反小火力」、A资料334「用瑶来伪装成战机，限制对方小米」。
+           原实现只在【维修目标匹配】用了 disguiseAs，目标选择里没用 → 伪装对“吸引火力”完全无效。 */
+        if (ship.disguiseAs && ship.disguiseAs === typeStr) {
+            // ★ 限时伪装（KB：护航艇资料2「CV-M011型-高速导弹艇 C 高速动力系统·调校策略【信息伪装】：
+            //   战斗开局 120 秒内，自身被敌方识别为战机」）—— disguiseSec 到期后伪装失效，恢复真实舰种
+            if (!ship.disguiseSec) return true;
+            const _t = (typeof battleState !== 'undefined' && battleState && battleState.time) || 0;
+            return _t <= ship.disguiseSec;
+        }
+        // Check English type
+        if(ship.type === typeStr) return true;
+        // Check Chinese type name
+        const typeInfo = SHIP_TYPES[ship.type];
+        if(typeInfo && typeInfo.name === typeStr) return true;
+        // Check if ship name includes the type string
+        if(ship.name && ship.name.includes(typeStr)) return true;
+        // Check if type includes ship type string (reverse match)
+        if(typeStr.includes(typeInfo?.name||'')) return true;
+        // Super-capital matching
+        if(typeStr==='超主力舰' && typeInfo?.superCapital) return true;
+        if(typeStr==='大型舰船' && typeInfo?.size==='large') return true;
+        if(typeStr==='小型舰船' && typeInfo?.size==='small' && !typeInfo?.superCapital) return true;
+        if(typeStr==='舰载机' && typeInfo?.size==='aircraft') return true;
+        return false;
+    }
+
+    // Default values for missing data
+    const DEFAULTS = {
+        attackDuration: 0,    // 攻击持续时间默认0秒
+        energyArmor: 5,       // 能量护甲默认5%
+        position: '中排',     // 未标注站位默认中排
+        serviceLimit: 10,     // 未标注服役上限默认10
+        commandValue: 8,      // 未标注指挥值默认8
+    };
+
+    // ============================================================
+    //  SHIP DATABASE (representative selection from 资料.txt)
+    //  Each ship: { id, name, type, size, position, hp, physicalArmor,
+    //    energyArmor, commandValue, serviceLimit, speed, ratings,
+    //    isCarrier, aircraftSlots, modules:{slotId:{name,type,weapons,strategy,selfRepair}} }
+    // ============================================================
+    /* ============================================================
+       舰船数据：唯一数据源 = data/ship_database.json
+       （不再内联副本 —— 内联副本会与「战舰配队」页数据不同步）
+       ============================================================ */
+    let SHIP_DATABASE = {};
+    let SHIP_DB_READY = false;
+
+    async function loadShipDatabase(){
+        try{
+            const r = await fetch('data/ship_database.json', {cache:'no-cache'});
+            if(!r.ok) throw new Error('HTTP '+r.status);
+            const j = await r.json();
+            const arr = Array.isArray(j) ? j : (j.ships||[]);
+            if(!arr.length) throw new Error('数据为空');
+            const map = {};
+            arr.forEach(sh=>{ if(sh && sh.id) map[sh.id] = sh; });
+            SHIP_DATABASE = map;
+            SHIP_DB_READY = true;
+            console.log('✅ 舰船库已加载（唯一数据源 ship_database.json）：'+arr.length+' 艘');
+        }catch(e){
+            console.error('舰船库加载失败', e);
+            SHIP_DB_READY = false;
+            try{
+                document.body.insertAdjacentHTML('afterbegin',
+                    '<div style="position:sticky;top:0;z-index:99999;background:#3a1a1a;border-bottom:1px solid #ff4757;'
+                  + 'color:#ff8a94;padding:8px 12px;font-size:12px;line-height:1.6;">'
+                  + '<b>⚠️ 舰船数据加载失败</b>：data/ship_database.json（'+String((e&&e.message)||e)+'）<br>'
+                  + '舰船库当前为空。请通过 http 服务打开本页（例如 python -m http.server），不要用 file:// 直接打开。</div>');
+            }catch(_){}
+        }
+        try{ loadCustomShips(); }catch(_){}
+        return SHIP_DB_READY;
+    }
+
+
+
+    // ============================================================
+    //  STATE MANAGEMENT
+    // ============================================================
+    const FLEET_TYPES = ['ally-escort','ally-escorted','enemy-escort','enemy-escorted','bomb-fleet'];
+    let fleetData = {
+        'ally-escort':     { main:[], reinforcement:[], flagship:null },
+        'ally-escorted':   { main:[], reinforcement:[], flagship:null },
+        'enemy-escort':    { main:[], reinforcement:[], flagship:null },
+        'enemy-escorted':  { main:[], reinforcement:[], flagship:null },
+        'bomb-fleet':      { main:[], reinforcement:[], flagship:null, maxAircraft:250 }
+    };
+    let currentFleetType = 'ally-escort';
+    let currentFleetTab = 'main';
+    let stitchMode = false; // 缝合模式：忽略服役上限和指挥值限制
+    let presets = {};
+    let shipCategoryFilter = 'all';
+    let selectedShipDetail = null;
+
+    // Battle state
+    let battleState = null;
+    let instSeq = 0;          // 战斗单位唯一 id 序号（每场战斗重置）
+    let battleRunning = false;
+    let battlePaused = false;
+    let battleSpeed = 1;
+    let battleTimer = null;
+    let battleLogs = [];
+    let battleMode = 'escort'; // ★★★ 2026-10-03 用户要求：轰炸战斗已注释停用 → 只剩 'escort'
+
+    function switchBattleMode(mode) {
+        /* ★★★ 2026-10-03 用户要求：注释掉「轰炸战斗」——只保留护航战斗。
+           （原实现里会 toggle battleModeBomb / bombConfig / bombAircraftPanel 与 bomb 布局分支，
+             这些元素与分支已一并注释；保留会因元素不存在而报错 → 这里强制 escort。）
+           原代码存档：
+             $('battleModeBomb').classList.toggle('active', mode==='bomb');
+             $('bombConfig').style.display = mode==='bomb' ? 'block' : 'none';
+             $('bombAircraftPanel').style.display = mode==='bomb' ? 'block' : 'none';
+             if(mode==='bomb') { battleFleetGrid 两列 / battleTitle0~3 换成轰炸编队 / 隐藏 col3 }
+        */
+        if (mode !== 'escort') mode = 'escort';
+        battleMode = mode;
+        $('battleModeEscort').classList.toggle('active', true);
+        $('battleFleetGrid').style.gridTemplateColumns = 'repeat(4,1fr)';
+        $('battleTitle0').textContent = '🛡️ 我方护航';
+        $('battleTitle1').textContent = '🔮 我方被护航';
+        $('battleTitle2').textContent = '🛡️ 敌方护航';
+        $('battleTitle3').textContent = '🔮 敌方被护航';
+        $('battleCol0').className = 'battle-side ally';
+        $('battleCol1').className = 'battle-side ally';
+        $('battleCol2').className = 'battle-side enemy';
+        $('battleCol3').className = 'battle-side enemy';
+        resetBattle();
+    }
+    // ============================================================
+    //  UTILITY FUNCTIONS
+    // ============================================================
+    function $(id) { return document.getElementById(id); }
+    function showToast(msg) {
+        const t = $('toast');
+        t.textContent = msg; t.classList.add('show');
+        setTimeout(() => t.classList.remove('show'), 2000);
+    }
+    function openModal(id) { $(id).classList.add('active'); }
+    function closeModal(id) { $(id).classList.remove('active'); }
+    function formatNumber(n) { return n >= 10000 ? (n/10000).toFixed(1)+'万' : n.toLocaleString(); }
+    function getShipIcon(type) { return SHIP_TYPES[type]?.icon || '❓'; }
+    function getTypeName(type) { return SHIP_TYPES[type]?.name || type; }
+    function getHpBarClass(pct) {
+        if(pct > 80) return 'high'; if(pct > 10) return 'medium'; return 'low';
+    }
+    function randBetween(min,max) { return Math.floor(RNG()*(max-min+1))+min; }
+    function randHit(hitMin,hitMax) { return hitMin + RNG()*(hitMax-hitMin); }
+    function clamp(v,min,max) { return Math.max(min,Math.min(max,v)); }
+    /* 资料《武器命中率与拦截率计算公式》：命中率存在极限值，最低 10%、最高 95%，
+       不存在 0% 命中和 100% 命中。 */
+    const HIT_MIN = 0.10, HIT_MAX = 0.95;
+
+    // ============================================================
+    //  NAVIGATION
+    // ============================================================
+    function navigateTo(pageId) {
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+        const page = $(pageId);
+        if(page) page.classList.add('active');
+        const tab = document.querySelector(`[data-page="${pageId}"]`);
+        if(tab) tab.classList.add('active');
+
+        if(pageId === 'page-encyclopedia') renderEncyclopedia();
+    }
+
+    // ============================================================
+    //  CUSTOM SHIP BUILDER
+    // ============================================================
+    let customWeaponCount = 0;
+    
+    function openCustomShipForm() {
+        customWeaponCount = 0;
+        const wEl = $('csWeapons'); if(wEl) wEl.innerHTML = '';
+        addCustomWeapon();
+        openModal('customShipModal');
+    }
+    
+    function addCustomWeapon() {
+        const idx = customWeaponCount++;
+        const div = document.createElement('div');
+        div.id = 'csWpn'+idx;
+        div.style.cssText = 'background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:6px;padding:8px;margin:4px 0;';
+        div.innerHTML = `
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                <b style="font-size:10px;">武器 #${idx+1}</b>
+                <button class="btn btn-xs btn-danger" style="font-size:8px;" onclick="$('csWpn${idx}').remove()">✕</button>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:10px;">
+                <div>名称:<input class="form-input" style="width:100%;" value="主武器" data-field="name"></div>
+                <div>伤害类型:<select class="form-input" style="width:100%;" data-field="dmgType"><option value="physical">实弹</option><option value="energy">能量</option></select></div>
+                <div>武器类型:<select class="form-input" style="width:100%;" data-field="weaponType"><option value="direct">直射</option><option value="projectile">投射</option></select></div>
+                <div>单发伤害:<input class="form-input" style="width:100%;" value="200" type="number" data-field="singleDmg"></div>
+                <div>弹药数:<input class="form-input" style="width:100%;" value="1" type="number" data-field="ammo"></div>
+                <div>攻击轮次:<input class="form-input" style="width:100%;" value="1" type="number" data-field="attacks"></div>
+                <div>攻击持续(s):<input class="form-input" style="width:100%;" value="0" type="number" data-field="atkDuration"></div>
+                <div>锁定时间(s):<input class="form-input" style="width:100%;" value="4" type="number" data-field="lockTime"></div>
+                <div>冷却时间(s):<input class="form-input" style="width:100%;" value="8" type="number" data-field="cooldown"></div>
+                <div>锁定效率%:<input class="form-input" style="width:100%;" value="10" type="number" data-field="lockEfficiency"></div>
+                <div>优先目标:<select class="form-input" style="width:100%;" data-field="priority"><option value="小型舰船">小型舰船</option><option value="大型舰船">大型舰船</option><option value="舰载机">舰载机</option></select></div>
+                <div><label><input type="checkbox" data-field="crit"> 暴击</label></div>
+                <div>防空类型:<select class="form-input" style="width:100%;" data-field="antiAirType"><option value="">无</option><option value="counter">反击防空</option><option value="area">区域防空</option></select></div>
+            </div>
+            <div style="font-size:9px;margin-top:4px;">
+                命中区间: 最小<input class="form-input" style="width:45px;" value="50" type="number" data-field="hitMin">% 最大<input class="form-input" style="width:45px;" value="70" type="number" data-field="hitMax">%
+            </div>
+        `;
+        $('csWeapons').appendChild(div);
+    }
+
+    function createCustomShip() {
+        const name = $('csName').value.trim() || '自定义舰船';
+        const type = $('csType').value;
+        const id = 'custom_' + Date.now();
+        
+        const weapons = [];
+        for(let i=0; i<customWeaponCount; i++) {
+            const el = document.getElementById('csWpn'+i);
+            if(!el) continue;
+            const getVal = (f) => {
+                const inp = el.querySelector('[data-field="'+f+'"]');
+                if(!inp) return undefined;
+                return inp.type==='checkbox' ? inp.checked : (inp.type==='number' ? parseFloat(inp.value)||0 : inp.value);
+            };
+            weapons.push({
+                name: getVal('name')||'武器',
+                dmgType: getVal('dmgType')||'physical',
+                weaponType: getVal('weaponType')||'direct',
+                dpm:{antiShip:0,antiAir:0,siege:0},
+                singleDmg: getVal('singleDmg'), ammo: getVal('ammo'), attacks: getVal('attacks'),
+                atkDuration: getVal('atkDuration'), lockTime: getVal('lockTime'), cooldown: getVal('cooldown'),
+                lockEfficiency: getVal('lockEfficiency'), priority: getVal('priority')||'小型舰船',
+                crit: getVal('crit')||false, antiAirType: getVal('antiAirType')||undefined,
+                targets: [{types: [getVal('priority')||'小型舰船'], hitMin: getVal('hitMin')||50, hitMax: getVal('hitMax')||70}]
+            });
+        }
+        
+        const modules = {};
+        if(weapons.length > 0) { modules['M1'] = { name:'主武器系统', type:'weapon', weapons }; }
+        
+        const isCarrier = $('csIsCarrier')?.checked || false;
+        const shipObj = { id, name, variant:'自定义', type,
+            size: (type==='fighter'||type==='corvette')?'aircraft':(type==='battleship'||type==='aircraftcarrier'||type==='battlecruiser'||type==='support'?'large':'small'),
+            position: $('csPos').value, hp: parseInt($('csHp').value)||50000,
+            physicalArmor: parseInt($('csPhyArmor').value)||5, energyArmor: parseInt($('csEngArmor').value)||5,
+            commandValue: parseInt($('csCmd').value)||10, serviceLimit: parseInt($('csLimit').value)||10,
+            speed:{cruise:$('csSpeed').value, warp:parseInt($('csWarp').value)||2500},
+            ratings:{antiShip:'B',antiAir:'C',siege:'C',survival:'C',strategy:'C'},
+            superCapital: (type==='battleship'||type==='aircraftcarrier'||type==='battlecruiser'||type==='support'),
+            isCarrier, aircraftSlots: isCarrier?{fighter:parseInt($('csFighterSlots').value)||2,corvette:parseInt($('csCorvSlots').value)||2}:undefined,
+            modules, _systems:['能源系统','装甲系统','动力系统'],
+            /* ★ 2026-10-07：自定义机制（"当X之后X"）—— 由 AI 工具 set_ship_mechanic 或 __engineAddMechanic 写入，
+               引擎条件触发系统 processCondEffects 每 tick 求值（与加点里 119 个条件节点同一套机制） */
+            condEffects: []
+        };
+        
+        SHIP_DATABASE[id] = shipObj;
+        const customShips = JSON.parse(localStorage.getItem('lagrange_custom_ships')||'{}');
+        customShips[id] = shipObj;
+        localStorage.setItem('lagrange_custom_ships', JSON.stringify(customShips));
+        
+        closeModal('customShipModal');
+        refreshShipViews();
+        showToast('✅ 自定义舰船已创建: '+name);
+    }
+    
+    function deleteCustomShip(id) {
+        if(!confirm('删除自定义舰船 '+id+'?')) return;
+        delete SHIP_DATABASE[id];
+        const cs = JSON.parse(localStorage.getItem('lagrange_custom_ships')||'{}');
+        delete cs[id];
+        localStorage.setItem('lagrange_custom_ships', JSON.stringify(cs));
+        refreshShipViews();
+        showToast('🗑️ 已删除');
+    }
+    
+    function renderCustomShips() {
+        const el = $('customShipList'); if(!el) return;
+        const cs = JSON.parse(localStorage.getItem('lagrange_custom_ships')||'{}');
+        const ships = Object.values(cs);
+        el.innerHTML = ships.length===0 ? '<div style="color:var(--text-muted);padding:20px;">暂无自定义舰船，点击"+ 新建舰船"创建</div>' :
+        ships.map(s=>`
+            <div class="ship-card" style="border-color:var(--accent-gold);">
+                <div class="ship-card-header">
+                    <span class="ship-card-name">${getShipIcon(s.type)} ${s.name}</span>
+                    <span class="ship-card-type" style="background:rgba(255,215,0,0.15);color:var(--accent-gold);">自定义</span>
+                </div>
+                <div class="ship-card-stats">
+                    <div>HP:<span class="ship-card-stat-val">${formatNumber(s.hp)}</span></div>
+                    <div>类型:<span class="ship-card-stat-val">${getTypeName(s.type)}</span></div>
+                    <div>物甲:<span class="ship-card-stat-val">${s.physicalArmor}</span></div>
+                    <div>能甲:<span class="ship-card-stat-val">${s.energyArmor}%</span></div>
+                </div>
+                <div class="ship-card-actions">
+                    <button class="btn btn-xs btn-primary" onclick="quickAddToFleet('${s.id}')">+ 加入舰队</button>
+                    <button class="btn btn-xs btn-danger" onclick="deleteCustomShip('${s.id}')">🗑️ 删除</button>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    // Load custom ships on init
+    function loadCustomShips() {
+        try {
+            const data = localStorage.getItem('lagrange_custom_ships');
+            if(data) {
+                const customShips = JSON.parse(data);
+                Object.entries(customShips).forEach(([id, ship]) => {
+                    SHIP_DATABASE[id] = ship;
+                });
+            }
+        } catch(e) {}
+    }
+
+    /* ★ 2026-10-07：一键把"当前这艘自定义舰"发给 AI 设计机制。
+       流程：收集表单/已存船的数据 → FleetIO.toChat(文本) → 跳 chat.html?prefill=1（那边会自动发出去）。
+       AI 侧用工具 set_ship_mechanic 写回 lagrange_custom_ships[].condEffects，本页下次开战即生效。 */
+    function aiDesignMechanic(){
+        try{
+            const name=$('csName')?$('csName').value.trim():'';
+            if(!name){ showToast('先给舰船起个名字'); return; }
+            const all=JSON.parse(localStorage.getItem('lagrange_custom_ships')||'{}');
+            const id=Object.keys(all).find(k=>all[k]&&all[k].name===name);
+            if(!id){ showToast('请先点「✅ 创建舰船」保存这艘船，再让 AI 设计机制'); return; }
+            const s=all[id]||{};
+            const wpn=[];
+            Object.values(s.modules||{}).forEach(m=>{ (m&&m.weapons||[]).forEach(w=>wpn.push(
+                (w.name||'武器')+'（'+(w.dmgType==='energy'?'能量':'实弹')+' 单发'+(w.singleDmg||0)+' 冷却'+(w.cooldown||0)+'s 锁定'+(w.lockTime||0)+'s）')); });
+            const cur=(s.condEffects||[]).map(c=>'· '+(c.note?'['+c.note+'] ':'')+(c.cond&&c.cond.kind)+' → '+c.stat+' +'+c.val).join('\n')||'（暂无）';
+            const text='给「自定义舰船」设计机制（"当X之后X"），然后用 set_ship_mechanic 写进去。\n'+
+                '舰船：'+name+'（id='+id+'）｜'+(s.type||'')+'｜站位'+(s.position||'')+'｜指挥值'+(s.commandValue||0)+'｜服役上限'+(s.serviceLimit||0)+'\n'+
+                '结构值 '+(s.hp||0)+'｜物理护甲 '+(s.physicalArmor||0)+'｜能量护甲 '+(s.energyArmor||0)+'%\n'+
+                '武器：'+(wpn.join('；')||'（无）')+'\n'+
+                '当前机制：\n'+cur+'\n'+
+                '要求：先按《战斗机制.md》（含"自定义舰船机制系统"附录）核对条件/效果白名单与数值口径，'+
+                '再给 1~3 条机制（每条写清"触发条件+效果+冷却/持续"和设计理由），调 set_ship_mechanic 写入，最后把机制清单复述给我。';
+            if(window.FleetIO&&FleetIO.toChat) FleetIO.toChat(text);
+            showToast('正在把舰船发给 AI…');
+            setTimeout(()=>{ location.href='chat.html?prefill=1'; },500);
+        }catch(e){ showToast('发送失败：'+e.message); }
+    }
+
+    /* ★ 2026-10-07：给自定义舰船"现场写机制"的引擎侧入口（"当X之后X"）。
+       —— 机制 = 条件触发条目 {cond:{kind,...}, stat:'效果键', val:数值}，与加点里 119 个条件节点同一套系统，
+          由 processCondEffects 每 tick 求值；只允许挂到【自定义舰船】上（不动原库 202 艘）。
+       spec 形如：{ when:{kind:'hpBelow', threshold:50, dur:10, cd:20, once:false}, then:{dmgBonus:30, evasion:5}, note:'半血狂暴' }
+       - when.kind 白名单见 COND_KIND_OK；then 的键见 __MECH_SHIP_FIELDS / __MECH_WEAPON_FIELDS
+       - 未知 kind/字段一律拒绝（引擎的 condWants 对未知 kind 返回 true=常驻，历史上把 16 个节点判错，必须堵住）
+       返回 {ok, 已写入, 拒绝[], 说明} */
+    const __MECH_KINDS = ['hpBelow','enemyHpBelow','battleStart','battleStartSec','firstRounds','everySec','everyRounds','onAttacked','onEnemyLoss','onKill','onTargetType'];
+    const __MECH_SHIP_FIELDS = ['evasion','hitBonus','enemyHitDown','aaLockDown','sysDmgReduce','hp','physResist','energyResist','repairEff','repairBonus','dmgBonus','interceptRate','siege','multiTarget','positionFix'];
+    const __MECH_WEAPON_FIELDS = ['singleDmg','cooldownReduction','crit','critDmg','lockReduction','atkReduction','lockEfficiency','antiIntercept','weaponDuration','hangarCd','hangarFlight'];
+    window.__engineAddMechanic = function(shipKey, specs, replace){
+        const out = { ok:false, 已写入:[], 拒绝:[], 说明:'' };
+        try{
+            let id = null, obj = null;
+            if (SHIP_DATABASE[shipKey]) { id = shipKey; obj = SHIP_DATABASE[shipKey]; }
+            else {
+                const hit = Object.values(SHIP_DATABASE).find(x => x && x.name === shipKey);
+                if (hit) { id = hit.id; obj = hit; }
+            }
+            if (!id || !obj) { out.说明 = '找不到舰船：' + shipKey; return out; }
+            if (String(id).indexOf('custom_') !== 0 && obj.variant !== '自定义') { out.说明 = '只允许给【自定义舰船】写机制（原库舰船不动）'; return out; }
+            const list = Array.isArray(specs) ? specs : [specs];
+            const built = [];
+            list.forEach((sp, i) => {
+                if (!sp || !sp.when || !sp.then) { out.拒绝.push('第'+(i+1)+'条：缺 when/then'); return; }
+                const kind = sp.when.kind;
+                if (__MECH_KINDS.indexOf(kind) < 0) { out.拒绝.push('第'+(i+1)+'条：when.kind「'+kind+'」不在白名单（'+__MECH_KINDS.join('/')+'）'); return; }
+                const cond = { kind: kind };
+                if (sp.when.threshold != null) cond.threshold = +sp.when.threshold;
+                if (sp.when.sec != null) cond.sec = +sp.when.sec;
+                if (sp.when.rounds != null) cond.rounds = +sp.when.rounds;
+                if (sp.when.dur != null) cond.dur = +sp.when.dur;
+                if (sp.when.cd != null) cond.cd = +sp.when.cd;
+                if (sp.when.once != null) cond.once = !!sp.when.once;
+                if (sp.when.targetKind != null) cond.targetKind = String(sp.when.targetKind);
+                const keys = Object.keys(sp.then || {});
+                if (!keys.length) { out.拒绝.push('第'+(i+1)+'条：then 为空'); return; }
+                keys.forEach(k => {
+                    const v = +sp.then[k];
+                    if (!isFinite(v) || v === 0) { out.拒绝.push('第'+(i+1)+'条：then.'+k+' 数值非法'); return; }
+                    if (__MECH_SHIP_FIELDS.indexOf(k) < 0 && __MECH_WEAPON_FIELDS.indexOf(k) < 0) { out.拒绝.push('第'+(i+1)+'条：效果字段「'+k+'」不在白名单'); return; }
+                    built.push({ cond: cond, stat: k, val: v, note: sp.note ? String(sp.note).substring(0,60) : undefined, on: (sp.on === false ? false : undefined) });
+                });
+            });
+            if (!built.length) { out.说明 = '没有任何合法机制被写入'; return out; }
+            obj.condEffects = replace ? built : ((obj.condEffects || []).concat(built));
+            out.已写入 = built.map(b => b.note || (b.cond.kind + '→' + b.stat));
+            try {
+                const cs = JSON.parse(localStorage.getItem('lagrange_custom_ships') || '{}');
+                if (cs[id]) { cs[id].condEffects = obj.condEffects; localStorage.setItem('lagrange_custom_ships', JSON.stringify(cs)); }
+            } catch(e) {}
+            out.ok = true;
+            out.说明 = '已写 ' + built.length + ' 条机制到「' + (obj.name||id) + '」（下次开战生效；正在跑的这场不回溯）';
+        } catch(e){ out.说明 = '异常：' + String(e.message||e); }
+        return out;
+    };
+    function initFleetBuilder() {
+        renderFleetPanels();
+        setupEventListeners();
+        loadPresets();
+    }
+
+    function renderFleetPanels() {
+        const container = $('fleetPanels');
+        const configs = [
+            {id:'ally-escort', name:'我方护航舰队', cls:'ally escort'},
+            {id:'ally-escorted', name:'我方被护航舰队', cls:'ally escorted'},
+            {id:'enemy-escort', name:'敌方护航舰队', cls:'enemy escort'},
+            {id:'enemy-escorted', name:'敌方被护航舰队', cls:'enemy escorted'},
+            /* ★★★ 2026-10-03 用户要求：注释停用「轰炸编队」面板
+            {id:'bomb-fleet', name:'💣 轰炸编队(舰载机)', cls:'ally bomb', isBomb:true} */
+        ];
+        container.innerHTML = configs.map(c => {
+            const fleet = fleetData[c.id];
+            const cmdVal = fleet.main.reduce((s,ship)=>s+(ship.commandValue||0)*ship.count,0);
+            const shipCount = fleet.main.reduce((s,ship)=>s+ship.count,0);
+            const reinfCount = fleet.reinforcement.reduce((s,ship)=>s+ship.count,0);
+            const maxAircraft = fleet.maxAircraft || 250;
+            const aircraftCount = fleet.main.reduce((s,ship)=>s+(ship.size==='aircraft'||ship.type==='fighter'||ship.type==='corvette'?ship.count:0),0);
+            // 搭载的舰载机总数（挂在母舰上的 aircraft）
+            const airCarried = [...fleet.main,...fleet.reinforcement]
+                .reduce((n,s)=>n+(s.aircraft||[]).reduce((a,x)=>a+(x.count||0),0),0);
+            const chipAir = s => (s.aircraft&&s.aircraft.length)
+                ? `<span class="chip-air" title="${s.aircraft.map(a=>a.name+'×'+a.count).join('、')}">✈${s.aircraft.reduce((a,x)=>a+(x.count||0),0)}</span>` : '';
+            return `
+            <div class="fleet-panel ${c.cls}" onclick="toggleFleetPanel('${c.id}')" style="${c.isBomb?'border:2px dashed var(--accent-orange);':''}">
+                <div class="fleet-panel-header">
+                    <span class="fleet-panel-name">${c.name}</span>
+                    <span class="fleet-panel-stats">
+                        ${c.isBomb?`<span>舰载机:${aircraftCount}/${maxAircraft}</span>`:`<span>指挥值:${cmdVal}/500</span><span>舰船:${shipCount}艘</span>`}
+                        ${airCarried?`<span style="color:var(--accent-purple);">搭载:${airCarried}架</span>`:''}
+                        ${reinfCount>0?`<span style="color:var(--accent-green);">增援:${reinfCount}艘</span>`:''}
+                    </span>
+                    <span class="fleet-panel-apset" onclick="event.stopPropagation()">${fleetApSetSelect(c.id)}</span>
+                </div>
+                <div class="fleet-panel-ships">
+                    ${fleet.main.length===0 && fleet.reinforcement.length===0 ?
+                      '<div class="fleet-empty-hint">点击此处编辑舰队</div>' :
+                      [...fleet.main.map(s=>{
+                          const hpVal = getShipHp(s);
+                          return `<span class="ship-chip${s.id===fleet.flagship?' flagship':''}" onclick="event.stopPropagation();showShipManager('${c.id}','${rowKey(s)}')" title="HP:${formatNumber(hpVal)}"><span class="count">${s.count}×</span>${s.name}${chipAir(s)}</span>`;
+                      }),
+                       ...fleet.reinforcement.map(s=>{
+                          const hpVal = getShipHp(s);
+                          return `<span class="ship-chip reinforcement" onclick="event.stopPropagation();showShipManager('${c.id}','${rowKey(s)}')" title="HP:${formatNumber(hpVal)}"><span class="count">${s.count}×</span>${s.name}${chipAir(s)} (增)</span>`;
+                      })
+                      ].join('')}
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    /* ============================================================
+       选船弹窗（同「战舰配队」页交互）：3列网格 / 舰种筛选 / 多选 / 确认 → 加入所选舰队
+       ============================================================ */
+    let spkSel = [];            // 已勾选的舰船 id
+    let spkFilter = 'all';      // 当前舰种筛选
+    let spkTab = 'main';        // 目标段落：main / reinforcement
+    let spkFleetType = null;    // 目标舰队；null = 跟随 currentFleetType
+
+    const SPK_CATS = [
+        {id:'all',name:'全部'},
+        {id:'supercap',name:'超主力舰'},
+        {id:'cruiser',name:'巡洋舰'},
+        {id:'destroyer',name:'驱逐舰'},
+        {id:'frigate',name:'护卫舰'},
+        {id:'custom',name:'⚙️ 自定义'}
+    ];
+
+    // 目标舰队（默认跟随当前编辑的舰队）
+    function spkTargetFleet(){ return spkFleetType || currentFleetType; }
+    // 该型舰在【整队（主力+增援）】里的合计已用数量 —— 与「战舰配队」页口径一致
+    function fleetUsedCount(fleetType, shipId){
+        const f = fleetData[fleetType]; if(!f) return 0;
+        return [...(f.main||[]), ...(f.reinforcement||[])].filter(s=>s.id===shipId)
+            .reduce((n,s)=>n+(s.count||0),0);
+    }
+
+    function openShipPicker(){
+        spkSel = [];
+        spkFleetType = currentFleetType;
+        spkTab = currentFleetTab || 'main';
+        spkFilter = 'all';
+        const sel = $('spkFleet');
+        if(sel){
+            sel.innerHTML = FLEET_TYPES.filter(t=>t!=='bomb-fleet').map(t=>
+                `<option value="${t}"${t===spkTargetFleet()?' selected':''}>${FLEET_TYPE_NAMES[t]||t}</option>`).join('');
+        }
+        renderShipPicker();
+        openModal('shipPickerModal');
+    }
+    /* ★ 2026-10-07：面板上的「增加战舰/增加增援」按钮 → 指定舰队+段落打开选船弹窗（同「战舰配队」页） */
+    function openShipPickerFor(fleetType, tab){
+        currentFleetType = fleetType;
+        currentFleetTab = (tab === 'reinforcement') ? 'reinforcement' : 'main';
+        try{ renderFleetPanels(); }catch(e){}          // 让面板高亮/「正在编辑」跟随目标舰队
+        openShipPicker();
+    }
+    function closeShipPicker(){ closeModal('shipPickerModal'); }
+    // 自定义舰船增删后刷新相关视图（选船弹窗若开着也刷新）
+    function refreshShipViews(){
+        try{ renderCustomShips(); }catch(e){}
+        if($('shipPickerModal')?.classList.contains('active')) renderShipPicker();
+    }
+    function spkChangeTarget(){ spkFleetType = $('spkFleet').value; renderShipPicker(); }
+    function spkSetTab(tab){
+        spkTab = tab;
+        // 与页面上的编辑目标同步，确认后编辑器状态一致
+        currentFleetType = spkTargetFleet();
+        currentFleetTab = tab;
+        renderShipPicker();
+    }
+    function spkSetFilter(cat){ spkFilter = cat; renderShipPicker(); }
+    function spkToggle(id){
+        const i = spkSel.indexOf(id);
+        if(i>=0) spkSel.splice(i,1); else spkSel.push(id);
+        renderShipPicker();
+    }
+
+    function renderShipPicker(){
+        $('spkSel').textContent = spkSel.length;
+        // 目标舰队信息 + 段落按钮状态
+        const ft = spkTargetFleet();
+        const f = fleetData[ft];
+        $('spkTabMain')?.classList.toggle('active', spkTab==='main');
+        $('spkTabRein')?.classList.toggle('active', spkTab==='reinforcement');
+        const cmdVal = (f?.main||[]).reduce((s,sh)=>s+(sh.commandValue||0)*sh.count,0);
+        const reinN = (f?.reinforcement||[]).reduce((s,sh)=>s+sh.count,0);
+        const info = $('spkTargetInfo');
+        if(info) info.innerHTML = spkTab==='main'
+            ? `主力：指挥值 ${cmdVal}/500 · 服役上限按「主力+增援」合计`
+            : `增援：${reinN}/9 艘 · 不占人口`;
+
+        // 舰种筛选按钮
+        const fb = $('spkFilters');
+        if(fb){
+            fb.innerHTML = '<button class="btn btn-sm" style="margin-left:6px;background:var(--accent-gold);font-size:10px;" onclick="closeShipPicker();CustomShip.open()">⚙️ 自定义舰船管理</button>' + SPK_CATS.map(c=>
+                `<button class="category-btn${spkFilter===c.id?' active':''}" onclick="spkSetFilter('${c.id}')">${c.name}</button>`).join('');
+        }
+
+        // 列表
+        let ships = Object.values(SHIP_DATABASE);
+        /* ★ 2026-10-07（用户要求）：战机/护航艇【只能从母舰的机库（载机位）选】，不放进舰队列表、不占人口 */
+        ships = ships.filter(s=>s.type!=='fighter' && s.type!=='corvette');
+        if(spkFilter==='supercap') ships = ships.filter(s=>s.size==='large'||s.superCapital);
+        else if(spkFilter==='custom') ships = ships.filter(s=>s.variant==='自定义'||String(s.id).indexOf('custom_')===0);   // ★ 修复：原来按 s.type==='custom' 判永远为空
+        else if(spkFilter!=='all') ships = ships.filter(s=>s.type===spkFilter);
+        // 稳定排序：超主力优先，再按人口降序
+        const rank = t => (t==='battlecruiser'||t==='battleship'||t==='aircraftcarrier'||t==='support')?0
+                        : t==='cruiser'?1 : t==='destroyer'?2 : t==='frigate'?3 : t==='fighter'?4 : t==='corvette'?5 : 6;
+        ships = ships.slice().sort((a,b)=>(rank(a.type)-rank(b.type)) || ((b.commandValue||0)-(a.commandValue||0)) || String(a.name).localeCompare(String(b.name),'zh'));
+
+        $('spkGrid').innerHTML = ships.length ? ships.map(s=>{
+            const sel = spkSel.indexOf(s.id)>=0;
+            const usedAll = fleetUsedCount(ft, s.id);              // 整队已用
+            const lim = s.serviceLimit || 99;
+            const overLimit = usedAll >= lim;
+            const tooManyRein = spkTab==='reinforcement' && (reinNCount(ft) >= 9) && usedAll===0;
+            return `<div class="spk-card${sel?' sel':''}${(overLimit||tooManyRein)?' full':''}" onclick="spkToggle('${s.id}')">
+                <div class="pop">${s.commandValue||0}</div>
+                <div class="used">${usedAll}/${lim}</div>
+                <div class="nm">${getShipIcon(s.type)} ${s.name}</div>
+                <span class="tag">${getTypeName(s.type)}${overLimit?' · 已满服役':''}</span>
+            </div>`;
+        }).join('') : '<div class="spk-empty">无匹配舰船</div>';
+    }
+    function reinNCount(ft){ const f=fleetData[ft]; return (f?.reinforcement||[]).reduce((s,sh)=>s+sh.count,0); }
+
+    // 确认：把勾选的舰船各加入 1 艘（已存在则 +1），逐个校验服役/指挥值/增援上限
+    function spkConfirm(){
+        const ft = spkTargetFleet();
+        const f = fleetData[ft];
+        if(!f){ showToast('目标舰队不存在'); return; }
+        if(!spkSel.length){ showToast('还未选择舰船'); return; }
+        const list = spkTab==='main' ? f.main : f.reinforcement;
+
+        let added = 0; const blocked = [];
+        spkSel.forEach(id=>{
+            const ship = SHIP_DATABASE[id]; if(!ship) return;
+            const lim = ship.serviceLimit || 99;
+            const existing = list.find(s=>s.id===id);
+            // 服役上限：整队（主力+增援）合计口径
+            if(!stitchMode && fleetUsedCount(ft, id) + 1 > lim){ blocked.push(ship.name+'（服役上限 '+lim+'）'); return; }
+            // 主力舰队指挥值 500 上限
+            if(spkTab==='main' && !stitchMode && !existing){
+                const cmd = f.main.reduce((s,sh)=>s+(sh.commandValue||0)*sh.count,0) + (ship.commandValue||0);
+                if(cmd > 500){ blocked.push(ship.name+'（指挥值将超500）'); return; }
+            }
+            // 增援 ≤9 艘
+            if(spkTab==='reinforcement' && !stitchMode && !existing && reinNCount(ft) >= 9){
+                blocked.push(ship.name+'（增援已满9艘）'); return;
+            }
+            if(existing){
+                existing.count++;
+                recalcAircraftSlots(existing);      // 数量变了 → 载机位容量随之变化
+            }
+            else{
+                const e = ensureUid(JSON.parse(JSON.stringify(ship)));
+                e.count = 1; e.modules = JSON.parse(JSON.stringify(ship.modules||{}));
+                e.aircraft = [];
+                // 不预选模块：与「战舰配队」页规则一致——不选模块就没有该模块提供的载机位。
+                // 战斗时 prepareBattle 会对未选的槽位兜底取第一个变体，所以不影响战斗数值。
+                e.selectedModules = {};
+                recalcAircraftSlots(e);
+                list.push(e);
+            }
+            added++;
+        });
+        spkSel = [];
+        closeShipPicker();
+        refreshFleetViews();
+        if(added) showToast(`✅ 已加入 ${added} 种舰船 → ${FLEET_TYPE_NAMES[ft]||ft}·${spkTab==='main'?'主力':'增援'}`);
+        if(blocked.length) showToast(`⚠️ 已跳过：${blocked.join('、')}`);
+    }
+
+    /* 统一刷新：上面舰队面板 + 下方内联编辑器 + 编辑弹窗 一起刷
+       （只重绘"当前正开着"的编辑器，不会把关着的面板打开） */
+    function refreshFleetViews(save){
+        try{ renderFleetPanels(); }catch(e){}
+        try{ renderFleetEditorContent(); }catch(e){}
+        try{
+            const ie=$('inlineFleetEditor');
+            if(ie && ie.style.display!=='none') renderInlineFleetEditor();
+        }catch(e){}
+        if(save!==false){ try{ saveFleetsToStorage(); }catch(e){} }
+    }
+
+    /* 单艘快速加入（自定义舰船卡片等旧入口仍可用）：
+       规则与弹窗确认一致 —— 服役上限按整队(主力+增援)合计、指挥值 500、增援 9 艘 */
+    function quickAddToFleet(shipId) {
+        if(!SHIP_DATABASE[shipId]) return;
+        spkFleetType = currentFleetType;
+        spkTab = currentFleetTab || 'main';
+        spkSel = [shipId];
+        spkConfirm();
+    }
+
+    function getShipHp(shipEntry) {
+        const origShip = SHIP_DATABASE[shipEntry.id];
+        const baseHp = origShip ? origShip.hp : (shipEntry.hp || 0);
+        const hpBonus = shipEntry.hpBonus || 0;
+        return Math.round(baseHp * (1 + hpBonus/100));
+    }
+
+    function showShipManager(fleetType, shipId) {
+        const fleet = fleetData[fleetType];
+        if(!fleet) return;
+        const list = [...fleet.main, ...fleet.reinforcement];
+        const shipEntry = findRow(list, shipId);
+        if(!shipEntry) return;
+        // ⚠️ 参数是【行 key】(uid)，查舰船数据必须用条目的舰船 id
+        const origShip = SHIP_DATABASE[shipEntry.id];
+        if(!origShip) return;
+        
+        const mgrEl = document.getElementById('shipManager');
+        if(!mgrEl) return;
+        mgrEl.style.display = 'block';
+        
+        // Initialize module presets
+        if(!shipEntry.modulePresets) shipEntry.modulePresets = {};
+        
+        // Build module variant dropdowns
+        let moduleHTML = '';
+        if(origShip.modules) {
+            for(const [key, mod] of Object.entries(origShip.modules)) {
+                if(key.startsWith('_')) continue;
+                if(mod.type === 'moduleGroup' && mod.variants) {
+                    const variantKeys = Object.keys(mod.variants);
+                    const currentSel = shipEntry.selectedModules?.[key] || variantKeys[0];
+                    moduleHTML += `<div style="margin:4px 0;display:flex;align-items:center;gap:6px;">
+                        <span style="font-size:10px;color:var(--text-secondary);width:30px;">${key}:</span>
+                        <select onchange="changeShipModuleVariant('${shipId}','${key}',this.value);showShipManager('${fleetType}','${shipId}')" style="flex:1;font-size:10px;padding:2px 4px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border-color);border-radius:3px;">
+                            ${variantKeys.map(vk=>`<option value="${vk}"${vk===currentSel?' selected':''}>${vk}: ${mod.variants[vk].name}</option>`).join('')}
+                        </select>
+                    </div>`;
+                }
+            }
+        }
+        
+        const hpVal = getShipHp(shipEntry);
+        const physResist = shipEntry.physResistBonus || 0;
+        const energyResist = shipEntry.energyResistBonus || 0;
+        const hpBonus = shipEntry.hpBonus || 0;
+        const prioSC = shipEntry.prioritizeSuperCapital || false;
+        
+        // Module preset buttons
+        const presetNames = Object.keys(shipEntry.modulePresets);
+        let presetHTML = presetNames.length>0 ? 
+            `<select id="mpSelect_${shipId}" style="font-size:9px;padding:2px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border-color);border-radius:3px;max-width:120px;">
+                <option value="">-- 方案 --</option>
+                ${presetNames.map(n=>`<option value="${n}">${n}</option>`).join('')}
+            </select>
+            <button class="btn btn-xs" style="font-size:9px;" onclick="loadModulePreset('${shipId}','${fleetType}')">📂加载</button>
+            <button class="btn btn-xs btn-danger" style="font-size:9px;" onclick="deleteModulePreset('${shipId}','${fleetType}')">🗑️</button>` : '';
+        
+        mgrEl.innerHTML = `
+            <div style="background:var(--bg-card);border:2px solid var(--accent-blue);border-radius:8px;padding:12px;margin-top:8px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                    <b>${getShipIcon(origShip.type)} ${origShip.name}</b>
+                    <button class="btn btn-sm" style="font-size:10px;" onclick="document.getElementById('shipManager').style.display='none'">✕ 关闭</button>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:10px;margin-bottom:8px;">
+                    <div>结构值: <b style="color:${hpBonus>0?'var(--accent-green)':'var(--text-primary)'}">${formatNumber(hpVal)}</b>${hpBonus>0?` <span style="color:var(--accent-green);font-size:9px;">(+${hpBonus}%)</span>`:''}</div>
+                    <div>物理抵抗: <b>${physResist}</b></div>
+                    <div>能量抗性: <b>${energyResist}%</b></div>
+                    <div>指挥值: <b>${origShip.commandValue||'?'}</b></div>
+                </div>
+                ${moduleHTML ? `<div style="margin-bottom:8px;"><b style="font-size:11px;">⚙️ 模块选择</b>${moduleHTML}</div>` : ''}
+                <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:6px;">
+                    ${simHasAirSlot(fleetType,shipId)?`<button class="btn btn-sm" style="font-size:10px;" onclick="document.getElementById('shipManager').style.display='none';openSimAirPickerFirst('${fleetType}','${shipId}')">✈️ 舰载机</button>`:''}
+                    <label style="font-size:10px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+                        <input type="checkbox" ${prioSC?'checked':''} onchange="toggleShipPrioSC('${shipId}','${fleetType}',this.checked)" style="accent-color:var(--accent-gold);">
+                        优先打击超主力
+                    </label>
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;border-top:1px solid var(--border-color);padding-top:6px;">
+                    <span style="font-size:10px;color:var(--text-muted);">📋 方案:</span>
+                    ${presetHTML}
+                    <button class="btn btn-xs" style="font-size:9px;background:var(--accent-green);" onclick="saveModulePreset('${shipId}','${fleetType}')">💾保存方案</button>
+                </div>
+            </div>
+        `;
+    }
+    
+    function toggleShipPrioSC(shipId, fleetType, val) {
+        const fleet = fleetData[fleetType];
+        const list = [...fleet.main, ...fleet.reinforcement];
+        const shipEntry = findRow(list, shipId);
+        if(shipEntry) shipEntry.prioritizeSuperCapital = val;
+    }
+    
+    function saveModulePreset(shipId, fleetType) {
+        const name = prompt('方案名称:');
+        if(!name) return;
+        const fleet = fleetData[fleetType];
+        const list = [...fleet.main, ...fleet.reinforcement];
+        const shipEntry = findRow(list, shipId);
+        if(!shipEntry) return;
+        if(!shipEntry.modulePresets) shipEntry.modulePresets = {};
+        shipEntry.modulePresets[name] = {
+            selectedModules: JSON.parse(JSON.stringify(shipEntry.selectedModules||{})),
+            strengthen: JSON.parse(JSON.stringify(shipEntry.strengthen||{})),
+            physResistBonus: shipEntry.physResistBonus||0,
+            energyResistBonus: shipEntry.energyResistBonus||0,
+            hpBonus: shipEntry.hpBonus||0
+        };
+        showToast('💾 方案已保存: '+name);
+        showShipManager(fleetType, shipId);
+    }
+    
+    function loadModulePreset(shipId, fleetType) {
+        const sel = document.getElementById('mpSelect_'+shipId);
+        if(!sel || !sel.value) { showToast('⚠️ 请选择方案'); return; }
+        const fleet = fleetData[fleetType];
+        const list = [...fleet.main, ...fleet.reinforcement];
+        const shipEntry = findRow(list, shipId);
+        if(!shipEntry || !shipEntry.modulePresets?.[sel.value]) return;
+        const preset = shipEntry.modulePresets[sel.value];
+        shipEntry.selectedModules = JSON.parse(JSON.stringify(preset.selectedModules));
+        shipEntry.strengthen = JSON.parse(JSON.stringify(preset.strengthen||{}));
+        shipEntry.physResistBonus = preset.physResistBonus||0;
+        shipEntry.energyResistBonus = preset.energyResistBonus||0;
+        shipEntry.hpBonus = preset.hpBonus||0;
+        recalcAircraftSlots(shipEntry);
+        showToast('📂 方案已加载: '+sel.value);
+        renderFleetPanels();
+        showShipManager(fleetType, shipId);
+    }
+    
+    function deleteModulePreset(shipId, fleetType) {
+        const sel = document.getElementById('mpSelect_'+shipId);
+        if(!sel || !sel.value) { showToast('⚠️ 请选择方案'); return; }
+        const fleet = fleetData[fleetType];
+        const list = [...fleet.main, ...fleet.reinforcement];
+        const shipEntry = findRow(list, shipId);
+        if(!shipEntry) return;
+        delete shipEntry.modulePresets[sel.value];
+        showToast('🗑️ 方案已删除');
+        showShipManager(fleetType, shipId);
+    }
+
+    function toggleFleetPanel(fleetType) {
+        // If already editing this fleet, close it
+        if(currentFleetType === fleetType && $('fleetPanels').dataset.expanded === fleetType) {
+            $('fleetPanels').dataset.expanded = '';
+            $('inlineFleetEditor').style.display = 'none';
+            renderFleetPanels();
+            return;
+        }
+        currentFleetType = fleetType;
+        currentFleetTab = 'main';
+        $('fleetPanels').dataset.expanded = fleetType;
+        renderFleetPanels();
+        renderInlineFleetEditor();
+    }
+    
+    function renderInlineFleetEditor() {
+        const fleet = fleetData[currentFleetType];
+        const cmdVal = fleet.main.reduce((s,sh)=>s+(sh.commandValue||0)*sh.count,0);
+        const editorEl = $('inlineFleetEditor');
+        editorEl.style.display = 'block';
+        /* ★ 2026-10-07（用户要求·第二版）：与「战舰配队」页【完全一样】——
+           增援卡片 + 主舰队卡片【两段同屏各一个整宽「➕ 增加战舰」】，不做段落切换。 */
+        const cardStyle = 'background:var(--bg-card);border:1px solid var(--border-color);border-radius:8px;padding:10px;margin-bottom:10px;';
+        const addBtnStyle = 'width:100%;margin-top:8px;background:var(--accent-cyan);color:#06263a;font-weight:700;';
+        editorEl.innerHTML = `
+            <div style="background:var(--bg-card);border:1px solid var(--accent-blue);border-radius:8px;padding:12px;margin-top:8px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
+                    <b>编辑: ${FLEET_TYPE_NAMES[currentFleetType]}</b>
+                    <span style="font-size:11px;">指挥值:${cmdVal}/500</span>
+                </div>
+                <div style="${cardStyle}">
+                    <div style="color:var(--accent-green);font-weight:700;font-size:12px;margin-bottom:6px;">🛡️ 增援（${(fleet.reinforcement||[]).length} 种）</div>
+                    <div style="max-height:240px;overflow-y:auto;">${renderInlineShipList(fleet.reinforcement||[], fleet, 'reinforcement')}</div>
+                    <button class="btn btn-sm" style="${addBtnStyle}" onclick="openShipPickerFor('${currentFleetType}','reinforcement')">➕ 增加战舰</button>
+                </div>
+                <div style="${cardStyle}">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:6px;">
+                        <span style="color:var(--accent-gold);font-weight:700;font-size:12px;">⚔️ 主舰队（${fleet.main.length} 种）</span>
+                        <span style="font-size:11px;">旗舰: 
+                            <select id="flagshipSelectInline" onchange="setShipAsFlagship(this.value)" style="font-size:10px;padding:1px 3px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border-color);border-radius:3px;">
+                                <option value="">未设置</option>
+                                ${fleet.main.map(s=>`<option value="${s.id}"${fleet.flagship===s.id?' selected':''}>${s.name}</option>`).join('')}
+                            </select>
+                        </span>
+                    </div>
+                    <div style="max-height:300px;overflow-y:auto;">${renderInlineShipList(fleet.main, fleet, 'main')}</div>
+                    <button class="btn btn-sm" style="${addBtnStyle}" onclick="openShipPickerFor('${currentFleetType}','main')">➕ 增加战舰</button>
+                    <div style="margin-top:8px;">
+                        <label style="font-size:10px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;cursor:pointer;">
+                            <input type="checkbox" id="prioSuperCapCb" onchange="togglePrioSuperCap(this.checked)" style="accent-color:var(--accent-gold);">
+                            优先打击超主力舰船
+                        </label>
+                    </div>
+                </div>
+                <div style="display:flex;justify-content:flex-end;">
+                    <button class="btn btn-sm btn-danger" onclick="toggleFleetPanel(currentFleetType)">关闭编辑</button>
+                </div>
+            </div>
+        `;
+    }
+    
+    /* 舰队编辑行：与「战舰配队」页几乎一致
+       人口徽标 + 舰名/舰种·服役 已用/上限·模块 + 站位(可点) + 模块按钮 + 数量 −/＋
+       母舰下方按【载机位（模块来源×机型）】分行列出已配载机（可删）与「＋剩 N」 */
+    function simUsedTotal(fleetType, shipId){
+        const f=fleetData[fleetType]; if(!f) return 0;
+        return [...(f.main||[]),...((f.reinforcement)||[])].filter(x=>x.id===shipId).reduce((n,x)=>n+(x.count||0),0);
+    }
+    function simPosOf(s){ const p=s.position; return (p==='前排'||p==='中排'||p==='后排')?p:((SHIP_DATABASE[s.id]||{}).position||'中排'); }
+    function simCyclePos(shipId){
+        const hit=findRowAny(shipId); if(!hit) return;
+        const s=hit.row;
+        const order=['前排','中排','后排'];
+        s.position = order[(order.indexOf(simPosOf(s))+1)%3];
+        refreshFleetViews();
+    }
+    function renderInlineShipList(list, fleet, tab) {
+        if(!list.length) return '<div style="color:var(--text-muted);text-align:center;padding:12px;">暂无舰船，点下方按钮添加</div>';
+        return list.map(s=>{
+            const origShip = SHIP_DATABASE[s.id] || {};
+            const slots = FleetCheck.slotsOf(origShip);                 // 可选模块槽位（有变体才算）
+            const showMods = slots.length>0;
+            const modStr = Object.keys(s.selectedModules||{}).filter(k=>s.selectedModules[k]).map(k=>s.selectedModules[k]).join('/');
+            const lim = origShip.serviceLimit || 99;
+            const usedAll = simUsedTotal(currentFleetType, s.id);       // 服役=整队口径
+            const over = usedAll>lim;
+            const pos = simPosOf(s);
+            const thisShip = Object.assign({}, s);
+            const airRows = simAirHtml(thisShip);
+            return `<div class="frow">
+                <div class="fbadge">${origShip.commandValue||0}</div>
+                <div class="fnm">${getShipIcon(s.type)} ${s.name}${(fleet&&fleet.flagship===s.id)?' ⭐':''}
+                    <small>${getTypeName(s.type)} · <b style="${over?'color:var(--accent-red)':''}">服役 ${usedAll}/${lim}</b>${modStr?' · '+modStr:''}</small></div>
+                <button class="fpos" onclick="simCyclePos('${rowKey(s)}')" title="点击切换站位">${pos}</button>
+                ${showMods?`<button class="fbtn gold" onclick="openSimMods('${rowKey(s)}')">${modStr||'模块'}</button>`:''}
+                ${showMods?`<button class="fbtn" onclick="simAddConfig('${rowKey(s)}')" title="再配一套不同的模块组合（服役上限仍按该舰合计）">⧉</button>`:''}
+                <div class="fqty ${over?'over':''}">
+                    <button onclick="changeFleetShipCount('${rowKey(s)}',-1);refreshFleetViews();">−</button>
+                    <span>${s.count}</span>
+                    <button onclick="changeFleetShipCount('${rowKey(s)}',1);refreshFleetViews();">＋</button>
+                </div>
+                ${tab==='main'&&fleet&&s.id!==fleet.flagship?`<button class="fbtn gold" onclick="setShipAsFlagship('${rowKey(s)}');refreshFleetViews();" title="设为旗舰">⭐</button>`:''}
+                <button class="fbtn red" onclick="removeShipFromFleet('${rowKey(s)}');refreshFleetViews();" title="移出舰队">✕</button>
+            </div>${airRows}`;
+        }).join('');
+    }
+    /* ★ 多方案（2026-09-24）：这条船用哪套加点。
+       方案来自加点页的「💾 保存方案」（存在 lagrange_addpoint_builds，按舰船分）。
+       没方案就不显示下拉；选了「默认」= 用加点页当前那套。
+       因为是【按条目】存的，所以模拟器里 4 个舰队、同型舰的多条配置都能各选各的。 */
+    function apEsc(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    /* ★ 舰队级「整套加点方案」下拉（用户 2026-09-25）：
+       选中后把 set 名写到【本舰队每条船条目】的 apSet 上 —— 所以 4 个舰队各选各的、互不影响。
+       「默认」= 用加点页当前那整套（lagrange_addpoint）。
+       ⚠️⚠️ 下面 onchange 里的 fid 必须写成 [转义引号 + 闭合引号] 再拼接（即 \' 后面紧跟一个 '）。
+       原来这里少写了一个闭合引号 → 生成的是 simSetFleetApSet(' + fid + ', this.value)，
+       fid 变成字符串里的【字面量】→ fleetData[" + fid + "] 是 undefined → 函数第一行就 return：
+       【选了方案什么都不发生、而且不报任何错】。用户 2026-09-26 报的"选了没生效"就是这个。
+       改这种内联事件时，改完务必打开页面看一眼 getAttribute('onchange') 的实际内容。 */
+    function fleetApSetSelect(fid){
+        if (typeof fleetData === 'undefined') return '';
+        fid = fid || currentFleetType;
+        const fleet = fleetData[fid]; if(!fleet) return '';
+        let sets = [];
+        try { sets = JSON.parse(localStorage.getItem('lagrange_addpoint_sets') || '[]') || []; } catch(e){}
+        const cur = fleet.apSet || '';
+        let opts = '<option value="">总体加点:默认</option>';
+        sets.forEach(x => { opts += '<option value="' + apEsc(x.name) + '"' + (cur === x.name ? ' selected' : '') + '>总体加点:' + apEsc(x.name) + '</option>'; });
+        if (!sets.length) opts += '<option value="__go">（还没有总体加点方案，点这里去存）</option>';
+        return '<select class="btn btn-sm" style="font-size:10px;max-width:190px"'
+             + ' title="这个舰队用哪一套总体加点（在舰船加点页点「💾 存总体加点方案」）"'
+             + ' onclick="event.stopPropagation()"'
+             + ' onchange="event.stopPropagation();simSetFleetApSet(\'' + fid + '\', this.value)">' + opts + '</select>';
+    }
+    function simSetFleetApSet(fid, name){
+        if (name === '__go') { location.href = 'addpoint.html'; return; }
+        const fleet = fleetData[(fid || currentFleetType)]; if(!fleet) return;
+        fleet.apSet = name || null;
+        const all = [].concat(fleet.main || [], fleet.reinforcement || []);
+        all.forEach(e => { if(name) e.apSet = name; else delete e.apSet; });
+        try { saveFleetsToStorage(); } catch (e) { }       // ★ 持久化：原来调的是本页不存在的 saveStore() → 静默失败
+        refreshFleetViews();
+        showToast(name ? ('本舰队总体加点 = 「' + name + '」（' + all.length + ' 条已套用，开战时生效）') : '本舰队改回「默认总体加点」');
+    }
+    /* ★★ 已删除「全局当前使用哪套总体加点」(lagrange_active_set) ——
+       用户 2026-09-26 明确要求：战斗模拟不要再跑那个全局总体加点方案，
+       只认【本舰队方框右侧下拉选的】和【战舰配队页随配队带过来的】那一套。
+       保留那个全局键还有个隐患：它会覆盖配队带过来的方案（fleet.apSet 为空时被它顶上）。
+       注意：这里**不要**再把 activeSet() 加回来。 */
+    /* 去「舰船加点」页配这艘船的方案（带上官方编号，直接跳到那艘船） */
+    function apGoAddpoint(shipId){
+        const cdn = (typeof BP_MAP !== 'undefined' && BP_MAP && BP_MAP[shipId]) ? BP_MAP[shipId].cdnId : shipId;
+        location.href = 'addpoint.html?ship=' + encodeURIComponent(cdn);
+    }
+    function apBuildSelect(s, key){
+        const bs = (typeof buildsOfShip === 'function') ? buildsOfShip(s.id) : [];
+        /* 没保存过方案时【也要显示】，否则用户根本不知道有这个功能（2026-09-25 用户反馈"没出现"） */
+        if(!bs.length) {
+            return '<button class="fbtn" style="font-size:0.55rem" onclick="apGoAddpoint(\'' + s.id + '\')"'
+                 + ' title="这艘船还没保存过加点方案 —— 点这里去「舰船加点」配好后按 💾 保存方案，回来就能选">'
+                 + '＋加点方案</button>';
+        }
+        const cur = s.apBuild || '';
+        const opts = ['<option value=""' + (cur?'':' selected') + '>加点:默认</option>']
+            .concat(bs.map(b => '<option value="' + apEsc(b.name) + '"' + (cur===b.name?' selected':'') + '>加点:' + apEsc(b.name) + '</option>'));
+        return '<select class="fbtn gold" style="padding:1px 2px;font-size:0.55rem;max-width:104px"'
+             + ' title="这条用哪个加点方案（在舰船加点页「💾 保存方案」里存）"'
+             + ' onchange="simSetApBuild(\'' + key + '\', this.value)">' + opts.join('') + '</select>';
+    }
+    function simSetApBuild(key, name){
+        const fleet = fleetData[currentFleetType]; if(!fleet) return;
+        const list = currentFleetTab==='main' ? fleet.main : fleet.reinforcement;
+        const s = findRow(list, key); if(!s) return;
+        if(name) s.apBuild = name; else delete s.apBuild;
+        refreshFleetViews();
+        showToast(name ? ('这条改用加点方案「' + name + '」') : '这条改回用「加点页当前那套」');
+    }
+    /* 再配一套（同一艘舰的另一种模块组合）：新增一条独立条目，数量 1，
+       服役上限仍按该舰在「主力+增援」的合计来卡 */
+    function simAddConfig(key){
+        const hit=findRowAny(key); if(!hit) return;
+        const src=hit.row;
+        const orig=SHIP_DATABASE[src.id]||{};
+        const lim=orig.serviceLimit||99;
+        if(!stitchMode && simUsedTotal(currentFleetType, src.id)+1>lim){
+            showToast('⚠️ 「'+(orig.name||src.id)+'」已达服役上限 '+lim+' 艘（主力+增援合计 '+simUsedTotal(currentFleetType, src.id)+'），无法再加一套');
+            return;
+        }
+        const e=ensureUid(JSON.parse(JSON.stringify(src)));
+        e.count=1;
+        e.aircraft=[];
+        e.selectedModules=Object.assign({}, src.selectedModules||{});   // 以当前方案为起手，再自行改
+        delete e.modulePresets; delete e.uid; ensureUid(e);
+        list.push(e);
+        refreshFleetViews();
+        showToast('已新增一套配置（同型舰合计仍受服役上限约束），可改它的模块');
+    }
+    /* 母舰载机区：每个载机位一行 */
+    function simAirHtml(ship){
+        const slots = simSlotsOf(ship);
+        const keys = slots.map(x=>x.key);
+        const rows = slots.map(sl=>{
+            const used = simSlotUsed(ship, sl.key), left = Math.max(0, sl.cap-used);
+            const items = (ship.aircraft||[]).filter(a=>a.slot===sl.key)
+                .map(a=>`<span class="airitem">${a.name} ×${a.count}<i class="x" onclick="simAirDel('${rowKey(ship)}','${a.id}','${sl.key}')">删</i></span>`).join('');
+            const kindTxt = sl.kind==='fighter' ? ('✈战机'+(sl.allow==='ALL'?'（可大型）':'（仅中小型）')) : '🚤护航艇';
+            const tag = sl.mod==='base'?'基础':sl.mod;
+            const oc = left>0 ? `onclick="openSimAirPicker('${rowKey(ship)}','${sl.key}')"` : 'disabled title="该载机位已满"';
+            return `<div class="airline"><span class="airkind"><b>${tag}</b> ${kindTxt} <b>${used}/${sl.cap}</b></span>
+                <span class="airlist">${items||'<span style="color:var(--text-muted)">（未配置）</span>'}</span>
+                <button class="fbtn pri" style="${left>0?'':'opacity:.45'}" ${oc}>＋剩 ${left}</button></div>`;
+        });
+        const orphan = (ship.aircraft||[]).filter(a=>!a.slot || keys.indexOf(a.slot)<0);
+        if(orphan.length){
+            rows.push(`<div class="airline"><span class="airkind" style="color:var(--accent-red)">⚠ 无对应载机位</span>
+                <span class="airlist">${orphan.map(a=>`<span class="airitem">${a.name} ×${a.count}<i class="x" onclick="simAirDel('${rowKey(ship)}','${a.id}','')">删</i></span>`).join('')}</span></div>`);
+        }
+        if(!rows.length) return '';
+        return `<div class="airbox">${rows.join('')}</div>`;
+    }
+    function simAirDel(shipId, airId, slotKey){
+        const fleet=fleetData[currentFleetType];
+        const list=currentFleetTab==='main'?fleet.main:fleet.reinforcement;
+        const s=findRow(list, shipId); if(!s) return;
+        const i=(s.aircraft||[]).findIndex(a=>a.id===airId && (a.slot||'')===(slotKey||''));
+        if(i<0) return;
+        const nm=s.aircraft[i].name; s.aircraft.splice(i,1);
+        refreshFleetViews(); showToast('已移除 '+nm);
+    }
+    /* 载机选择弹窗（按载机位：限该位机型 + 该位余量 + 整队服役上限） */
+    let simAirTarget=null;
+    function openSimAirPicker(shipId, slotKey){
+        const fleet=fleetData[currentFleetType];
+        const list=currentFleetTab==='main'?fleet.main:fleet.reinforcement;
+        const s=findRow(list, shipId); if(!s) return;
+        const sl=simSlotsOf(s).find(x=>x.key===slotKey);
+        if(!sl){ showToast('该载机位不存在（模块可能已改动）'); return; }
+        simAirTarget={shipId, slotKey, kind:sl.kind, allow:sl.allow, cap:sl.cap};
+        let opts=Object.values(SHIP_DATABASE).filter(x=>x.size==='aircraft' && (x.aircraftType||x.type)===sl.kind);
+        if(sl.kind==='fighter' && sl.allow!=='ALL') opts=opts.filter(x=>x.airSize!=='large');
+        const used=simSlotUsed(s, sl.key);
+        $('simAirTitle').textContent = (sl.mod==='base'?'基础':sl.mod)+' · '+(sl.kind==='fighter'?'战机':'护航艇')+'载机位';
+        $('simAirInfo').innerHTML = `「${s.name}」该位 已配 <b>${used}/${sl.cap}</b>，剩 <b>${Math.max(0,sl.cap-used)}</b>`
+            + (sl.kind==='fighter' ? (sl.allow==='ALL'?' · 可带大型':' · 仅中小型') : '');
+        $('simAirList').innerHTML = opts.length ? opts.map(a=>{
+            const at=(s.aircraft||[]).find(x=>x.id===a.id && x.slot===sl.key);
+            const q=at?at.count:0;
+            const fleetUsed=simAirUsedAll(a.id);                    // 整队（主+增援）已用
+            const alim=a.serviceLimit||99;
+            const full = !stitchMode && fleetUsed>=alim;
+            return `<div class="sair ${q?'on':''} ${full?'full':''}">
+                <div><b>${getShipIcon(a.type)} ${a.name}</b>
+                    <small>${getTypeName(a.type)} · 服役 整队 ${fleetUsed}/${alim}${a.airSize==='large'?' · 大型':''}</small></div>
+                <div style="display:flex;align-items:center;gap:4px;">
+                    <button class="fbtn" onclick="simAirSet('${rowKey(s)}','${a.id}','${sl.key}',${Math.max(0,q-1)})">−</button>
+                    <span style="min-width:20px;text-align:center;font-weight:700;">${q}</span>
+                    <button class="fbtn pri" ${(full||used>=sl.cap)?'disabled title="已达上限"':''} onclick="simAirSet('${rowKey(s)}','${a.id}','${sl.key}',${q+1})">＋</button>
+                </div></div>`;
+        }).join('') : '<div style="text-align:center;color:var(--text-muted);padding:16px;">该载机位无可用机型</div>';
+        openModal('simAirModal');
+    }
+    function simAirUsedAll(airId){
+        let n=0;
+        FLEET_TYPES.forEach(ft=>{ const f=fleetData[ft]; if(!f) return;
+            [...(f.main||[]),...(f.reinforcement||[])].forEach(s=>(s.aircraft||[]).forEach(a=>{ if(a.id===airId) n+=(a.count||0); })); });
+        return n;
+    }
+    function simAirSet(shipId, airId, slotKey, qty){
+        const fleet=fleetData[currentFleetType];
+        const list=currentFleetTab==='main'?fleet.main:fleet.reinforcement;
+        const s=findRow(list, shipId); if(!s) return;
+        const sl=simSlotsOf(s).find(x=>x.key===slotKey); if(!sl) return;
+        const tmpl=SHIP_DATABASE[airId]; if(!tmpl) return;
+        if(!s.aircraft) s.aircraft=[];
+        const i=s.aircraft.findIndex(a=>a.id===airId && a.slot===slotKey);
+        const cur = i>=0 ? (s.aircraft[i].count||0) : 0;
+        if(qty<=0){
+            if(i>=0) s.aircraft.splice(i,1);
+        }else{
+            const capLeft = sl.cap - (simSlotUsed(s,slotKey) - cur);
+            const servLeft = stitchMode ? 9999 : Math.max(0,(tmpl.serviceLimit||99) - (simAirUsedAll(airId) - cur));
+            const q=Math.min(qty, capLeft, servLeft);
+            if(q<1){ showToast(capLeft<1?('该载机位已满（'+simSlotUsed(s,slotKey)+'/'+sl.cap+'）'):('该机型整队服役已达上限 '+(tmpl.serviceLimit||99))); return; }
+            if(i>=0) s.aircraft[i].count=q;
+            else s.aircraft.push(Object.assign({}, JSON.parse(JSON.stringify(tmpl)), {count:q, slot:slotKey}));
+        }
+        openSimAirPicker(shipId, slotKey);      // 刷新弹窗
+        refreshFleetViews();
+    }
+    /* 模块选择弹窗（与配队页一致：逐槽单选，并标出该模块带来的载机位） */
+    let simModShipId=null, simModDraft={};
+    function openSimMods(shipId){
+        const hit=findRowAny(shipId); if(!hit) return;
+        const s=hit.row;
+        const orig=SHIP_DATABASE[s.id]; const slots=FleetCheck.slotsOf(orig);
+        if(!slots.length){ showToast('该舰没有可选模块（武器为固定配置）'); return; }
+        simModShipId=shipId;
+        simModDraft=Object.assign({}, s.selectedModules||{});
+        $('simModTitle').textContent='选择模块 · '+s.name;
+        renderSimModBody();
+        openModal('simModModal');
+    }
+    function renderSimModBody(){
+        const hit=findRowAny(simModShipId); if(!hit) return;
+        const s=hit.row;
+        const orig=SHIP_DATABASE[s.id];
+        $('simModBody').innerHTML=FleetCheck.slotsOf(orig).map(g=>`
+            <div class="mslot">
+                <div class="mst"><em>${g.slot}</em>${g.name}</div>
+                ${g.variants.map(v=>{
+                    const sel=simModDraft[g.slot]===v.v;
+                    const none=/^[A-Za-z]0$/.test(v.v);
+                    const info=none?'':FleetCheck.modAirInfo(orig, v.v, s.count);
+                    return `<div class="mvar ${sel?'sel':''}" onclick="simModPick('${g.slot}','${v.v}')">
+                        <b>${v.v}</b>${none?' <span style="color:var(--text-muted)">（无模块）</span>':' · '+v.name}
+                        ${info?`<span class="mair">${info}</span>`:''}</div>`;
+                }).join('')}
+            </div>`).join('') || '<div style="text-align:center;color:var(--text-muted);padding:12px;">无可选模块</div>';
+    }
+    function simModPick(slot,v){
+        simModDraft[slot] = (simModDraft[slot]===v) ? null : v;
+        if(!simModDraft[slot]) delete simModDraft[slot];
+        renderSimModBody();
+    }
+    function simModSave(){
+        const hit=findRowAny(simModShipId); if(!hit){ closeModal('simModModal'); return; }
+        const s=hit.row;
+        const orig=SHIP_DATABASE[s.id];
+        const newKeys=FleetCheck.airSlots(orig, simModDraft, s.count).map(x=>x.key);
+        const lost=(s.aircraft||[]).filter(a=>a.slot && newKeys.indexOf(a.slot)<0);
+        if(lost.length){
+            if(!confirm('该模块改动后，有 '+lost.length+' 项载机失去载机位：\n'
+                +lost.map(a=>a.name+'×'+a.count).join('、')+'\n\n继续保存？它们会被标为「无对应载机位」，需要你手动删除。')) return;
+            lost.forEach(a=>{ a.slot=''; });
+        }
+        s.selectedModules=Object.assign({}, simModDraft);
+        recalcAircraftSlots(s);
+        closeModal('simModModal');
+        refreshFleetViews();
+    }
+
+    const FLEET_TYPE_NAMES = {
+        'ally-escort':'我方护航舰队',
+        'ally-escorted':'我方被护航舰队',
+        'enemy-escort':'敌方护航舰队',
+        'enemy-escorted':'敌方被护航舰队'
+    };
+
+    function togglePrioSuperCap(enabled) {
+        const fleet = fleetData[currentFleetType];
+        const list = currentFleetTab === 'main' ? fleet.main : fleet.reinforcement;
+        list.forEach(s => { s.prioritizeSuperCapital = enabled; });
+    }
+
+    // Update prio checkbox state when re-rendering
+    function updatePrioCheckbox() {
+        const fleet = fleetData[currentFleetType];
+        const list = currentFleetTab === 'main' ? fleet.main : fleet.reinforcement;
+        const cb = $('prioSuperCapCb');
+        if(cb && list.length>0) cb.checked = list[0].prioritizeSuperCapital || false;
+    }
+
+    function openFleetEditor(fleetType) {
+        currentFleetType = fleetType;
+        currentFleetTab = 'main';
+        openModal('fleetEditorModal');
+        const configs = {
+            'ally-escort':'我方护航舰队', 'ally-escorted':'我方被护航舰队',
+            'enemy-escort':'敌方护航舰队', 'enemy-escorted':'敌方被护航舰队'
+        };
+        $('fleetEditorTitle').textContent = '编辑: '+configs[fleetType];
+        renderFleetEditorContent();
+    }
+
+    function switchFleetTab(tab) {
+        currentFleetTab = tab;
+        document.querySelectorAll('#fleetEditorModal .tab').forEach(t=>t.classList.remove('active'));
+        document.querySelectorAll('#fleetEditorModal .tab-content').forEach(c=>c.classList.remove('active'));
+        if(tab==='main'){document.querySelector('#fleetEditorModal .tab:nth-child(1)').classList.add('active');$('fleetTabMain').classList.add('active');}
+        else{document.querySelector('#fleetEditorModal .tab:nth-child(2)').classList.add('active');$('fleetTabReinforcement').classList.add('active');}
+        renderFleetEditorContent();
+    }
+
+    function renderFleetEditorContent() {
+        const fleet = fleetData[currentFleetType];
+        const list = currentFleetTab === 'main' ? fleet.main : fleet.reinforcement;
+
+        // Flagship select
+        const fsSelect = $('flagshipSelect');
+        if(fsSelect && currentFleetTab==='main') {
+            fsSelect.innerHTML = '<option value="">未设置</option>' +
+                fleet.main.map(s=>`<option value="${s.id}"${fleet.flagship===s.id?' selected':''}>${s.name} ×${s.count}</option>`).join('');
+        }
+
+        // Command value
+        if(currentFleetTab === 'main') {
+            const cmdVal = fleet.main.reduce((s,sh)=>s+(sh.commandValue||0)*sh.count,0);
+            $('cmdValDisplay').textContent = cmdVal+'/500';
+        }
+
+        // Ship list in fleet
+        const listEl = currentFleetTab==='main' ? $('fleetMainShipList') : $('fleetReinforceShipList');
+        if(listEl) {
+            listEl.innerHTML = list.length===0 ? '<div style="color:var(--text-muted);text-align:center;padding:20px;">暂无舰船，从下方舰船库中添加</div>' :
+            list.map(s=>{
+                // Check ORIGINAL ship for moduleGroup slots (not s.modules which may be modified)
+                const origShip = SHIP_DATABASE[s.id];
+                let moduleGroupHTML = '';
+                if(origShip && origShip.modules) {
+                    for(const [key, mod] of Object.entries(origShip.modules)) {
+                        if(key.startsWith('_')) continue;
+                        if(mod.type === 'moduleGroup' && mod.variants) {
+                            const variantKeys = Object.keys(mod.variants);
+                            const currentSel = s.selectedModules?.[key] || variantKeys[0];
+                            moduleGroupHTML += `<select onchange="changeShipModuleVariant('${s.id}','${key}',this.value)" style="font-size:9px;margin-left:4px;padding:1px 3px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border-color);border-radius:3px;">
+                                ${variantKeys.map(vk=>`<option value="${vk}"${vk===currentSel?' selected':''}>${vk}:${mod.variants[vk].name.slice(0,8)}</option>`).join('')}
+                            </select>`;
+                        }
+                    }
+                }
+                return `
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:8px;background:var(--bg-secondary);border-radius:6px;margin-bottom:6px;border:1px solid var(--border-color);">
+                    <div>
+                        <span style="font-weight:600;">${getShipIcon(s.type)} ${s.name}</span>
+                        ${s.id===fleet.flagship?'<span class="badge badge-flagship">旗舰</span>':''}
+                        ${s.isCarrier?'<span class="badge badge-carrier">母舰</span>':''}
+                        ${moduleGroupHTML}
+                        <span style="font-size:10px;color:var(--text-muted);"> | 指挥值:${s.commandValue||'?'} | HP:${formatNumber(s.hp)}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <div class="qty-ctrl">
+                            <button class="qty-btn" onclick="changeFleetShipCount('${s.id}',-1)">−</button>
+                            <span class="qty-val">${s.count}</span>
+                            <button class="qty-btn" onclick="changeFleetShipCount('${s.id}',1)">+</button>
+                        </div>
+                        ${simHasAirSlot(currentFleetType,s.id)?`<button class="btn btn-sm" style="font-size:10px;" onclick="openSimAirPickerFirst('${currentFleetType}','${rowKey(s)}')">✈️ 舰载机</button>`:''}
+                        ${currentFleetTab==='main'&&s.id!==fleet.flagship?`<button class="btn btn-sm btn-gold" style="font-size:10px;" onclick="setShipAsFlagship('${s.id}')">⭐旗舰</button>`:''}
+                        <button class="btn btn-sm btn-danger" style="font-size:10px;" onclick="removeShipFromFleet('${s.id}')">✕</button>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+    }
+
+    /* ---- 舰队条目行定位 ----
+       同一艘舰可以有多套「模块组合方案」（多条独立条目），所以行级操作不能只用舰船 id。
+       每条条目带 uid；rowKey/rowMatch 兼容旧数据（没有 uid 时退回 id）。
+       ⚠️ 服役上限仍按【舰船 id】汇总（主力+增援一起算），见 fleetUsedCount / simUsedTotal。 */
+    function ensureUid(row){ if(row && !row.uid) row.uid='r'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); return row; }
+    function rowKey(row){ return row ? (row.uid||row.id) : ''; }
+    function rowMatch(row, key){ return !!row && (row.uid===key || row.id===key); }
+    function findRow(list, key){ return (list||[]).find(x=>rowMatch(x,key))||null; }
+    /* ★ 2026-10-07：按行 uid/id 在当前舰队的【两段】里定位（主舰队+增援同屏显示时，各行按钮要作用于自己那一段） */
+    function findRowAny(key){
+        const f=fleetData[currentFleetType]; if(!f) return null;
+        const tabs=['main','reinforcement'];
+        for(const tab of tabs){ const list=tab==='main'?f.main:(f.reinforcement||[]); const i=findRowIdx(list,key); if(i>=0) return {tab:tab,list:list,idx:i,row:list[i]}; }
+        return null;
+    }
+    function findRowIdx(list, key){ return (list||[]).findIndex(x=>rowMatch(x,key)); }
+
+    /* 载机位容量：统一用 FleetCheck.airSlots（与「战舰配队」页同一套逻辑）
+       返回 [{key,mod,label,kind,allow,cap}]，key 形如 'M2|fighter' / 'base|corvette'
+       同时把聚合值写回 ship.aircraftSlots（战斗/旧代码仍可能读它） */
+    function recalcAircraftSlots(ship) {
+        const origShip = SHIP_DATABASE[ship.id];
+        if(!origShip){ ship.aircraftSlots = {}; ship.simSlots = []; return; }
+        const mods = ship.selectedModules || {};
+        let slots = [];
+        try{
+            if(window.FleetCheck) slots = FleetCheck.airSlots(origShip, mods, ship.count||1);
+        }catch(e){ slots = []; }
+        // 兜底：只有「完全没有 airSlots 数据」的舰（老舰/自定义舰）才退回船级 aircraftSlots；
+        // 有 airSlots 的舰一律以「模块来源×机型」为准（与校验器同一判断）
+        if(!slots.length && !origShip.airSlots && origShip.aircraftSlots){
+            if(origShip.aircraftSlots.fighter) slots.push({key:'base|fighter',mod:'base',label:'基础',kind:'fighter',allow:'S',cap:origShip.aircraftSlots.fighter*(ship.count||1)});
+            if(origShip.aircraftSlots.corvette) slots.push({key:'base|corvette',mod:'base',label:'基础',kind:'corvette',allow:'S',cap:origShip.aircraftSlots.corvette*(ship.count||1)});
+        }
+        ship.simSlots = slots;
+        const agg = {};
+        slots.forEach(sl=>{ agg[sl.kind] = (agg[sl.kind]||0) + sl.cap; });
+        ship.aircraftSlots = agg;
+        // 载机失去载机位（换模块/减船）→ 标记出来，不静默丢
+        (ship.aircraft||[]).forEach(a=>{
+            if(a.slot && slots.some(x=>x.key===a.slot)) return;
+            const hit = slots.find(x=>x.kind===simAirKind(a) && simSlotUsed(ship,x.key)<x.cap);
+            a.slot = hit ? hit.key : '';
+        });
+    }
+    function simAirKind(a){ const t=SHIP_DATABASE[a.id]; if(t) return (t.aircraftType||t.type)==='corvette'?'corvette':'fighter'; return a.aircraftType==='corvette'?'corvette':'fighter'; }
+    function simSlotUsed(ship, key){ return (ship.aircraft||[]).filter(a=>a.slot===key).reduce((n,a)=>n+(a.count||0),0); }
+    function simSlotsOf(ship){ if(!ship.simSlots) recalcAircraftSlots(ship); return ship.simSlots||[]; }
+    /* 跨主/增援找一条舰队条目；fleetType 省略时用 currentFleetType */
+    function simFindEntry(fleetType, shipId){
+        const f=fleetData[fleetType||currentFleetType]; if(!f) return null;
+        return findRow([...(f.main||[]),...((f.reinforcement)||[])], shipId);
+    }
+    function simHasAirSlot(fleetType, shipId){ const s=simFindEntry(fleetType,shipId); return !!s && simSlotsOf(s).length>0; }
+    /* 便捷入口：打开该舰第一个还有余量的载机位 */
+    function openSimAirPickerFirst(fleetType, shipId){
+        const s=simFindEntry(fleetType, shipId); if(!s) return;
+        const slots=simSlotsOf(s);
+        if(!slots.length){ showToast('该舰没有载机位（需先选到提供载机位的模块）'); return; }
+        const room=slots.find(x=>simSlotUsed(s,x.key)<x.cap)||slots[0];
+        currentFleetType=fleetType||currentFleetType;
+        currentFleetTab=(fleetData[currentFleetType].main||[]).some(x=>rowMatch(x,shipId))?'main':'reinforcement';
+        openSimAirPicker(shipId, room.key);
+    }
+
+    function changeShipModuleVariant(shipId, slotKey, variantKey) {
+        const fleet = fleetData[currentFleetType];
+        const list = currentFleetTab === 'main' ? fleet.main : fleet.reinforcement;
+        const ship = findRow(list, shipId);
+        if(!ship) return;
+        if(!ship.selectedModules) ship.selectedModules = {};
+        ship.selectedModules[slotKey] = variantKey;
+        recalcAircraftSlots(ship);
+        refreshFleetViews();
+    }
+
+    function changeFleetShipCount(shipId, delta) {
+        const fleet = fleetData[currentFleetType];
+        const hit = findRowAny(shipId);
+        if(!hit) return;
+        const list = hit.list, idx = hit.idx;
+        const ship = hit.row;
+        const orig = SHIP_DATABASE[ship.id] || {};
+        const lim = orig.serviceLimit || 99;
+        const newCount = ship.count + delta;
+        if(newCount < 1){
+            // 移出该条目：连带清掉指向它的旗舰设置
+            if((ship.aircraft||[]).length &&
+               !confirm('「'+ship.name+'」还挂着 '+ship.aircraft.reduce((a,x)=>a+(x.count||0),0)+' 架载机，确认一并移除？')) return;
+            list.splice(idx,1);
+            if(fleet.flagship===ship.id) fleet.flagship=null;
+        } else {
+            // 服役上限：整队（主力+增援）按【舰船】合计——同型舰多套模块组合也要一起算
+            if(!stitchMode){
+                const after = simUsedTotal(currentFleetType, ship.id) - ship.count + newCount;
+                if(after > lim){
+                    showToast('⚠️ 「'+(orig.name||ship.name)+'」服役上限 '+lim+' 艘（该型舰主舰队+增援已用 '+simUsedTotal(currentFleetType, ship.id)+'）');
+                    return;
+                }
+            }
+            if(currentFleetTab==='main' && delta>0 && !stitchMode) {
+                const newCmd = fleet.main.reduce((s,sh)=>s+(sh.commandValue||0)*sh.count,0)+(orig.commandValue||0);
+                if(newCmd > 500) { showToast('⚠️ 指挥值将超过500上限'); return; }
+            }
+            ship.count = newCount;
+            recalcAircraftSlots(ship);        // 数量变了，载机位容量随之变化
+        }
+        refreshFleetViews();
+    }
+
+    function removeShipFromFleet(shipId) {
+        const fleet = fleetData[currentFleetType];
+        const hit = findRowAny(shipId);
+        if(hit){
+            const list = hit.list, idx = hit.idx;
+            const ship=list[idx];
+            if((ship.aircraft||[]).length &&
+               !confirm('「'+ship.name+'」还挂着 '+ship.aircraft.reduce((a,x)=>a+(x.count||0),0)+' 架载机，确认一并移除？')) return;
+            list.splice(idx,1);
+            if(fleet.flagship===ship.id) fleet.flagship=null;
+        }
+        refreshFleetViews();
+    }
+
+    function setShipAsFlagship(shipId) {
+        fleetData[currentFleetType].flagship = shipId;
+        renderFleetEditorContent();
+        renderFleetPanels();
+        saveFleetsToStorage();
+    }
+
+    function setFlagship() {
+        fleetData[currentFleetType].flagship = $('flagshipSelect').value || null;
+        renderFleetEditorContent();
+        renderFleetPanels();
+    }
+
+    function applyFleetChanges() {
+        closeModal('fleetEditorModal');
+        renderFleetPanels();
+        saveFleetsToStorage();
+        showToast('✅ 舰队已更新');
+    }
+
+    function openStrengthen(shipId) {
+        const hit = findRowAny(shipId);
+        if(!hit) return;
+        const shipEntry = hit.row;
+        openModal('strengthenModal');
+        // ⚠️ 参数是【行 key】(uid)，查舰船数据必须用条目的舰船 id（否则弹窗一片空白）
+        const origShip = SHIP_DATABASE[shipEntry.id];
+        if(!origShip) return;
+        
+        // Initialize strengthen data
+        if(!shipEntry.strengthen) shipEntry.strengthen = {};
+        if(!shipEntry.physResistBonus) shipEntry.physResistBonus = 0;
+        if(!shipEntry.energyResistBonus) shipEntry.energyResistBonus = 0;
+        if(!shipEntry.hpBonus) shipEntry.hpBonus = 0;
+        
+        // Ship-level stats
+        const physResist = shipEntry.physResistBonus || 0;
+        const energyResist = shipEntry.energyResistBonus || 0;
+        const hpBonus = shipEntry.hpBonus || 0;
+        const dmgBonus = shipEntry.dmgBonus || 0;
+        const evasion = shipEntry.evasion || 0;
+        const interceptRate = shipEntry.interceptRate || 0;
+        const intType = shipEntry.interceptType || 'sameRow';
+        const hitBonus = shipEntry.hitBonus || 0;
+        const repairBonus = shipEntry.repairBonus || 0;
+        const hangarBonus = shipEntry.hangarBonus || 0;
+        const siegeBonus = shipEntry.siegeBonus || 0;
+        const bpInfo = (typeof addpointSummary === 'function') ? addpointSummary(shipId) : null;
+
+        const num = (id, key, val, extra) => `<div>${id}: <input type="number" value="${val}" `
+            + `onchange="updateShipStat('${shipId}','${key}',parseFloat(this.value)||0)" `
+            + `style="width:55px;padding:1px 3px;" min="0" ${extra||''}>%</div>`;
+
+        let html = `<div style="margin-bottom:12px;"><b>${origShip.name}</b></div>
+            <div style="font-size:9px;color:var(--text-secondary);margin-bottom:8px;line-height:1.6;">
+                加点（蓝点强化）已<b>自动生效</b>：这艘船在加点页配过的加成，开战时会自动算进来，这里不用再导入。
+                ${bpInfo ? '<br>' + bpInfo : '<br>（这艘船还没有加点配置）'}
+                <br><a href="addpoint.html?ship=${encodeURIComponent(shipEntry.id)}&name=${encodeURIComponent(origShip.name)}" target="_blank" style="color:var(--accent-cyan);">⚙️ 去配置这艘船的加点 →</a>
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+            <div style="font-size:9px;color:var(--text-secondary);margin-bottom:4px;">引擎已支持的加成</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;font-size:10px;">
+                <div>物理抵抗: <input type="number" value="${physResist}" onchange="updateShipStat('${shipId}','physResistBonus',parseFloat(this.value)||0)" style="width:55px;padding:1px 3px;" min="0"> (固定)</div>
+                ${num('能量抗性','energyResistBonus',energyResist,'max="100"')}
+                ${num('结构值','hpBonus',hpBonus,'max="100"')}
+                ${num('伤害加成','dmgBonus',dmgBonus)}
+                ${num('闪避','evasion',evasion)}
+                <div>拦截率: <input type="number" value="${interceptRate}" onchange="updateShipStat('${shipId}','interceptRate',parseFloat(this.value)||0)" style="width:45px;padding:1px 3px;" min="0" max="100">
+                    <select onchange="updateShipStat('${shipId}','interceptType',this.value)" style="padding:1px 2px;font-size:9px;">
+                        <option value="self"${intType==='self'?' selected':''}>自身</option>
+                        <option value="sameRow"${intType==='sameRow'?' selected':''}>同排</option>
+                        <option value="global"${intType==='global'?' selected':''}>全域</option>
+                    </select></div>
+            </div>
+            </div><!-- ★ 2026-10-02 补：上面第 41 行的 display:flex 容器一直没闭合 →
+                 从"引擎原本没有"开始的所有区块（第二/第三个 grid、逐武器强化、按钮）都被塞进 flex 里，
+                 会被 flex-wrap 横向挤成一排（静态审计 _static_audit.js 报 openStrengthen <div>=24 </div>=23）。 -->
+            <div style="font-size:9px;color:var(--text-secondary);margin-bottom:4px;">引擎原本没有、由加点补上的（可手填）</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px;font-size:10px;">
+                ${num('命中加成','hitBonus',hitBonus)}
+                ${num('维修量加成','repairBonus',repairBonus)}
+                ${num('机库加成','hangarBonus',hangarBonus)}
+                ${num('攻城伤害','siegeBonus',siegeBonus,'title="本模拟器没有建筑目标，仅记录"')}
+            </div>
+            <div style="font-size:9px;color:var(--text-secondary);margin-bottom:4px;">机库专用（只作用于本舰载机）</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px;font-size:10px;">
+                ${num('机库暴击率','hangarCritRate',shipEntry.hangarCritRate||0)}
+                ${num('机库暴击伤害','hangarCritDmg',shipEntry.hangarCritDmg||0,'title="暴击倍率，200 = 2 倍（引擎基础为 150）"')}
+            </div>
+            <div style="font-size:9px;color:var(--text-secondary);margin-bottom:4px;">逐武器强化</div>`;
+        
+        // Collect all weapons from the ship, resolving moduleGroup variants
+        let weaponList = [];
+        if(origShip.modules) {
+            for(const [key, mod] of Object.entries(origShip.modules)) {
+                if(key.startsWith('_')) continue;
+                let resolvedMod = mod;
+                let variantKey = '';
+                if(mod.type === 'moduleGroup' && mod.variants) {
+                    variantKey = shipEntry.selectedModules?.[key] || Object.keys(mod.variants)[0];
+                    resolvedMod = mod.variants[variantKey] || mod;
+                }
+                if(resolvedMod.weapons) {
+                    resolvedMod.weapons.forEach((w, wi) => {
+                        const skey = variantKey ? key+'_'+variantKey : key;
+                        if(!shipEntry.strengthen[skey]) shipEntry.strengthen[skey] = {};
+                        if(!shipEntry.strengthen[skey][wi]) shipEntry.strengthen[skey][wi] = {dmgBonus:0,lockReduction:0,cooldownReduction:0,critRate:0,critDmg:0,flightTimeReduction:0};
+                        weaponList.push({slotKey:key, variantKey, weaponIndex:wi, weapon:w, label:(variantKey?mod.name+' → '+variantKey+':'+resolvedMod.name:mod.name), module:resolvedMod});
+                    });
+                }
+            }
+        }
+        
+        if(weaponList.length === 0) {
+            html += '<p style="color:var(--text-muted);">该舰船没有武器系统</p>';
+        } else {
+            weaponList.forEach((wl) => {
+                const skey = wl.variantKey ? wl.slotKey+'_'+wl.variantKey : wl.slotKey;
+                const st = shipEntry.strengthen[skey]?.[wl.weaponIndex] || {dmgBonus:0,lockReduction:0,cooldownReduction:0,critRate:0,critDmg:0,flightTimeReduction:0};
+                const isFighter = wl.weapon.priority === '舰载机' || origShip.size === 'aircraft';
+                const isHayabusa = origShip.id && origShip.id.includes('hayabusa');
+                html += `
+                <div style="background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:6px;padding:8px;margin-bottom:8px;">
+                    <div style="font-weight:600;font-size:12px;margin-bottom:6px;">${wl.label} — ${wl.weapon.name}</div>
+                    <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;">单发:${wl.weapon.singleDmg} | 冷却:${wl.weapon.cooldown||'?'}s | 锁定:${wl.weapon.lockTime||'?'}s ${wl.weapon.crit?'| 💥可暴击':''}</div>
+                    <div class="strengthen-sliders">
+                        <div class="slider-row"><span>单发伤害+%</span><input type="range" min="0" max="100" value="${st.dmgBonus}" oninput="updateStrengthen('${shipId}','${skey}',${wl.weaponIndex},'dmgBonus',parseInt(this.value));openStrengthen('${shipId}')"><span>${st.dmgBonus}%</span></div>
+                        <div class="slider-row"><span>锁定时间-%</span><input type="range" min="0" max="50" value="${st.lockReduction}" oninput="updateStrengthen('${shipId}','${skey}',${wl.weaponIndex},'lockReduction',parseInt(this.value));openStrengthen('${shipId}')"><span>${st.lockReduction}%</span></div>
+                        <div class="slider-row"><span>冷却时间-%</span><input type="range" min="0" max="50" value="${st.cooldownReduction}" oninput="updateStrengthen('${shipId}','${skey}',${wl.weaponIndex},'cooldownReduction',parseInt(this.value));openStrengthen('${shipId}')"><span>${st.cooldownReduction}%</span></div>
+                        ${wl.weapon.crit?`
+                        <div class="slider-row"><span>暴击率+%</span><input type="range" min="0" max="50" value="${st.critRate}" oninput="updateStrengthen('${shipId}','${skey}',${wl.weaponIndex},'critRate',parseInt(this.value));openStrengthen('${shipId}')"><span>${st.critRate}%</span></div>
+                        <div class="slider-row"><span>暴击伤害+%</span><input type="range" min="0" max="100" value="${st.critDmg}" oninput="updateStrengthen('${shipId}','${skey}',${wl.weaponIndex},'critDmg',parseInt(this.value));openStrengthen('${shipId}')"><span>${st.critDmg}%</span></div>
+                        `:''}
+                        ${isFighter&&!isHayabusa?`<div class="slider-row"><span>往返时间-%</span><input type="range" min="0" max="50" value="${st.flightTimeReduction}" oninput="updateStrengthen('${shipId}','${skey}',${wl.weaponIndex},'flightTimeReduction',parseInt(this.value));openStrengthen('${shipId}')"><span>${st.flightTimeReduction}%</span></div>`:''}
+                    </div>
+                </div>`;
+            });
+        }
+        html += `<div style="text-align:right;margin-top:12px;"><button class="btn btn-sm" onclick="closeModal('strengthenModal')">关闭</button></div>`;
+        $('strengthenModalContent').innerHTML = html;
+    }
+    
+    function updateStrengthen(shipId, skey, weaponIndex, field, value) {
+        const fleet = fleetData[currentFleetType];
+        const list = currentFleetTab === 'main' ? fleet.main : fleet.reinforcement;
+        const shipEntry = findRow(list, shipId);
+        if(!shipEntry) return;
+        if(!shipEntry.strengthen) shipEntry.strengthen = {};
+        if(!shipEntry.strengthen[skey]) shipEntry.strengthen[skey] = {};
+        if(!shipEntry.strengthen[skey][weaponIndex]) shipEntry.strengthen[skey][weaponIndex] = {dmgBonus:0,lockReduction:0,cooldownReduction:0,critRate:0,critDmg:0,flightTimeReduction:0};
+        shipEntry.strengthen[skey][weaponIndex][field] = value;
+    }
+    
+    function updateShipStat(shipId, field, value) {
+        const fleet = fleetData[currentFleetType];
+        const list = currentFleetTab === 'main' ? fleet.main : fleet.reinforcement;
+        const shipEntry = findRow(list, shipId);
+        if(!shipEntry) return;
+        shipEntry[field] = value;
+        openStrengthen(shipId);
+    }
+
+    /* ================= 加点（蓝图）→ 战斗加成 =================
+       加点页把结果存在 localStorage['lagrange_addpoint']：
+         { [官方编号]: { lv:{节点id:等级}, manual:{siege,repairBonus,hitBonus,hangarBonus} } }
+       这里用 blueprint_map.json（slug→编号）+ blueprint_stats.json（节点→属性归类）
+       把所点节点汇总成属性加成，再写进舰队条目。数值取 perLevel[当前等级]（不累加）。
+       多参数节点（说明里有 ≥2 个数值位）不硬算，如实报数。 */
+    const AP_KEY = 'lagrange_addpoint';
+    /* ⚠️ 分组定义【只在 _build_bpstats.js 里维护一份】，写进 blueprint_stats.json 的 groups 字段，
+       这里和 addpoint.html 都读它 —— 免得"新增属性要同时改三处、漏一处静默失效"。 */
+    let AP_A = ['hp','physResist','energyResist','dmgBonus','crit','lockReduction',
+                'cooldownReduction','singleDmg','evasion','interceptRate'];
+    let AP_B = ['siege','repairBonus','hitBonus','hangarBonus'];      // 舰船级（含老的手填位）
+    let AP_H = ['hangarCritRate','hangarCritDmg'];                    // 机库：本舰船所有载机
+    let AP_M = ['atkReduction','antiIntercept','sysDmgReduce','positionFix','multiTarget',
+                'hangarModule','lockEfficiency','denseFire','sysIntercept'];   // 只作用于【本系统的武器/载机】
+    /* 旧版属性名 → 新拆分后的属性名（老存档/老 stats 文件也能跑） */
+    const AP_ALIAS = { hangarModule: 'hangarModuleDmg', hangarBonus: 'hangarDmg', repairBonus: 'repairEff' };
+    function buildApGroups() {
+        const G = BP_STATS && BP_STATS.groups;
+        if (!G) return;                                   // 没有 groups 字段 → 用上面的兜底常量
+        AP_A = [].concat(G.attack || [], G.defense || []);
+        AP_B = [].concat(G.misc || [], G.manual || ['siege','repairBonus','hitBonus','hangarBonus']);
+        AP_H = G.hangar || [];
+        AP_M = [].concat(G.moduleOnly || [], G.hangarModule || []);
+    }
+    let BP_MAP = null, BP_STATS = null, BP_SYSMAP = null, BP_COMPANY = null, BP_TREE = {};
+
+    /* 一次性把加点相关数据都读进来（含"哪个系统对哪个模块"、公司、每艘船的加点树） */
+    async function loadBlueprintData() {
+        if(BP_MAP && BP_STATS) return true;
+        try {
+            const [m, s, sm, cp] = await Promise.all([
+                fetch('data/blueprint_map.json', {cache:'no-cache'}).then(r=>r.json()),
+                fetch('data/blueprint_stats.json', {cache:'no-cache'}).then(r=>r.json()),
+                fetch('data/blueprint_sysmap.json', {cache:'no-cache'}).then(r=>r.json()).catch(()=>({})),
+                fetch('data/blueprint_company.json', {cache:'no-cache'}).then(r=>r.json()).catch(()=>({}))
+            ]);
+            BP_MAP = m; BP_STATS = s; BP_SYSMAP = sm; BP_COMPANY = cp;
+            buildApGroups();                          // ★ 分组从 stats.groups 读（唯一来源）
+            return true;
+        } catch(e) { return false; }
+    }
+    /* 每艘船的加点树（含节点属于哪个系统）按需加载 */
+    async function loadBpTree(cdnId) {
+        if(BP_TREE[cdnId]) return BP_TREE[cdnId];
+        try {
+            const t = await fetch('data/blueprint/' + cdnId + '.json', {cache:'no-cache'}).then(r=>r.json());
+            BP_TREE[cdnId] = t.systems || [];
+            return BP_TREE[cdnId];
+        } catch(e) { return null; }
+    }
+
+    function apStore() { try { return JSON.parse(localStorage.getItem(AP_KEY) || '{}') || {}; } catch(e) { return {}; } }
+    /* 取某艘船的加点。
+       ★ 多方案（2026-09-24）：条目上可以写 apBuild = 某个「已保存方案」的名字，
+         写了就用那个方案的 lv/manual（存在 lagrange_addpoint_builds 里，独立于加点页当前那套）；
+         没写就用默认（加点页正在配的那套 lagrange_addpoint[cdnId]）。
+       —— 所以【同一艘船】在模拟器的不同舰队里可以各用各的方案。 */
+    function apOf(slug, buildName, setName) {
+        if(!BP_MAP) return null;
+        const e = BP_MAP[slug];
+        if(!e || !e.cdnId) return null;
+        /* ★ 整套方案（用户 2026-09-25：保存的是所有舰船的加点，模拟器里选的也是这一整套）
+           —— 优先于单船方案。舰队级选中后会把 set 名写进该舰队每条船条目的 apSet。 */
+        if (setName) {
+            try {
+                const sets = JSON.parse(localStorage.getItem('lagrange_addpoint_sets') || '[]') || [];
+                const st0 = sets.find(x => x && x.name === setName);
+                /* ★★ 选了这个总体方案 = 【只用这个方案】（用户 2026-09-26 实测"选了没生效"）。
+                   原来是"方案里有这艘船才用方案，没有就静默回落当前加点" ——
+                   而方案通常只覆盖一部分船 → 没被覆盖的船照样吃当前数据，
+                   看起来就是"选方案完全没用"。
+                   现在：方案找得到 → 就用它（没有这艘船 = 这艘船没加点，不吃当前数据）；
+                       方案名找不到（被删了）→ 才回落到当前加点，保证不崩。 */
+                if (st0) {
+                    const rec = (st0.addpoints || {})[e.cdnId];
+                    return { cdnId: e.cdnId, lv: (rec && rec.lv) || {}, manual: (rec && rec.manual) || {}, _fromSet: st0.name };
+                }
+            } catch (err) { }
+        }
+        if (buildName) {
+            try {
+                const builds = JSON.parse(localStorage.getItem('lagrange_addpoint_builds') || '[]') || [];
+                const bd = builds.find(x => x && x.name === buildName && String(x.ship) === String(e.cdnId));
+                if (bd) return { cdnId: e.cdnId, lv: bd.lv || {}, manual: bd.manual || {}, _fromBuild: bd.name, _mods: bd.mods || [] };
+            } catch (err) { }
+        }
+        const rec = apStore()[e.cdnId];
+        if(!rec) return null;
+        return { cdnId: e.cdnId, lv: rec.lv || {}, manual: rec.manual || {} };
+    }
+    /* 某艘船有哪些已保存的加点方案（给下拉用） */
+    function buildsOfShip(slug) {
+        try {
+            const e = BP_MAP && BP_MAP[slug]; if(!e || !e.cdnId) return [];
+            const builds = JSON.parse(localStorage.getItem('lagrange_addpoint_builds') || '[]') || [];
+            return builds.filter(x => x && String(x.ship) === String(e.cdnId)).map(x => ({
+                name: x.name, points: Object.keys(x.lv || {}).filter(k => (x.lv[k] || 0) > 0).length,
+                mods: (x.mods || []).map(m => m.key + m.variant).join('+')
+            }));
+        } catch (err) { return []; }
+    }
+    /* 汇总某个舰队条目的加点加成。
+       ★ 按系统作用域：加点的说明几乎都是"系统内武器…"，只该作用于【那个系统的武器】。
+         blueprint_sysmap.json 给出每个系统对到哪个模块（或判定为舰船级）。
+         返回 { ship:{...}, byModule:{ 'M_M1':{...}, ... }, ... } */
+    /* ★★★ 引擎【真会从模块桶(byModule)里读】的那些键 —— 只有这些键按"这个节点属于哪个系统"分桶才有意义。
+       其余键（hp/物理装甲/能量抗性/闪避/拦截率/被命中下降/防空锁定下降/维修量/系统血量…）
+       在引擎里都是【整船口径】，塞进模块桶就没人读了 → 加成静默消失。
+       维护提示：必须和 applyAddPointWeapons + hangarByModule + sysDmgReduce 三处保持一致。 */
+    const MODULE_CONSUMED = new Set([
+        // applyAddPointWeapons 逐武器读（按当前模块变体 key 取）
+        'singleDmg', 'crit', 'critDmg', 'lockReduction', 'cooldownReduction', 'atkReduction',
+        'antiIntercept', 'hitBonus', 'repairBonus', 'lockEfficiency', 'sysIntercept',
+        'denseFire', 'multiTarget',
+        // 本系统机库（作用该模块机位上的载机）
+        'hangarModuleDmg', 'hangarModuleHit', 'hangarModuleEvasion', 'hangarModuleLock',
+        'hangarModuleCd', 'hangarModuleFlight', 'hangarModuleCritRate', 'hangarModuleCritDmg',
+        // 受系统伤害降低（引擎只在模块桶里取）
+        'sysDmgReduce'
+    ]);
+    /* 「本舰船机库内…」= 整艘船所有载机，不受系统↔模块映射影响，必须走舰船级。
+       写成函数是因为 BP_STATS 是异步加载的，不能在建表时就算死。 */
+    function hangarShipSet() {
+        return new Set([].concat(
+            (BP_STATS && BP_STATS.groups && BP_STATS.groups.hangar) || [],
+            ['hangarCritRate', 'hangarCritDmg', 'hangarBonus']));
+    }
+    /* 这个模块桶的 key（'M_M1' / 'C_C1' / 'M'）在当前配装下是否在用。
+       未显式选模块时，引擎按"第一个变体"当默认（见 createShipInstance 的 moduleGroup 解析），
+       所以这里也得用同样的默认规则，否则默认配装的加点会被判成"没装"而丢掉。 */
+    function moduleBucketOn(sk, modules, selectedModules) {
+        const i = sk.indexOf('_');
+        const gk = i < 0 ? sk : sk.slice(0, i);
+        const vk = i < 0 ? null : sk.slice(i + 1);
+        const m = (modules || {})[gk]; if (!m) return false;        // 这艘船没这个模块槽
+        if (!vk) return true;                                       // 没有变体的模块：装了就算
+        const sel = (selectedModules || {})[gk];
+        const eff = sel || (m.variants ? Object.keys(m.variants)[0] : null);
+        return eff === vk;
+    }
+    /* 把【在用的模块】桶里的「舰船级」统计量并进舰船桶（hp/装甲/闪避/拦截/攻城/维修…）。
+       只有"引擎不从模块桶读"的键才需要合并 —— 见 MODULE_CONSUMED 的说明。 */
+    function foldShipLevelFromModules(b, modules, selectedModules) {
+        const sh = Object.assign({}, b.ship);
+        const HANGAR = hangarShipSet();
+        Object.keys(b.byModule || {}).forEach(sk => {
+            if (!moduleBucketOn(sk, modules, selectedModules)) return;
+            const g = b.byModule[sk];
+            Object.keys(g).forEach(k => {
+                if (!g[k] || MODULE_CONSUMED.has(k) || HANGAR.has(k)) return;
+                sh[k] = (sh[k] || 0) + g[k];
+            });
+        });
+        return sh;
+    }
+    function buildAddPointBonus(slug, buildName, setName) {
+        const ap = apOf(slug, buildName, setName);
+        if (!ap || !BP_STATS) return null;
+        const BLANK = () => { const o = {}; AP_A.forEach(k => o[k] = 0); AP_B.forEach(k => o[k] = 0); AP_H.forEach(k => o[k] = 0); return o; };
+        const shipB = BLANK();                      // 舰船级
+        const byModule = {};                        // 模块级：{ 'M_M1': {...} }
+        const conds = [];                           // ★ 条件触发：不立刻加，交给战斗中求值
+        let counted = 0, skipped = 0, other = 0, skippedTree = false;   // skippedTree=这艘船加点树没加载，有节点被迫跳过
+        const sysMap = (BP_SYSMAP && BP_SYSMAP[ap.cdnId]) ? BP_SYSMAP[ap.cdnId].systems : null;
+        const nodeSys = {};                         // 节点 → 所属系统
+        if(BP_TREE && BP_TREE[ap.cdnId]) {
+            BP_TREE[ap.cdnId].forEach(sys => (sys.nodes || []).forEach(n => { nodeSys[n.id] = sys.sysId; }));
+        }
+        const bucketFor = (sysId) => {
+            const m = sysMap && sysId !== undefined ? sysMap[sysId] : null;
+            if(m && m.scope === 'module') {
+                const sk = m.variant ? (m.key + '_' + m.variant) : m.key;
+                if(!byModule[sk]) byModule[sk] = BLANK();
+                return byModule[sk];
+            }
+            return shipB;                            // 舰船级 / 未匹配 → 落到舰船级（保守）
+        };
+        const alias = k => (AP_ALIAS[k] || k);       // 旧属性名 → 新名
+        /* 「本舰船机库内…」= 整艘船所有载机，不受系统↔模块映射影响，必须走舰船级 */
+        const HANGAR_SHIP = hangarShipSet();
+        Object.keys(ap.lv).forEach(nid => {
+            const L = ap.lv[nid]; if(!L || L <= 0) return;
+            const st = BP_STATS.nodes[nid]; if(!st || st.empty) return;
+            const isModScope = (() => {
+                const m = sysMap ? sysMap[nodeSys[nid]] : null;
+                return !!(m && m.scope === 'module');
+            })();
+            const isShipScope = (() => {
+                const m = sysMap ? sysMap[nodeSys[nid]] : null;
+                return !!(m && m.scope === 'ship');
+            })();
+            const tgt = bucketFor(nodeSys[nid]);
+            /* 「本舰船机库内…」说的是【整艘船所有载机】，不管这个系统在映射表里对到哪个模块，
+               都必须走舰船级 —— 否则会被那个模块的桶吃掉，只有该模块的载机吃到（v4 踩过的坑）。 */
+            /* ★★ 安全网：万一这艘船的加点树【还没加载】（fetch 慢/失败/刚存进 storage），
+               nodeSys 是空的 → 谁都不知道这个节点属于哪个系统。此时**宁可这条先不计**，
+               也不能把"本系统武器"的加成当成整船加成扩散出去（用户明确要求过：
+               本系统的加点不该集成到其它系统）。返回 null → 调用处跳过。 */
+            const _treeMissing = !(BP_TREE && BP_TREE[ap.cdnId]);
+            const shipTgt = (k) => {
+                if (HANGAR_SHIP.has(k)) return shipB;
+                if (_treeMissing && MODULE_CONSUMED.has(alias(k))) return null;
+                return tgt;
+            };
+            if(_treeMissing) skippedTree = true;
+            if(st.statMap) {                          // 一条说明同时写多个属性
+                let any = false;
+                Object.keys(st.statMap).forEach(k0 => {
+                    const k = alias(k0);
+                    const v = st.statMap[k0][L];
+                    if (typeof v !== 'number') return;
+                    const t1 = shipTgt(k); if (!t1) return;
+                    t1[k] = (t1[k] || 0) + v; any = true;
+                });
+                if(any) counted++; else skipped++;
+                return;
+            }
+            const k = alias(st.stat);
+            if(AP_M.indexOf(k) >= 0) {
+                /* 「系统内」专属：对到模块 → 写进那个模块的桶；
+                   系统本身就判定为【舰船级】→ 写进舰船级（它不是模块武器系统，本来就整船生效）；
+                   完全没归属(null) → 只能记为未实现（不能乱猜是哪个模块的武器）。 */
+                if(!isModScope && !isShipScope) { other++; return; }
+                const v = st.statValues ? st.statValues[L] : (st.multi <= 1 && st.perLevel ? st.perLevel[L] : null);
+                if(typeof v !== 'number') { skipped++; return; }
+                tgt[k] = (tgt[k]||0) + v; counted++;
+                return;
+            }
+            if(AP_A.indexOf(k) >= 0 || AP_B.indexOf(k) >= 0 || AP_H.indexOf(k) >= 0) {
+                let v = null;
+                if(st.statValues) v = st.statValues[L];
+                else if(st.multi <= 1) v = st.perLevel ? st.perLevel[L] : null;
+                if(typeof v !== 'number') { skipped++; return; }
+                /* ★★ 条件触发：不能当常量加进去！
+                   「自身结构比例降至50%时闪避+20%持续10秒，一场只触发一次」如果直接累加，
+                   就变成了"开局永久+20%"—— 条件和时限全丢了（这是原来最错的一类）。 */
+                if(st.cond){
+                    const m2 = sysMap ? sysMap[nodeSys[nid]] : null;
+                    conds.push({
+                        cond: st.cond, stat: k, val: v,
+                        sk: (m2 && m2.scope === 'module') ? (m2.variant ? m2.key + '_' + m2.variant : m2.key) : null,
+                        sysName: m2 ? m2.sysName : ''
+                    });
+                    counted++; return;
+                }
+                const tt = shipTgt(k);
+                if(!tt) { skipped++; return; }           // 树没加载的模块级属性 → 先不计（见 shipTgt 的安全网）
+                tt[k] = (tt[k]||0) + v; counted++;      // ★ 必须累加：一个系统里可能有好几个同类节点
+                /* ★★ 多机制（st.stats）：一句话里写了两个机制的，两边吃【同一个值】。
+                   例：太阳鲸「载机/无人机飞行时间和主武器冷却时间减少{101}%」
+                   —— 原来 classify() 首个匹配就返回，只拿到飞行时间，冷却被整块丢掉。
+                   用户 2026-09-25 核对原文确认两边是同一个数。 */
+                (st.stats || []).forEach(k2 => {
+                    const kk2 = alias(k2);
+                    if (kk2 === k) return;
+                    if (AP_A.indexOf(kk2) < 0 && AP_B.indexOf(kk2) < 0 && AP_H.indexOf(kk2) < 0) return;
+                    const t2 = shipTgt(kk2);
+                    if (!t2) return;
+                    t2[kk2] = (t2[kk2] || 0) + v;
+                });
+            } else other++;
+        });
+        /* 手填（加点页的「+追加」与旧的 4 个手填位）：一律算舰船级，叠加到自动汇总之上 */
+        Object.keys(ap.manual || {}).forEach(k0 => {
+            const v = ap.manual[k0]; if(typeof v !== 'number') return;
+            /* ★ 按系统的手填：键 = S<系统id>_<属性> → 写进【那个系统】的桶（模块级或舰船级）。
+               用户 2026-09-25：加点页那几张手填表按本系统统计，引擎也要按系统吃。 */
+            const _m = /^S(\d+)_(.+)$/.exec(k0);
+            if (_m) {
+                const kk = alias(_m[2]);
+                const tt = bucketFor(_m[1]);
+                /* ★★★ 2026-10-04 修 bug：原 `if (kk in tt)` 会把【本系统类】键（AP_M / groups.hangarModule，
+                   如 hangarModuleDmg / hangarModuleCd…）静默丢掉 —— 因为桶是 BLANK 种子（只有 AP_A/B/H 键），
+                   而树节点路径是【直接建键】写入的（见上方 AP_M 分支），两条路径不一致。
+                   实测：用户战报加点（我方加点能二.json）里 S8010107_hangarModuleDmg=5（太阳鲸 B2 机库伤害）
+                   从未进过战斗。改为与树路径一致：AP_M / MODULE_CONSUMED 键直接建键写入。 */
+                if ((kk in tt) || AP_M.indexOf(kk) >= 0 || MODULE_CONSUMED.has(kk)) { tt[kk] = (tt[kk] || 0) + v; counted++; }
+                return;
+            }
+            const k = alias(k0);
+            if(!(k in shipB)) return;                 // 引擎不认识的键忽略
+            shipB[k] += v;
+        });
+        const sumM = BLANK();
+        Object.keys(byModule).forEach(sk => Object.keys(byModule[sk]).forEach(k => sumM[k] += byModule[sk][k]));
+        return {
+            ship: shipB, byModule: byModule, total: sumM, conds: conds,
+            _counted: counted, _skipped: skipped, _other: other, _skippedTree: skippedTree,
+            _used: Object.keys(ap.lv).filter(k => ap.lv[k] > 0).length,
+            _systems: Object.keys(byModule).length
+        };
+    }
+    /* ========== 条件触发求值 ==========
+       加点里 119 个节点的效果不是开场就生效，而是【满足条件才触发】：
+         hpBelow        自身血量/结构比例 ≤ X%
+         enemyHpBelow   目标血量 ≤ X%（近似：场上还有满足血线的敌人）
+         battleStart    战斗开始后（整场）
+         battleStartSec 战斗开始后 X 秒内
+         firstRounds    战斗开始后前 N 轮（按该舰平均武器周期折算成秒 —— 近似）
+         everyRounds / everySec  周期性生效
+       每 tick 求值一次：条件由假变真 → 加上效果；由真变假（或到期）→ 撤掉。
+       ⚠️ "前N轮"是折算的近似值，不是真的逐轮计数。 */
+    const COND_SHIP_FIELD = {
+        evasion:'evasion', hitBonus:'hitBonus', enemyHitDown:'enemyHitDown', aaLockDown:'aaLockDown',
+        sysDmgReduce:'sysDmgReduce', hp:'hpBonus', physResist:'physResistBonus', energyResist:'energyResistBonus',
+        repairEff:'repairBonus', repairBonus:'repairBonus', dmgBonus:'dmgBonus', interceptRate:'interceptRate',
+        siege:'siegeBonus', multiTarget:'multiTarget', positionFix:'positionFix'
+    };
+    const COND_WEAPON_FIELD = {
+        singleDmg:'dmgBonus', cooldownReduction:'cooldownReduction', crit:'critRate', critDmg:'critDmg',
+        lockReduction:'lockReduction', atkReduction:'atkReduction', hitBonus:'hitBonus', lockEfficiency:'lockEfficiency',
+        antiIntercept:'antiIntercept', weaponDuration:'weaponDuration', hangarCd:'cdRed', hangarFlight:'flightRed'
+    };
+    /* 该舰武器平均一轮的周期（冷却+攻击持续），用来把"前N轮"折算成秒 */
+    function avgCycle(s) {
+        const ws = s.weaponStates || []; if (!ws.length) return 10;
+        let t = 0, n = 0;
+        ws.forEach(w => { const c = (w.cooldown || 0) + (w.atkDuration || 0); if (c > 0) { t += c; n++; } });
+        return n ? Math.max(1, t / n) : 10;
+    }
+    /* 加/撤一个条件效果：sign=+1 加，-1 撤 */
+    function applyCondDelta(ship, ce, sign) {
+        const k = ce.stat, v = ce.val * sign;
+        if (COND_WEAPON_FIELD[k]) {
+            (ship.weaponStates || []).forEach(ws => {
+                if (ce.sk && ws.strengthenKey !== ce.sk) return;   // 绑模块的只作用那个模块的武器
+                ws.strengthen = ws.strengthen || {};
+                const f = COND_WEAPON_FIELD[k];
+                ws.strengthen[f] = (ws.strengthen[f] || 0) + v;
+            });
+            return;
+        }
+        const f = COND_SHIP_FIELD[k];
+        if (!f) return;
+        ship[f] = (ship[f] || 0) + v;
+        if (k === 'hp') { ship.maxHp = Math.max(1, (ship.maxHp || 0) + v); if (ship.hp > ship.maxHp) ship.hp = ship.maxHp; }
+        if (k === 'interceptRate' && ship[f] > 0 && !ship.interceptType) ship.interceptType = 'sameRow';
+    }
+    function condWants(ship, ce, bs, hpPct, enemies) {
+        const c = ce.cond || {};
+        switch (c.kind) {
+            case 'hpBelow': return hpPct <= (c.threshold || 0);
+            case 'enemyHpBelow': {
+                const th = c.threshold || 0;
+                return (enemies || []).some(e => e.alive && e.maxHp && (e.hp / e.maxHp * 100) <= th);
+            }
+            case 'battleStart': return true;
+            /* ★★★ 2026-10-02 第36轮：补上四个缺失的条件类型。
+               原来 default: return true 使【条件判不了】的节点变成【永远满足】→ 当常驻。
+               全库 16 个节点受影响；其中太阳鲸 801010309（「对方损失巡洋舰时，冷却下降85%，持续10秒」）
+               被当成常驻 → 武器几乎无冷却 → 实测 513 秒打 13,150 发（应有 1,221 发）。 */
+            case 'onAttacked': {
+                const last = ship._lastHitAt;
+                if (last == null) return false;
+                return (bs.time - last) <= 0.3;          // 刚被打 → 触发
+            }
+            case 'onEnemyLoss': {
+                const la = bs._lastLossAt && bs._lastLossAt[ship.side === 'ally' ? 'enemy' : 'ally'];
+                if (la == null) return false;
+                return (bs.time - la) <= 0.5;            // 对方刚有损失 → 触发
+            }
+            case 'onKill': {
+                const lk = ship._lastKillAt;
+                if (lk == null) return false;
+                return (bs.time - lk) <= 0.5;
+            }
+            case 'onTargetType': {
+                const wk = c.targetKind || '巡洋舰';
+                return (ship.weaponStates || []).some(x => x.currentTarget && x.currentTarget.alive
+                    && matchesType(x.currentTarget, wk));
+            }
+            case 'battleStartSec': return bs.time <= (c.sec || c.threshold || 0);
+            case 'firstRounds': return bs.time <= (c.rounds || 1) * (ship._avgCycle || 10);
+            case 'everySec':
+            case 'everyRounds': {
+                if (!ce._period) ce._period = (c.kind === 'everySec') ? (c.threshold || 10) : Math.max(1, (c.rounds || 1) * (ship._avgCycle || 10));
+                const ph = bs.time % ce._period;
+                const dur = c.dur || 0;
+                return dur > 0 ? (ph < dur) : true;
+            }
+            default: return true;
+        }
+    }
+    function processCondEffects(ship, enemies, dt, bs) {
+        const list = ship.condEffects;
+        if (!list || !list.length || !ship.alive) return;
+        if (!ship._avgCycle) ship._avgCycle = avgCycle(ship);
+        const hpPct = ship.maxHp ? (ship.hp / ship.maxHp * 100) : 100;
+        for (let i = 0; i < list.length; i++) {
+            const ce = list[i];
+            if (ce.done) continue;
+            if (ce.cdUntil && bs.time < ce.cdUntil && !ce.applied) continue;
+            const want = condWants(ship, ce, bs, hpPct, enemies);
+            if (want && !ce.applied) {
+                applyCondDelta(ship, ce, +1);
+                ce.applied = true;
+                if (ce.cond.dur > 0) ce.until = bs.time + ce.cond.dur;
+                if (ce.cond.cd > 0) ce.cdUntil = bs.time + ce.cond.cd;   // ★ 冷却
+                ship._condFired = (ship._condFired || 0) + 1;
+            } else if (ce.applied) {
+                const expire = ce.until > 0 && bs.time >= ce.until;
+                const lost = ce.until === 0 && !want && !ce.cond.once;
+                if (expire || lost) {
+                    applyCondDelta(ship, ce, -1);
+                    ce.applied = false;
+                    if (ce.cond.once) ce.done = true;         // 一场只触发一次
+                } else if (ce.until > 0 && !want && !ce.cond.once) {
+                    /* 条件掉了但还在持续期内 —— 不改（按"触发后持续X秒"理解） */
+                }
+            }
+        }
+    }
+    /* ========== 舰队级机制（多舰队场景） ==========
+       我们的战场有 4 个舰队：敌方护航A / 敌方被护航B / 我方护航C / 我方被护航D。
+       「被多支舰队同时攻击」= 敌方两支都还有存活舰船（被护航舰队被摧毁前一般先打护航舰队，
+         所以【护航舰队是主目标、被护航舰队是副目标】，我方同理）。
+       玩家口述确认的 5 类机制（前 4 类必须是指定为旗舰才生效，且指挥系统被毁后失效）：
+         subTargetHit   每存在 1 个副目标舰队 → 对主力舰/舰载机命中 +N%
+         counterSub     被多支舰队攻击 → 除完整打主目标，还向副目标舰队打 N% 伤害
+         protectFromSub 被多支舰队攻击 → 减少【来自副目标舰队】的 N% 伤害
+         repairBoost    被多支舰队攻击 → 维修效果 +N%（按出战类型数叠加）
+         cutInSub       舰队不是主目标（即舰载机/舰艇在被护航舰队里）→ 优先选血量最低的 N 个目标
+    */
+    function subTargetCount(bs, side) {
+        const foes = side === 'ally' ? bs.enemyShips : bs.allyShips;
+        let n = 0;
+        if (foes.some(s => s.alive && s.hp > 0 && s.isEscort)) n++;
+        if (foes.some(s => s.alive && s.hp > 0 && s.isEscorted)) n++;
+        return Math.max(0, n - 1);                 // 副目标舰队数 = 攻击我的舰队数 − 1
+    }
+    /* 旗舰机制是否生效：必须是指定旗舰，且该舰【指挥系统未被摧毁】 */
+    function flagsMechOk(s, fm) {
+        if (!s) return false;
+        if (fm && fm.flagshipOnly && !s.isFlagship) return false;
+        const cs = (s.subSystems || []).find(x => x.type === 'command' || /指挥/.test(x.name || ''));
+        if (cs && cs.destroyed) return false;      // 指挥系统被毁 → 机制消失
+        return true;
+    }
+    /* 取某列的每级值 */
+    function fmCol(fm, lv, col) {
+        const row = (fm.lvRaw || [])[lv];
+        if (!row) return null;
+        const v = parseFloat(row[col == null ? 0 : col]);
+        return isNaN(v) ? null : v;
+    }
+    /* ★ 2026-10-02 第62轮：按【1 级起步】取舰队机制的值。
+       坑：levelValue 有的表含 0 级行（行数 = maxLevel+1），有的不含（行数 = maxLevel）。
+       含 0 级行的按 lv 直取，不含的必须 lv-1；用 fm.maxLevel 分辨。 */
+    function fmValLv(fm, lv, col) {
+        if (!fm || !fm.lvRaw) return null;
+        const rows = fm.lvRaw.length;
+        const ml = fm.maxLevel || rows;
+        const idx = (rows > ml) ? lv : (lv - 1);
+        return fmCol(fm, idx, col);
+    }
+    /* 该舰的舰队机制（只保留生效的） */
+    function fleetMechsOf(s) {
+        const out = [];
+        const ap = (typeof apOf === 'function') ? apOf(s.id, s.apBuild, s.apSet) : null;
+        if (!ap || !BP_STATS) return out;
+        Object.keys(ap.lv).forEach(nid => {
+            const L = ap.lv[nid]; if (!L || L <= 0) return;
+            const st = BP_STATS.nodes[nid]; if (!st || !st.fleetMech) return;
+            const fm = st.fleetMech;
+            if (!flagsMechOk(s, fm)) return;
+            out.push({ fm: fm, lv: L });
+        });
+        return out;
+    }
+    /* ★ 舰队级机制 · 每 tick 求值（counterSub 多目标反击；其余在命中/伤害/维修处按需读） */
+    function processFleetMechs(ship, enemies, dt, bs) {
+        if (!ship.alive || !ship.fleetMechs || !ship.fleetMechs.length) return;
+        const n = subTargetCount(bs, ship.side);
+        if (n <= 0) return;                        // 只有一支敌方舰队在打我 → 无副目标，不生效
+        ship.fleetMechs.forEach(x => {
+            if (x.fm.kind !== 'counterSub') return;
+            const eff = fmCol(x.fm, x.lv, 1);      // 反击效率 20/30/40（第二列）
+            if (typeof eff !== 'number' || eff <= 0) return;
+            x._t = (x._t || 0) + dt;
+            const period = 10;                     // 近似：每 10 秒发动一次（引擎没有"舰队回合"概念）
+            if (x._t < period) return;
+            x._t -= period;
+            const subs = enemies.filter(e => e.alive && e.hp > 0 && e.isEscorted);
+            if (!subs.length) return;
+            let oneRound = 0;
+            (ship.weaponStates || []).forEach(ws => {
+                const w = ws.weapon || {};
+                oneRound += (w.singleDmg || 0) * shotsOf(w);
+            });
+            if (oneRound <= 0) return;
+            const tgt = subs[Math.floor(RNG() * subs.length)];
+            const d = Math.max(1, Math.round(oneRound * eff / 100));
+            tgt.hp -= d;
+            if (tgt.hp <= 0) { tgt.hp = 0; tgt.alive = false;
+                /* ★ 供 onKill / onEnemyLoss 用 */
+                if (bs) { ship._lastKillAt = bs.time;
+                    bs._lastLossAt = bs._lastLossAt || {};
+                    bs._lastLossAt[tgt.side] = bs.time; } }
+            addBattleLog('info', `⚔ ${ship.name || ship.id}「多目标反击」→ ${tgt.name || tgt.id} (-${d})`);
+        });
+    }
+    /* 该舰的「庇护作战」减伤（对副目标舰队来源的伤害）——给 UI/战报用 */
+    function subProtectOf(ship, bs) {
+        if (!ship.fleetMechs) return 0;
+        if (subTargetCount(bs, ship.side) <= 0) return 0;
+        let v = 0;
+        ship.fleetMechs.forEach(x => { if (x.fm.kind === 'protectFromSub') { const q = fmCol(x.fm, x.lv, x.fm.multi > 1 ? 1 : 0); if (typeof q === 'number') v = Math.max(v, q); } });
+        return v;
+    }
+    /* 这艘船的加点树里有没有「指挥系统」？（用来给模块数据缺指挥系统的船补一个） */
+    function bpHasCommandSystem(slug) {
+        const ap = (typeof apOf === 'function') ? apOf(slug) : null;
+        const tree = ap && BP_TREE ? BP_TREE[ap.cdnId] : null;
+        if (!tree) return false;
+        return tree.some(sys => /指挥/.test(sys.sysName || ''));
+    }
+    /* 该舰的「天权防线」维修加成 */
+    function subRepairBoost(ship, bs) {
+        if (!ship.fleetMechs) return 0;
+        const n = subTargetCount(bs, ship.side);
+        if (n <= 0) return 0;
+        let v = 0;
+        ship.fleetMechs.forEach(x => {
+            if (x.fm.kind !== 'repairBoost') return;
+            for (let c = 1; c < (x.fm.multi || 1); c++) { const q = fmCol(x.fm, x.lv, c); if (typeof q === 'number') v = Math.max(v, q); }
+        });
+        return v;
+    }
+    /* ========== ★ 2026-10-02 第62轮：三类防空机制（KB《驱逐舰资料4和舰船旗舰资料》+ 加点树原值）
+       · 防空网络I（静海区/枪骑兵/狩猎者级-防空）：【己方舰载机力量居于劣势】时，
+           舰队内具备防空能力的武器优先攻击载机，且命中率 +1/5/10/15%
+       · 火力校准（枪骑兵，旗舰生效）：本公司舰船/舰载机的防空武器有 5/10% 概率
+           对命中目标造成额外 80/160% 伤害（= 防空武器的一次"暴击"）
+       · 防空网络II/G（光锥级-综合导弹巡洋舰/白垩级-战术无人机巡洋舰）：
+           中排舰船的投射/直射对空武器 防空范围扩大为【临近排】
+       —— 三个节点在加点集里默认不出现，只有玩家真的点了才生效（不影响既有验收）。 */
+    function airPowerOf(bs, side) {
+        const arr = (side === 'ally' ? (bs.allyShips || []) : (bs.enemyShips || []));
+        let p = 0;
+        arr.forEach(u => {
+            if (!u || !u.alive || u.position !== 'aircraft') return;
+            if (u.weaponStates && u.weaponStates.length) {
+                u.weaponStates.forEach(x => { const d = (((x || {}).weapon || {}).dpm) || {}; p += (d.antiShip || 0) + (d.antiAir || 0); });
+            } else {
+                const t = (typeof SHIP_DATABASE !== 'undefined') && SHIP_DATABASE[u.id];
+                if (t && t.weapons) Object.values(t.weapons).forEach(w => { const d = (w && w.dpm) || {}; p += (d.antiShip || 0) + (d.antiAir || 0); });
+            }
+        });
+        return p;
+    }
+    /* 舰载机力量劣势？（每 5 秒算一次并缓存——executeShot 每 tick 会被调很多次） */
+    function airPowerDisadvantage(bs, side) {
+        if (!bs) return false;
+        bs._airAdv = bs._airAdv || {}; 
+        const bucket = Math.floor(((bs.time || 0)) / 5);
+        if (bs._airAdvT !== bucket) { bs._airAdvT = bucket; bs._airAdv = {}; }
+        const k = side === 'ally' ? 'A' : 'B';
+        if (typeof bs._airAdv[k] === 'boolean') return bs._airAdv[k];
+        const mine = airPowerOf(bs, side);
+        const foe = airPowerOf(bs, side === 'ally' ? 'enemy' : 'ally');
+        /* 劣势 = 对方还有载机、而我方载机力量更弱（一架都没有也算劣势） */
+        const r = (foe > 0 && mine < foe);
+        bs._airAdv[k] = r;
+        return r;
+    }
+    /* 同型号舰数（防空网络I 要求≥ 3 艘同型号才激活） */
+    function sameModelCount(ship, bs) {
+        if (!ship || !bs) return 0;
+        const own = (ship.side === 'ally') ? (bs.allyShips || []) : (bs.enemyShips || []);
+        let n = 0;
+        own.forEach(u => { if (u && u.alive && u.position !== 'aircraft' && u.id === ship.id) n++; });
+        return n;
+    }
+    /* 防空网络I：本舰防空武器命中加成（劣势时才生效） */
+    function aaNetOf(ship, bs) {
+        if (!ship || !ship.fleetMechs) return 0;
+        let has = false;
+        ship.fleetMechs.forEach(x => { if (x.fm.kind === 'aaNet') has = true; });
+        if (!has) return 0;
+        /* KB（竞技资料）：「己方舰队至少编入 3 艘同型号」才激活 */
+        if (sameModelCount(ship, bs) < 3) return 0;
+        if (!airPowerDisadvantage(bs, ship.side)) return 0;
+        let v = 0;
+        ship.fleetMechs.forEach(x => { if (x.fm.kind === 'aaNet') { const q = fmValLv(x.fm, x.lv, 0); if (typeof q === 'number') v = Math.max(v, q); } });
+        return v;
+    }
+    /* 火力校准：本舰（旗舰）给【同舰队】防空武器的一次额外伤害判定 */
+    function aaCalibRoll(ship, bs) {
+        if (!ship || !bs) return 0;
+        /* 火力校准是「旗舰生效」：从本队里找带 aaCalib 的那艘旗舰 */
+        const own = (ship.side === 'ally') ? (bs.allyShips || []) : (bs.enemyShips || []);
+        const fl = own.find(u => u && u.fleetMechs && u.fleetMechs.some(x => x.fm.kind === 'aaCalib'));
+        if (!fl) return 0;
+        /* 「本公司舰船或载机」限定（库里 company 缺失时不限制） */
+        const fc = fl.company, sc = ship.company;
+        if (fc && sc && fc !== sc) return 0;
+        let p = 0, d = 0;
+        fl.fleetMechs.forEach(x => {
+            if (x.fm.kind !== 'aaCalib') return;
+            const q1 = fmValLv(x.fm, x.lv, 0), q2 = fmValLv(x.fm, x.lv, 1);
+            if (typeof q1 === 'number') p = Math.max(p, q1);
+            if (typeof q2 === 'number') d = Math.max(d, q2);
+        });
+        if (p <= 0 || d <= 0) return 0;
+        return (RNG() < p / 100) ? d : 0;
+    }
+    /* 打开强化弹窗时显示一行小字：这艘船有没有加点配置 */
+    function addpointSummary(slug) {
+        const ap = apOf(slug);
+        if(!ap) return '';
+        const b = buildAddPointBonus(slug);
+        if(!b) return '';
+        return '加点配置已存在（' + b._used + ' 个节点，' + b._systems + ' 个系统按模块生效）'
+            + (b._skipped ? '，' + b._skipped + ' 个多参数节点未计入' : '');
+    }
+    /* ========== 加点：开战自动生效（不需要手工导入） ==========
+       舰船在加点页配的蓝点强化，只要这艘船进了战斗就自动按配置算。
+       分两步：船级字段要在算 maxHp 之前应用；逐武器强化要等 weaponStates 建好之后再应用。 */
+    function applyAddPointShip(s) {
+        if(!BP_STATS || !BP_SYSMAP) return;                 // 加点数据没加载就跳过（不影响战斗）
+        /* 兼容：早先用过「⬆ 从加点导入」的条目，字段已写死在条目上（带 _apApplied 标记），
+           这里就不再自动叠加，避免同一份加点被算两遍。 */
+        if(s._apApplied) { s._apB = null; return; }
+        const b = buildAddPointBonus(s.id, s.apBuild, s.apSet);
+        s._apB = b || null;
+        /* ★「超量维修」（节点 808010503，天枢A槽）：战斗开始 60 秒后每轮携带 2 个一次性维修装甲
+           → 维修量×2、装甲消耗也×2。它 stat 归到 repairArmor，但"60秒"只写在说明里，
+           所以这里按节点 id 特判一次（全库只此一个节点是这个机制）。 */
+        (() => {
+            const ap = apOf(s.id, s.apBuild, s.apSet);
+            if (ap && ap.lv && ap.lv['808010503'] > 0) s.repairDoubleAt = 60;
+        })();
+        if(!b) return;
+        /* ★★★ 模块桶里的「舰船级」统计量，必须按【这个模块变体是否在用】并进舰船桶。
+           像安东塔斯「强化装甲系统·舰船血量提升35%」这种节点住在某个模块的系统里
+           （sk = M_M1 / C_C1），但 hp 是【整船属性】，而引擎只从舰船桶读 sh.hp
+           → 这批加成原来【静默丢失】（全量 503 个节点 / 132 艘船）。
+           更糟的是：加点树【没加载】时反而"生效"（不知道节点属于哪个系统 → 全落到舰船级）
+           → 同一个方案时好时坏（2026-09-26 实测安东塔斯结构加成 35% / 0% 来回变）。
+           ★ 但不能一律当舰船级 —— 那样"没装的模块加了点"也会生效。用户明确要求
+             「只给 M2 加点、战斗装 M1 时必须完全没影响」，见 test/module_scope_probe.js。 */
+        const _modOn = (sk) => moduleBucketOn(sk, s.modules, s.selectedModules);
+        const sh = foldShipLevelFromModules(b, s.modules, s.selectedModules);
+        s.hpBonus = (s.hpBonus||0) + sh.hp;
+        s.physResistBonus = (s.physResistBonus||0) + sh.physResist;
+        s.energyResistBonus = (s.energyResistBonus||0) + sh.energyResist;
+        s.dmgBonus = (s.dmgBonus||0) + sh.dmgBonus;
+        s.evasion = (s.evasion||0) + sh.evasion;
+        s.hitBonus = (s.hitBonus||0) + sh.hitBonus;
+        s.siegeBonus = (s.siegeBonus||0) + sh.siege;
+        /* ★ 攻击持续时间提升（原「归了类但引擎没读」的 30 个节点，现在接上了） */
+        s.weaponDuration = (s.weaponDuration||0) + (sh.weaponDuration||0);
+        /* ★ 被命中率下降：不是"我方命中提升"，是让敌人打我更难（原来 77 个被算反了） */
+        s.enemyHitDown = (s.enemyHitDown||0) + sh.enemyHitDown;
+        s.aaLockDown = (s.aaLockDown||0) + sh.aaLockDown;      // 受敌方防空锁定效率影响下降
+        s.lockEfficiency = (s.lockEfficiency||0) + sh.lockEfficiency;   // 加点给的舰船级锁定效率
+        s.atkReduction = (s.atkReduction||0) + sh.atkReduction;
+        s.antiIntercept = (s.antiIntercept||0) + sh.antiIntercept;
+        s.multiTarget = (s.multiTarget||0) + sh.multiTarget;
+        /* ★ 2026-10-02 第23轮「集火攻击」：武器集中打击 N 个目标
+           （与 multiTarget 相反：分伤数从 match.length/2.5 收紧到 N） */
+        s.focusTargets = (s.focusTargets||0) + (sh.focusTargets||0);
+        /* 维修：效率(%) 与 一次性维修装甲(点数) 是两回事，不能混 */
+        s.repairBonus = (s.repairBonus||0) + (sh.repairEff || 0) + (sh.repairBonus || 0);
+        s.repairArmor = (s.repairArmor||0) + (sh.repairArmor||0);   // 一次性维修装甲（点数）
+        /* 本舰船机库（作用全舰载机）：细分效果各走各的，不再全塞进 dmgBonus */
+        s.hangarDmg     = (s.hangarDmg||0)     + (sh.hangarDmg || 0)     + (sh.hangarBonus || 0);
+        s.hangarHit     = (s.hangarHit||0)     + (sh.hangarHit || 0)     + (sh.hangarBonus || 0);
+        s.hangarEvasion = (s.hangarEvasion||0) + (sh.hangarEvasion || 0);
+        s.hangarLockRed = (s.hangarLockRed||0) + (sh.hangarLock || 0);   // 载机锁定目标时间缩短
+        s.hangarCdRed   = (s.hangarCdRed||0)   + (sh.hangarCd || 0);     // 载机武器冷却缩短
+        s.hangarFlight  = (s.hangarFlight||0)  + (sh.hangarFlight || 0);
+        s.hangarAaResist= (s.hangarAaResist||0)+ (sh.hangarAaResist || 0);
+        s.hangarCritRate = (s.hangarCritRate||0) + (sh.hangarCritRate||0);
+        s.hangarCritDmg  = (s.hangarCritDmg||0)  + (sh.hangarCritDmg||0);
+        // 拦截率（加点里"系统内导弹获得拦截率"也算进来）
+        let sysInt = 0;
+        /* ★ 同样按"模块是否在用"过滤：没装的模块的拦截率不该算进来 */
+        Object.keys(b.byModule).forEach(k => { if(_modOn(k)) sysInt += (b.byModule[k].sysIntercept || 0); });
+        const intRate = (s.interceptRate||0) + (sh.interceptRate||0) + sysInt;
+        if(intRate > 0) { s.interceptRate = intRate; s.interceptType = s.interceptType || 'sameRow'; }
+        // 受系统伤害降低（模块桶也按"是否在用"过滤）
+        Object.keys(b.byModule).forEach(k => {
+            if(!_modOn(k)) return;
+            const g = b.byModule[k];
+            if(g.sysDmgReduce) s.sysDmgReduce = Math.max(s.sysDmgReduce||0, g.sysDmgReduce);
+        });
+        /* ★ 舰船级那份「受到系统伤害降低」原来没人读（上面只遍历模块桶）→ 5 类里 15 个节点白点 */
+        if(sh.sysDmgReduce) s.sysDmgReduce = Math.max(s.sysDmgReduce||0, sh.sysDmgReduce);
+        /* ★ 本系统机库（作用该模块机位上的载机）：按效果分桶存，部署载机时逐架取 */
+        if(Object.keys(b.byModule).length) {
+            s.hangarByModule = s.hangarByModule || {};
+            Object.keys(b.byModule).forEach(k => {
+                const g = b.byModule[k];
+                const o = s.hangarByModule[k] = s.hangarByModule[k] || {};
+                // 兼容旧字段名 hangarModule（旧 stats 文件里一个桶装全部）
+                o.dmg     = (o.dmg||0)     + (g.hangarModuleDmg || g.hangarModule || 0);
+                o.hit     = (o.hit||0)     + (g.hangarModuleHit || 0);
+                o.evasion = (o.evasion||0) + (g.hangarModuleEvasion || 0);
+                o.lockRed = (o.lockRed||0) + (g.hangarModuleLock || 0);
+                o.cdRed   = (o.cdRed||0)   + (g.hangarModuleCd || 0);
+                o.flight  = (o.flight||0)  + (g.hangarModuleFlight || 0);
+                o.critRate= (o.critRate||0)+ (g.hangarModuleCritRate || 0);
+                o.critDmg = (o.critDmg||0) + (g.hangarModuleCritDmg || 0);
+                if(!o.dmg && !o.hit && !o.evasion && !o.lockRed && !o.cdRed && !o.flight && !o.critRate && !o.critDmg) delete s.hangarByModule[k];
+            });
+        }
+        /* ★★ 条件触发：这批不加进上面的常驻桶，改存成"待触发效果"，
+           由 processCondEffects 每 tick 按条件求值。全库 119 个节点。 */
+        if(b.conds && b.conds.length){
+            s.condEffects = b.conds.map(c => Object.assign({}, c, { applied:false, done:false, until:0 }));
+            s.condEffects.src = b.conds;
+        }
+        /* ★ 舰队级机制（多舰队场景）：存下来，战斗中按副目标舰队数求值 */
+        const fms = fleetMechsOf(s);
+        if (fms.length) s.fleetMechs = fms;
+        // 机制类：优先打击 / 协同指挥 / 三种打击 / 掩护 / 周期爆发
+        const mech = resolveAddPointMechanics(s.id, s.apBuild, s.apSet);
+        if(mech) {
+            if(mech.targetPriority) s.targetPriority = mech.targetPriority;
+            if(mech.company) s.company = mech.company;
+            if(mech.cmdAssist.length) s.cmdAssist = (s.cmdAssist||[]).concat(mech.cmdAssist.map(x => Object.assign({}, x, {cycles:0, fired:0})));
+            if(mech.strikes.length) s.strikes = (s.strikes||[]).concat(mech.strikes.map(x => Object.assign({}, x, {activeUntil:x.dur, readyAt:0, active:true})));
+            if(mech.cover) {
+                s.cover = s.cover || { dur:0, targets:0, all:false, until:0, done:false };
+                s.cover.dur += mech.cover.dur || 0; s.cover.targets += mech.cover.targets || 0; s.cover.all = s.cover.all || !!mech.cover.all;
+            }
+            if(mech.bursts.length) s.bursts = (s.bursts||[]).concat(mech.bursts.map(x => Object.assign({}, x, {active:false, until:0, readyAt:0})));
+        }
+    }
+    function applyAddPointWeapons(s) {
+        const b = s._apB; if(!b || !s.weaponStates) return;
+        s.weaponStates.forEach(ws => {
+            const g = b.byModule[ws.strengthenKey];
+            if(!g) return;
+            ws.strengthen = ws.strengthen || {};
+            const st = ws.strengthen;
+            st.dmgBonus = (st.dmgBonus||0) + g.singleDmg;
+            st.critRate = (st.critRate||0) + g.crit;
+            st.critDmg  = (st.critDmg||0)  + (g.critDmg||0);
+            st.lockReduction = (st.lockReduction||0) + g.lockReduction;
+            st.cooldownReduction = (st.cooldownReduction||0) + g.cooldownReduction;
+            st.atkReduction = (st.atkReduction||0) + (g.atkReduction||0);
+            st.antiIntercept = (st.antiIntercept||0) + (g.antiIntercept||0);
+            st.hitBonus = (st.hitBonus||0) + (g.hitBonus||0);
+            st.repairBonus = (st.repairBonus||0) + (g.repairBonus||0);
+            st.lockEfficiency = (st.lockEfficiency||0) + (g.lockEfficiency||0);
+            st.sysIntercept = (st.sysIntercept||0) + (g.sysIntercept||0);
+            if(g.denseFire) ws.denseFire = (ws.denseFire||0) + g.denseFire;
+            if(g.multiTarget) st.multiTarget = (st.multiTarget||0) + g.multiTarget;
+        });
+    }
+
+    /* 把"机制类加点"从配置里解析出来（协同指挥/三种打击/掩护/周期爆发/优先打击/公司） */
+    /* ★ 必须带 buildName/setName —— 否则【策略/机制类】加点永远读默认那套，
+       在模拟器里选方案完全没用（用户 2026-09-25 实测：方案1/方案2 都是 300 秒，
+       直接改加点变 160 秒，证明选的方案没被采用）。 */
+    function resolveAddPointMechanics(slug, buildName, setName) {
+        const ap = apOf(slug, buildName, setName);
+        if(!ap || !BP_STATS) return null;
+        const sysMap = (BP_SYSMAP && BP_SYSMAP[ap.cdnId]) ? BP_SYSMAP[ap.cdnId].systems : {};
+        const nodeSys = {};
+        (BP_TREE[ap.cdnId] || []).forEach(sys => (sys.nodes || []).forEach(n => { nodeSys[n.id] = sys.sysId; }));
+        const out = { cmdAssist: [], strikes: [], cover: null, bursts: [], targetPriority: null, company: 0 };
+        Object.keys(ap.lv).forEach(nid => {
+            const L = ap.lv[nid]; if(!L || L <= 0) return;
+            const st = BP_STATS.nodes[nid]; if(!st || !st.mechanic) return;
+            const m = sysMap[nodeSys[nid]];
+            const skey = (m && m.scope === 'module') ? (m.variant ? (m.key + '_' + m.variant) : m.key) : null;
+            const K = st.mechanic;
+            if(K.kind === 'cmdAssist') {
+                const t = K.matchText || '';
+                out.cmdAssist.push({ skey: skey, count: K.count, every: K.every,
+                    match: /载机|无人机/.test(t) ? 'aircraft' : (/同排/.test(t) ? 'sameRowCruiser' : 'company') });
+            } else if(K.kind === 'strike') {
+                out.strikes.push({ skey: skey, mode: K.mode, dur: K.dur, cd: K.cd });
+            } else if(K.kind === 'targetPriority') {
+                out.targetPriority = K.pick;
+            } else if(K.kind === 'coverBase') {
+                out.cover = out.cover || { dur: 0, targets: 0, all: false };
+                out.cover.dur += (K.dur || 0); out.cover.all = out.cover.all || !!K.all;
+            } else if(K.kind === 'coverDurAdd') {
+                out.cover = out.cover || { dur: 0, targets: 0, all: false };
+                out.cover.dur += (K.add || 0);
+            } else if(K.kind === 'coverTargetsAdd') {
+                out.cover = out.cover || { dur: 0, targets: 0, all: false };
+                out.cover.targets += (K.add || 0);
+            } else if(K.kind === 'burst') {
+                out.bursts.push({ skey: skey, every: K.every || 10, cut: K.cut || 0, dur: K.dur || 0, cd: K.cd || 0 });
+            }
+        });
+        if(BP_COMPANY && BP_COMPANY[ap.cdnId]) out.company = BP_COMPANY[ap.cdnId].company;
+        return out;
+    }
+
+    /* ⬆ 从加点导入：把汇总结果写进舰队条目
+       ★ 按系统作用域：系统对到哪个模块，就只写进那个模块变体的逐武器强化；
+         舰船级系统（装甲/动力/指挥）与手填值写进条目级字段。 */
+    function importAddPoint(shipId) {
+        (async () => {
+            if(!await loadBlueprintData()) { alert('读不到加点数据文件（blueprint_map/stats/sysmap）'); return; }
+            const fleet = fleetData[currentFleetType];
+            const list = currentFleetTab === 'main' ? fleet.main : fleet.reinforcement;
+            const e = findRow(list, shipId);
+            if(!e) { alert('找不到这个条目'); return; }
+            const ap0 = apOf(e.id, e.apBuild, e.apSet);
+            if(!ap0) { alert('「' + (e.name||e.id) + '」还没有加点配置。\n去配队页勾「加点」→ 点舰船右上角 ⬆ 配好后再来。'); return; }
+            await loadBpTree(ap0.cdnId);
+            const b = buildAddPointBonus(e.id, e.apBuild, e.apSet);
+            if(!b) { alert('加点汇总失败'); return; }
+
+            // 清掉上一次由加点写入的逐武器加成（避免重复导入累加）
+            if(e._apApplied) {
+                Object.keys(e.strengthen||{}).forEach(sk => {
+                    (e.strengthen[sk]||[]).forEach(st => {
+                        if(st){ st.dmgBonus=0; st.critRate=0; st.lockReduction=0; st.cooldownReduction=0; st.atkReduction=0; st.antiIntercept=0; }
+                    });
+                });
+            }
+            // 舰船级（★ 同样要把"在用模块"桶里的舰船级统计量并进来，否则和开战自动生效口径不一致）
+            const sh = foldShipLevelFromModules(b, e.modules, e.selectedModules);
+            e.hpBonus = Math.round(sh.hp*10)/10;
+            e.physResistBonus = Math.round(sh.physResist*10)/10;
+            e.energyResistBonus = Math.round(sh.energyResist*10)/10;
+            e.dmgBonus = Math.round(sh.dmgBonus*10)/10;
+            e.evasion = Math.round(sh.evasion*10)/10;
+            e.interceptRate = Math.round(sh.interceptRate*10)/10;
+            e.interceptType = e.interceptType || 'sameRow';
+            e.hitBonus = Math.round(sh.hitBonus*10)/10;
+            e.repairBonus = Math.round(sh.repairBonus*10)/10;
+            e.hangarBonus = Math.round(sh.hangarBonus*10)/10;
+            e.hangarCritRate = Math.round((sh.hangarCritRate||0)*10)/10;
+            e.hangarCritDmg  = Math.round((sh.hangarCritDmg||0)*10)/10;
+            e.siegeBonus = Math.round(sh.siege*10)/10;
+
+            // 逐模块（系统内）
+            if(!e.strengthen) e.strengthen = {};
+            const shipTex = SHIP_DATABASE[e.id] || {};
+            const applyOne = (key, variant, wi, count, mod) => {
+                const skey = variant ? key + '_' + variant : key;
+                const arr = e.strengthen[skey] || (e.strengthen[skey] = []);
+                for(let i = 0; i < count; i++) {
+                    arr[i] = arr[i] || {dmgBonus:0,lockReduction:0,cooldownReduction:0,critRate:0,critDmg:0,flightTimeReduction:0,atkReduction:0,antiIntercept:0};
+                    arr[i].dmgBonus = 0; arr[i].critRate = 0; arr[i].lockReduction = 0;
+                    arr[i].cooldownReduction = 0; arr[i].atkReduction = 0; arr[i].antiIntercept = 0;
+                }
+            };
+            // 先给所有模块清零
+            Object.keys(shipTex.modules||{}).forEach(key => {
+                if(key[0] === '_') return;
+                const mod = shipTex.modules[key];
+                if(mod.type === 'moduleGroup' && mod.variants) {
+                    Object.keys(mod.variants).forEach(vk => applyOne(key, vk, 0, (mod.variants[vk].weapons||[]).length, mod.variants[vk]));
+                } else if(mod.weapons) applyOne(key, '', 0, mod.weapons.length, mod);
+            });
+            // 再把【该系统】的加成写进它对应的模块
+            Object.keys(b.byModule).forEach(skey => {
+                const g = b.byModule[skey];
+                const arr = e.strengthen[skey]; if(!arr) return;
+                for(let i = 0; i < arr.length; i++) {
+                    arr[i].dmgBonus = Math.round(g.singleDmg*10)/10;
+                    arr[i].critRate = Math.round(g.crit*10)/10;
+                    arr[i].lockReduction = Math.round(g.lockReduction*10)/10;
+                    arr[i].cooldownReduction = Math.round(g.cooldownReduction*10)/10;
+                    arr[i].atkReduction = Math.round((g.atkReduction||0)*10)/10;      // 打击间隔缩短
+                    arr[i].antiIntercept = Math.round((g.antiIntercept||0)*10)/10;    // 被拦截率下降
+                    arr[i].hitBonus = Math.round((g.hitBonus||0)*10)/10;              // 系统内命中
+                    arr[i].repairBonus = Math.round((g.repairBonus||0)*10)/10;
+                    arr[i].lockEfficiency = Math.round((g.lockEfficiency||0)*10)/10;  // 锁定效率（缩锁定时间，2026-09-24 起不再算命中）
+                    arr[i].denseFire = Math.round((g.denseFire||0)*10)/10;            // 密集射击：攻击次数翻倍
+                    arr[i].sysIntercept = Math.round((g.sysIntercept||0)*10)/10;      // 系统内导弹获得拦截率
+                }
+            });
+            /* 模块级机库（「本系统机库内载机…」）：只作用于该模块载机位上的载机 */
+            e.hangarByModule = {};
+            Object.keys(b.byModule).forEach(skey => {
+                const g = b.byModule[skey];
+                if(g.hangarModule) e.hangarByModule[skey] = Math.round(g.hangarModule*10)/10;
+            });
+            /* 「系统内导弹获得拦截率」→ 计入本舰拦截（船级，因为引擎的拦截是按舰算的） */
+            let sysInt = 0;
+            Object.keys(b.byModule).forEach(skey => { if(moduleBucketOn(skey, e.modules, e.selectedModules)) sysInt += (b.byModule[skey].sysIntercept || 0); });
+            if(sysInt) e.interceptRate = Math.round(((e.interceptRate||0) + sysInt)*10)/10;
+            e._apApplied = true;
+
+            /* ===== 机制类加点：协同指挥 / 三种打击 =====
+               这两类没有"数值属性"可加，是战场行为，单独存成条目上的机制配置，由引擎执行。 */
+            const sysMap2 = (BP_SYSMAP && BP_SYSMAP[ap0.cdnId]) ? BP_SYSMAP[ap0.cdnId].systems : {};
+            const nodeSys2 = {};
+            (BP_TREE[ap0.cdnId] || []).forEach(sys => (sys.nodes || []).forEach(n => { nodeSys2[n.id] = sys.sysId; }));
+            e.cmdAssist = []; e.strikes = [];
+            e.targetPriority = null; e.sysDmgReduce = 0; e.positionFix = null;
+            Object.keys(ap0.lv).forEach(nid => {
+                const L = ap0.lv[nid]; if(!L || L <= 0) return;
+                const st = BP_STATS.nodes[nid]; if(!st || !st.mechanic) return;
+                const m = sysMap2[nodeSys2[nid]];
+                const skey = (m && m.scope === 'module') ? (m.variant ? (m.key + '_' + m.variant) : m.key) : null;
+                if(st.mechanic.kind === 'cmdAssist') {
+                    const t = st.mechanic.matchText || '';
+                    e.cmdAssist.push({ skey: skey, count: st.mechanic.count, every: st.mechanic.every,
+                        match: /舰载机/.test(t) ? 'aircraft' : (/同排/.test(t) ? 'sameRowCruiser' : 'company') });
+                } else if(st.mechanic.kind === 'strike') {
+                    e.strikes.push({ skey: skey, mode: st.mechanic.mode, dur: st.mechanic.dur, cd: st.mechanic.cd });
+                } else if(st.mechanic.kind === 'targetPriority') {
+                    e.targetPriority = st.mechanic.pick;          // 主武器优先打哪类目标
+                } else if(st.mechanic.kind === 'coverBase') {
+                    // 提供掩护：本舰掩护所有前排 N 秒
+                    e.cover = e.cover || { dur: 0, targets: 0, all: false };
+                    e.cover.dur = Math.max(e.cover.dur, st.mechanic.dur || 0);
+                    e.cover.all = e.cover.all || !!st.mechanic.all;
+                } else if(st.mechanic.kind === 'coverDurAdd') {
+                    e.cover = e.cover || { dur: 0, targets: 0, all: false };
+                    e.cover.dur += (st.mechanic.add || 0);
+                } else if(st.mechanic.kind === 'coverTargetsAdd') {
+                    e.cover = e.cover || { dur: 0, targets: 0, all: false };
+                    e.cover.targets += (st.mechanic.add || 0);
+                } else if(st.mechanic.kind === 'burst') {
+                    e.bursts = e.bursts || [];
+                    e.bursts.push({ skey: skey, every: st.mechanic.every || 10, cut: st.mechanic.cut || 0,
+                                    dur: st.mechanic.dur || 0, cd: st.mechanic.cd || 0 });
+                }
+            });
+            // 模块级的三项：受系统伤害降低 / 站位调整 / 分散打击
+            Object.keys(b.byModule).forEach(sk => {
+                const g = b.byModule[sk];
+                if(g.sysDmgReduce) e.sysDmgReduce = Math.max(e.sysDmgReduce || 0, g.sysDmgReduce);
+            });
+            // 公司（协同指挥C 要按公司匹配）
+            if(BP_COMPANY && BP_COMPANY[ap0.cdnId]) e.company = BP_COMPANY[ap0.cdnId].company;
+
+            openStrengthen(shipId);
+            const modLines = Object.keys(b.byModule).map(skey => {
+                const g = b.byModule[skey];
+                return '    ' + skey + '：单发+' + g.singleDmg + '% 暴击+' + g.crit + '% 锁定-' + g.lockReduction + '% 冷却-' + g.cooldownReduction + '% 命中+' + g.hitBonus + '%';
+            }).join('\n');
+            alert('已从加点导入「' + (e.name||e.id) + '」（' + b._systems + ' 个系统 → 各自模块）\n\n'
+                + '【舰船级】结构值+' + e.hpBonus + '%  物理抵抗+' + e.physResistBonus + '  能量抗性+' + e.energyResistBonus + '%\n'
+                + '  伤害加成+' + e.dmgBonus + '%  闪避+' + e.evasion + '%  拦截率+' + e.interceptRate + '%\n'
+                + '  手填：命中+' + e.hitBonus + '% 维修+' + e.repairBonus + '% 机库+' + e.hangarBonus + '% 攻城+' + e.siegeBonus + '%\n'
+                + (modLines ? '【系统内（只作用于该模块的武器）】\n' + modLines + '\n' : '')
+                + (b._skipped ? '\n（' + b._skipped + ' 个多参数节点未计入）' : '')
+                + (b._other ? '\n（' + b._other + ' 个节点属于引擎暂未实现的机制，未计入）' : ''));
+        })();
+    }
+
+    function showShipDetail(shipId) {
+        const ship = SHIP_DATABASE[shipId];
+        if(!ship) return;
+        openModal('shipDetailModal');
+        $('shipDetailTitle').textContent = ship.name + ' ' + (ship.variant||'');
+        let html = `
+            <div class="detail-grid">
+                <div class="detail-item"><div class="detail-label">类型</div><div class="detail-val">${getTypeName(ship.type)} (${ship.size==='large'?'大型':ship.size==='medium'?'中型':ship.size==='small'?'小型':'舰载机'})</div></div>
+                <div class="detail-item"><div class="detail-label">站位</div><div class="detail-val">${ship.position||'中排'}</div></div>
+                <div class="detail-item"><div class="detail-label">结构值</div><div class="detail-val">${formatNumber(ship.hp)}</div></div>
+                <div class="detail-item"><div class="detail-label">指挥值</div><div class="detail-val">${ship.commandValue||'?'}</div></div>
+                <div class="detail-item"><div class="detail-label">物理护甲</div><div class="detail-val">${ship.physicalArmor}%</div></div>
+                <div class="detail-item"><div class="detail-label">能量护甲</div><div class="detail-val">${ship.energyArmor}%</div></div>
+                <div class="detail-item"><div class="detail-label">服役上限</div><div class="detail-val">${ship.serviceLimit||10}艘</div></div>
+                <div class="detail-item"><div class="detail-label">巡航速度</div><div class="detail-val">${ship.speed?.cruise||'-'}</div></div>
+            </div>
+        `;
+
+        if(ship.ratings) {
+            html += `<div style="margin-top:10px;"><b>定位评级:</b> `;
+            for(const [k,v] of Object.entries(ship.ratings)) {
+                html += `<span class="rating-badge rating-${v}">${k==='antiShip'?'对舰':k==='antiAir'?'防空':k==='siege'?'攻城':k==='survival'?'生存':k==='strategy'?'战略':k}:${v}</span> `;
+            }
+            html += `</div>`;
+        }
+
+        if(ship.modules) {
+            html += `<div style="margin-top:12px;"><b>模块系统:</b></div>`;
+            for(const [key,mod] of Object.entries(ship.modules)) {
+                if(key.startsWith('_')) continue;
+                // Handle moduleGroup
+                if(mod.type === 'moduleGroup' && mod.variants) {
+                    html += `<div class="module-option" style="background:rgba(255,215,0,0.08);border:1px solid rgba(255,215,0,0.3);">
+                        <div class="module-option-name">📦 ${mod.name} (可切换)</div>`;
+                    const variantKeys = Object.keys(mod.variants);
+                    for(const vk of variantKeys) {
+                        const v = mod.variants[vk];
+                        const sel = vk === (ship.selectedModules?.[key] || variantKeys[0]) ? 'style="color:#ffd700;font-weight:bold;"' : '';
+                        html += `<div ${sel} style="font-size:10px;margin:3px 0;padding:3px 6px;background:rgba(255,255,255,0.03);border-radius:4px;">
+                            <b>${vk}: ${v.name}</b> ${v.effect||''}`;
+                        if(v.type==='hangar'||v.aircraftCapacity) {
+                            html += ` | 🛫战机×${v.aircraftCapacity?.fighter||0} 护航艇×${v.aircraftCapacity?.corvette||0}`;
+                        }
+                        if(v.weapons) {
+                            v.weapons.forEach(w=>{
+                                html += `<div style="color:var(--text-muted);margin:1px 0 1px 10px;">
+                                    🔹${w.name}: ${w.dmgType==='energy'?'⚡能量':'🔩实弹'} | 单发:${w.singleDmg} |
+                                    对舰:${w.dpm?.antiShip||0}/分 | 防空:${w.dpm?.antiAir||0}/分 | 攻城:${w.dpm?.siege||0}/分
+                                    ${w.crit?'|💥暴击':''} ${w.dpm?.repair?'|🔧维修:'+w.dpm.repair+'/分':''}
+                                </div>`;
+                            });
+                        }
+                        html += `</div>`;
+                    }
+                    html += `</div>`;
+                } else {
+                    // Regular module
+                    html += `<div class="module-option"><div class="module-option-name">${mod.name||key} ${mod.selfRepair?'🔧':''} ${mod.type==='weapon'?'⚔️':mod.type==='hangar'?'🛫':mod.type==='armor'?'🛡️':mod.type==='engine'?'⚡':'📦'}</div>`;
+                    if(mod.weapons) {
+                        mod.weapons.forEach(w=>{
+                            html += `<div style="font-size:10px;color:var(--text-muted);margin:2px 0;">
+                                ${w.name}: ${w.dmgType==='energy'?'⚡能量':'🔩实弹'} | 单发:${w.singleDmg} |
+                                对舰:${w.dpm?.antiShip||0}/分 | 防空:${w.dpm?.antiAir||0}/分 | ${w.weaponType==='direct'?'直射':'投射'}
+                                ${w.crit?'|💥暴击':''} ${w.cannotBeIntercepted?'|🚫不可拦截':''} ${w.dpm?.repair?'|🔧维修:'+w.dpm.repair+'/分':''}
+                            </div>`;
+                        });
+                    }
+                    if(mod.aircraftCapacity) {
+                        html += `<div style="font-size:10px;color:var(--text-secondary);">搭载: 战机×${mod.aircraftCapacity.fighter||0} 护航艇×${mod.aircraftCapacity.corvette||0}</div>`;
+                    }
+                    html += `</div>`;
+                }
+            }
+        }
+
+        $('shipDetailContent').innerHTML = html;
+    }
+
+    // ============================================================
+    //  FLEET PRESETS (localStorage)
+    // ============================================================
+    function saveFleetPreset() {
+        const name = prompt('方案名称:');
+        if(!name) return;
+        presets[name] = JSON.parse(JSON.stringify(fleetData));
+        savePresets();
+        showToast('💾 方案已保存: '+name);
+    }
+
+    function loadFleetPreset() {
+        const names = Object.keys(presets);
+        if(names.length===0) { showToast('暂无保存的方案'); return; }
+        const name = prompt('输入方案名称:\n已保存: '+names.join(', '));
+        if(!name || !presets[name]) { showToast('方案不存在'); return; }
+        fleetData = JSON.parse(JSON.stringify(presets[name]));
+        renderFleetEditorContent();
+        renderFleetPanels();
+        showToast('📂 方案已加载: '+name);
+    }
+
+    function savePresets() { localStorage.setItem('lagrange_presets',JSON.stringify(presets)); }
+    function loadPresets() { try{const d=localStorage.getItem('lagrange_presets');if(d)presets=JSON.parse(d);}catch(e){} }
+    /* ============================================================
+       舰队合法性校正（唯一实现）：按服役上限截断超限数量
+       - 服役上限按【舰船】在「主力+增援」合计（同型舰多套模块组合一起算）
+       - 数量降了 → 载机位容量跟着降 → 超出的载机按位容量裁掉
+       - 缝合模式（stitchMode）下跳过
+       - fixes 传入数组则收集说明文案（用于导入后弹窗告知用户）
+       ============================================================ */
+    function sanitizeFleetLimits(fleetType, fixes){
+        const f=fleetData[fleetType]; if(!f) return [];
+        fixes=fixes||[];
+        const all=[].concat(f.main||[], f.reinforcement||[]);
+        const used={};
+        all.forEach(e=>{
+            const orig=SHIP_DATABASE[e.id]||{};
+            const lim=stitchMode ? 9999 : (orig.serviceLimit||99);
+            const seen=used[e.id]||0;
+            const room=Math.max(0, lim-seen);
+            if((e.count||0)>room){
+                fixes.push((orig.name||e.name||e.id)+'：'+e.count+' → '+room+'（服役上限 '+lim+'）');
+                e.count=room;
+            }
+            used[e.id]=seen+Math.max(0,e.count||0);
+            recalcAircraftSlots(e);
+            // 载机位容量裁剪
+            (e.aircraft||[]).forEach(a=>{
+                const sl=(e.simSlots||[]).find(x=>x.key===a.slot);
+                if(!sl){ a.count=0; return; }
+                const usedInSlot=(e.aircraft||[]).filter(y=>y.slot===sl.key)
+                    .reduce((n,y)=>n+(y.count||0),0);
+                if(usedInSlot>sl.cap){
+                    const cut=Math.min(a.count||0, usedInSlot-sl.cap);
+                    if(cut>0){ fixes.push('「'+(orig.name||e.id)+'」载机 '+a.name+'：-'+cut+'（载机位容量 '+sl.cap+'）'); a.count-=cut; }
+                }
+            });
+            e.aircraft=(e.aircraft||[]).filter(a=>(a.count||0)>0);
+        });
+        f.main=(f.main||[]).filter(e=>(e.count||0)>0);
+        f.reinforcement=(f.reinforcement||[]).filter(e=>(e.count||0)>0);
+        // 载机服役上限（整队口径）提示
+        const airUsed={};
+        all.forEach(e=>(e.aircraft||[]).forEach(a=>{ airUsed[a.id]=(airUsed[a.id]||0)+(a.count||0); }));
+        Object.keys(airUsed).forEach(id=>{
+            const t=SHIP_DATABASE[id]||{}; const lim=stitchMode?9999:(t.serviceLimit||99);
+            if(airUsed[id]>lim) fixes.push('载机「'+(t.name||id)+'」整队 '+airUsed[id]+' 架 > 上限 '+lim+'（建议削减）');
+        });
+        return fixes;
+    }
+
+    /* 存储：模拟器自己的 key。
+       ⚠️ 老版本这里和「战舰配队」页共用 'lagrange_fleets'，但两者结构不同
+          （配队页存 {plans:[...]}，模拟器存 {ally-escort:{...}}），
+          任何一边保存都会把另一边覆盖掉 → 已拆分并做一次性迁移。 */
+    const SIM_FLEET_KEY = 'lagrange_sim_fleets';
+    const LEGACY_FLEET_KEY = 'lagrange_fleets';
+    function saveFleetsToStorage(){
+        try{ localStorage.setItem(SIM_FLEET_KEY, JSON.stringify(fleetData)); }catch(e){ console.log('保存舰队失败', e); }
+    }
+    function loadFleetsFromStorage() {
+        try {
+            if(!localStorage.getItem(SIM_FLEET_KEY)){
+                const old=localStorage.getItem(LEGACY_FLEET_KEY);
+                if(old){
+                    const o=JSON.parse(old);
+                    const isPlanStore = !!o && Array.isArray(o.plans);
+                    const isFleetStore = !!o && (o['ally-escort']||o['enemy-escort']||o['ally-escorted']||o['enemy-escorted']||o['bomb-fleet']);
+                    if(!isPlanStore && isFleetStore){
+                        localStorage.setItem(SIM_FLEET_KEY, old);      // 迁移模拟器舰队
+                        localStorage.removeItem(LEGACY_FLEET_KEY);     // 腾出共享 key，避免继续互相覆盖
+                        console.log('已把模拟器舰队迁移到 '+SIM_FLEET_KEY);
+                    }
+                }
+            }
+            const d = localStorage.getItem(SIM_FLEET_KEY);
+            if (d) {
+                const saved = JSON.parse(d);
+                // Merge saved data into fleetData, only overwriting non-empty fleets
+                for (const key of Object.keys(fleetData)) {
+                    if (saved[key] && (saved[key].main?.length > 0 || saved[key].reinforcement?.length > 0 || saved[key].flagship)) {
+                        fleetData[key] = saved[key];
+                    }
+                }
+                // 老存档：补算载机位 + 载机补 slot（数据结构升级）
+                Object.keys(fleetData).forEach(k=>{
+                    const f=fleetData[k]; if(!f) return;
+                    [...(f.main||[]),...(f.reinforcement||[])].forEach(s=>{
+                        ensureUid(s);
+                        if(!s.selectedModules) s.selectedModules={};
+                        if(!Array.isArray(s.aircraft)) s.aircraft=[];
+                        if(!s.position) s.position=(SHIP_DATABASE[s.id]||{}).position||'中排';
+                        recalcAircraftSlots(s);
+                    });
+                });
+                // 校正历史超限数据（例如"同一套配队反复复制"累加出来的 40 艘）
+                FLEET_TYPES.forEach(k=>{
+                    const fixes=sanitizeFleetLimits(k, []);
+                    if(fixes.length){
+                        console.warn('已校正 ['+k+'] 的超限数据 '+fixes.length+' 处：');
+                        fixes.forEach(x=>console.warn('   '+x));
+                    }
+                });
+                saveFleetsToStorage();
+            }
+        } catch (e) { console.log('Failed to load fleets:', e); }
+    }
+
+    // ============================================================
+    //  BATTLE ENGINE
+    // ============================================================
+    function prepareBattle() {
+        /* ★★ 2026-10-02 第18轮：战斗随机种子——同一 seed → 同一结果（供进化算法拿可复现适应度）
+           用法：`battleSeed = 12345;` 后调 prepareBattle()；不设则保持真随机。 */
+        if (typeof battleSeed === 'number' && isFinite(battleSeed)) seedRNG(battleSeed); else unseedRNG();
+        /* ★ 开战时在战报里写明【每个舰队实际用哪套加点】——用户 2026-09-26 反复遇到
+           "选了方案没生效"，这一行让"到底用没用"一眼可见，不用再猜。 */
+        try {
+            const _nk = { 'ally-escort': '我方护航', 'ally-escorted': '我方被护航', 'enemy-escort': '敌方护航', 'enemy-escorted': '敌方被护航', 'bomb-fleet': '轰炸编队' };
+            Object.keys(_nk).forEach(ft => {
+                const f = fleetData[ft]; if (!f) return;
+                const n = [].concat(f.main || [], f.reinforcement || []).length;
+                if (!n) return;
+                addBattleLog('info', '⚙ ' + _nk[ft] + ' 加点 = ' + (f.apSet ? ('「' + f.apSet + '」') : '默认(加点页当前那套)') + ' · ' + n + ' 条');
+            });
+        } catch (e) { }
+        // Collect ships from all fleets
+        const allyEscort=[], allyEscorted=[], enemyEscort=[], enemyEscorted=[];
+        const allyShips=[], enemyShips=[];
+        
+        if(false /* ★★★ 2026-10-03 用户要求：轰炸战斗已注释停用（原 if(battleMode==='bomb')） */ && battleMode==='bomb') {
+            // Bomb mode: 4 independent fleet sources + bomb fleet aircraft（★ 已停用，保留备查）
+            const collect = (ft, side, isEscort, dest) => {
+                const fleet = fleetData[ft]; if(!fleet) return;
+                [...fleet.main, ...fleet.reinforcement].forEach(shipEntry => {
+                    /* ★★ 开战这一刻按【舰队级】选的总体加点方案给条目打标（用户 2026-09-26：
+                       四个方案的战斗时长几乎一样 → 说明"舰队下拉选的方案"根本没到条目上）。
+                       舰队级优先；没选舰队级才用条目自己的。 */
+                    const _set = fleet.apSet; if (_set) shipEntry.apSet = _set;
+                    for(let i=0; i<shipEntry.count; i++) dest.push(createShipInstance(shipEntry, side, isEscort, !isEscort));
+                });
+            };
+            collect($('bombAEscort')?.value||'ally-escort', 'ally', true, allyEscort);
+            collect($('bombAEscorted')?.value||'ally-escorted', 'ally', false, allyEscorted);
+            collect($('bombEEscort')?.value||'enemy-escort', 'enemy', true, enemyEscort);
+            collect($('bombEEscorted')?.value||'enemy-escorted', 'enemy', false, enemyEscorted);
+            // Bomb fleet aircraft (no carrier needed)
+            collect('bomb-fleet', 'ally', false, allyShips);
+            collect('bomb-fleet', 'enemy', false, enemyShips);
+        } else {
+            // Escort mode: all 4 fleets
+            const allFleets = {
+                'ally-escort':'ally', 'ally-escorted':'ally',
+                'enemy-escort':'enemy', 'enemy-escorted':'enemy'
+            };
+            for(const [ft,side] of Object.entries(allFleets)) {
+                const fleet = fleetData[ft]; if(!fleet) continue;
+                const isEscort = ft.includes('escort') && !ft.includes('escorted');
+                const isEscorted = ft.includes('escorted');
+                const flagshipId = fleet.flagship;
+                [...fleet.main, ...fleet.reinforcement].forEach(shipEntry => {
+                    /* ★★ 同 collect：开战这一刻按【舰队级】选的总体加点方案给条目打标。
+                       否则"舰队下拉选了方案"不会生效（用户 2026-09-26 实测四个方案时长几乎一样）。 */
+                    const _set = fleet.apSet; if (_set) shipEntry.apSet = _set;
+                    for(let i=0; i<shipEntry.count; i++) {
+                        const inst = createShipInstance(shipEntry, side, isEscort, isEscorted);
+                        inst.instId = 'si'+(++instSeq);      // 单位唯一 id（母舰被毁时用它找到自己的载机）
+                        /* ⚠️ 旗舰标记必须在 createShipInstance 之后补，但【舰队级机制依赖它是旗舰】——
+                           所以设完旗舰要重新收一次机制，否则"旗舰才生效"的机制永远收不到。 */
+                        if(flagshipId && shipEntry.id===flagshipId) {
+                            inst.isFlagship=true;
+                            const _fm = fleetMechsOf(inst);
+                            if(_fm.length) inst.fleetMechs = _fm; else delete inst.fleetMechs;
+                        }
+                        if(side==='ally') {
+                            if(isEscort) allyEscort.push(inst); else allyEscorted.push(inst);
+                            allyShips.push(inst);
+                        } else {
+                            if(isEscort) enemyEscort.push(inst); else enemyEscorted.push(inst);
+                            enemyShips.push(inst);
+                        }
+                    }
+                });
+            }
+        }
+        
+        if(!allyEscort.length) allyEscort.push(...allyShips.filter(s=>s.isEscort));
+        if(!allyEscorted.length) allyEscorted.push(...allyShips.filter(s=>!s.isEscort));
+        if(!enemyEscort.length) enemyEscort.push(...enemyShips.filter(s=>s.isEscort));
+        if(!enemyEscorted.length) enemyEscorted.push(...enemyShips.filter(s=>!s.isEscort));
+        if(!allyShips.length) { allyShips.push(...allyEscort,...allyEscorted); }
+        if(!enemyShips.length) { enemyShips.push(...enemyEscort,...enemyEscorted); }
+
+        if(allyShips.length===0 || enemyShips.length===0) {
+            showToast('⚠️ 双方都需要至少有一艘舰船');
+            return false;
+        }
+
+        // 先部署载机，再统计总结构（这样载机的结构值也计入上限，与战场显示口径一致）
+        deployAircraftInto(allyShips.filter(s=>s.position!=='aircraft'), allyShips, {escort:allyEscort, escorted:allyEscorted});
+        deployAircraftInto(enemyShips.filter(s=>s.position!=='aircraft'), enemyShips, {escort:enemyEscort, escorted:enemyEscorted});
+
+        battleState = {
+            allyShips, enemyShips, allyEscort, allyEscorted, enemyEscort, enemyEscorted,
+            time:0, logs:[], ended:false,
+            allyTotalHpMax: allyShips.reduce((s,sh)=>s+sh.maxHp,0),
+            enemyTotalHpMax: enemyShips.reduce((s,sh)=>s+sh.maxHp,0),
+            allyEscortAlive: allyEscort.some(s=>s.isEscort&&s.hp>0)||allyEscort.some(s=>s.hp>0),
+            enemyEscortAlive: enemyEscort.some(s=>s.isEscort&&s.hp>0)||enemyEscort.some(s=>s.hp>0),
+            bombDistance: 15,   /* ★★★ 2026-10-03 轰炸战斗停用：原为 battleMode==='bomb' ? parseInt($('bombDistanceSlider')?.value||15) : 15 */
+            battleMode
+        };
+
+        battleLogs = [];
+        battleRunning = false; battlePaused = false;
+        const airN = allyShips.filter(s=>s.position==='aircraft').length;
+        addBattleLog('info', '战斗准备完成 - 我方:'+allyShips.length+'艘'+(airN?('(含载机'+airN+')'):'')
+            +' 敌方:'+enemyShips.length+'艘');
+        return true;
+    }
+
+    /* 拦截率合成：把「所装模块」的拦截率折算成舰船级 interceptRate/interceptType。
+       依据 数据/战斗机制.md §五：拦截率 = 1-(1-x)^n×(1-y)^m —— 同一艘船的多个拦截来源同样累乘；
+       类型取覆盖范围最宽的那个（global > sameRow > self），executeShot 直接读合成后的值。
+       数据侧：模块（含 moduleGroup 的所选变体）上写 interceptRate/interceptType。 */
+    function applyIntercept(s) {
+        if(s.baseInterceptRate === undefined){
+            s.baseInterceptRate = (typeof s.interceptRate === 'number') ? s.interceptRate : 0;
+            s.baseInterceptType = s.interceptType || 'self';
+        }
+        const rank = { self:0, sameRow:1, global:2 };
+        let noInt = 1 - (s.baseInterceptRate||0)/100;
+        let best = s.baseInterceptRate > 0 ? (s.baseInterceptType||'self') : null;
+        const consider = (o) => {
+            const r = (o && o.interceptRate) || 0;
+            if(r <= 0) return;
+            noInt *= (1 - r/100);
+            const t = o.interceptType || 'self';
+            if(best === null || (rank[t]??0) > (rank[best]??0)) best = t;
+        };
+        if(s.modules) {
+            for(const key of Object.keys(s.modules)) {
+                if(key.startsWith('_')) continue;
+                const mod = s.modules[key];
+                if(!mod) continue;
+                if(mod.type === 'moduleGroup' && mod.variants) {
+                    const selKey = (s.selectedModules && s.selectedModules[key]) || Object.keys(mod.variants)[0];
+                    consider(mod.variants[selKey]);
+                } else {
+                    consider(mod);
+                }
+            }
+        }
+        s.interceptRate = (1 - noInt) * 100;
+        s.interceptType = best || 'self';
+    }
+
+    /* ★★★ 2026-10-02 新增：模块 effect 里的【持续型加成】原来只存在于文本里，引擎完全读不到
+       —— 装了「附加装甲系统」这类模块等于白装。库里 44 个模块变体的 effect 带数值，
+       其中 11 条属可核对的持续型（护甲/结构%/护盾%/能量减伤），已由 `_fix_module_effects.js`
+       写成结构化字段并附原文（`_effectSrc`），这里统一应用。
+       依据（联网核对）：ST59「防卫重型装甲」= 550 基础 + 150 实弹抵抗（满配 1030）；
+       「附加装甲系统」给结构值最大 +48% —— 都是【加算的固定抵抗值】。
+       触发式（每N秒 / 概率 / N轮1次）与全队 buff（友方能量闪避+15%）不在本函数内。 */
+    /* ★★ 2026-10-02 第53轮：【模块级机制】的实现。
+       这些机制原来只能从【加点节点】来（resolveAddPointMechanics），
+       而模块的 effect 里写了也不会生效 —— 审计里 27 条“只有文字”的模块机制就是这个原因。
+       字段（写在 module.variants[x] 上，均已附原文 _effectSrc）：
+         strike         协同攻击：{mode:'AA'|'Weak'|'Tank', dur, cd, shipWide}
+         cmdAssist      指挥：{count, every, match:'aircraft'|'sameRowCruiser'|'company'}
+         targetPriority 优先打击某类目标（'superCapital'…）
+         atkReduction   攻击持续时间 -N%
+         coverModule    掩护：{dur, targets, healPct}
+       （antiIntercept / ionBoost / dodgeVsAir / dmgBonusFlat 由 applyModuleEffects 消费）*/
+    function applyModuleMechanics(s) {
+        if (!s || !s.modules) return;
+        Object.keys(s.modules).forEach(key => {
+            if (key.startsWith('_')) return;
+            const mod = s.modules[key];
+            if (!mod || !mod.variants) return;
+            const selKey = (s.selectedModules && s.selectedModules[key]) || Object.keys(mod.variants)[0];
+            const v = mod.variants[selKey];
+            if (!v) return;
+            const skey = key + '_' + selKey;
+            if (v.strike) {
+                s.strikes = s.strikes || [];
+                s.strikes.push(Object.assign({ skey: v.strike.shipWide ? null : skey }, v.strike,
+                    { activeUntil: v.strike.dur || 0, readyAt: 0, active: true }));
+            }
+            if (v.cmdAssist) {
+                s.cmdAssist = s.cmdAssist || [];
+                s.cmdAssist.push(Object.assign({ skey: skey }, v.cmdAssist, { cycles: 0, fired: 0 }));
+            }
+            if (v.targetPriority) s.targetPriority = v.targetPriority;
+            /* ★ 第54轮：安东塔斯 B3「装甲融化」—— 命中后降目标物理护甲 5 点、
+               持续 30s、最多 20 层（= 最多 -100 护甲）。用户 2026-10-02 亲口核对。 */
+            if (v.armorDebuff) s.armorDebuff = v.armorDebuff;
+            if (v.atkReduction) s.atkReduction = (s.atkReduction || 0) + v.atkReduction;
+            if (v.coverModule) {
+                s.cover = s.cover || { dur: 0, targets: 0, all: false, until: 0, done: false, healPct: 0 };
+                s.cover.dur += v.coverModule.dur || 0;
+                s.cover.targets += v.coverModule.targets || 0;
+                if (v.coverModule.healPct) s.cover.healPct = (s.cover.healPct || 0) + v.coverModule.healPct;
+            }
+        });
+    }
+    function applyModuleEffects(s) {
+        if (!s || !s.modules) return;
+        let hpPct = 0, armor = 0, armorCap = 0, eCut = 0, shieldPct = 0;
+        let pCut = 0, cdDown = 0, shieldDrone = null;
+        let antiInt = 0, ionHit = 0, ionDmg = 0, dvAir = 0, flatDmg = 0;   // ★ 第53轮新增
+        let hDmg = 0, hHit = 0, hCdRed = 0, hFlight = 0, hCr = 0, hCd = 0;   // 母舰给载机的机库加成
+        const applied = [];
+        Object.keys(s.modules).forEach(key => {
+            if (key.startsWith('_')) return;
+            const mod = s.modules[key];
+            if (!mod || !mod.variants) return;
+            const selKey = (s.selectedModules && s.selectedModules[key]) || Object.keys(mod.variants)[0];
+            const v = mod.variants[selKey];
+            if (!v) return;
+            if (!(v.armorBonus || v.hpBonusPct || v.shieldBonusPct || v.energyCut || v.physCut || v.critDmgDown || v.shieldDrone
+                  || v.antiIntercept || v.ionBoost || v.dodgeVsAir || v.dmgBonusFlat || v.armorDebuff
+                  || v.hangarDmg || v.hangarHit || v.hangarCdRed || v.hangarFlight || v.hangarCritRate || v.hangarCritDmg)) return;
+            hpPct += v.hpBonusPct || 0;
+            armor += v.armorBonus || 0;
+            if (v.armorCap) armorCap = Math.max(armorCap, v.armorCap);
+            eCut += v.energyCut || 0;
+            shieldPct += v.shieldBonusPct || 0;
+            pCut += v.physCut || 0;
+            cdDown += v.critDmgDown || 0;
+            if (v.shieldDrone) shieldDrone = v.shieldDrone;
+            antiInt += v.antiIntercept || 0;
+            flatDmg += v.dmgBonusFlat || 0;
+            if (v.ionBoost) { ionHit += v.ionBoost.hit || 0; ionDmg += v.ionBoost.dmg || 0; }
+            if (v.dodgeVsAir) dvAir = Math.max(dvAir, v.dodgeVsAir);
+            hDmg += v.hangarDmg || 0;   hHit += v.hangarHit || 0;
+            hCdRed += v.hangarCdRed || 0; hFlight += v.hangarFlight || 0;
+            hCr += v.hangarCritRate || 0; hCd += v.hangarCritDmg || 0;
+            applied.push(key + '=' + selKey);
+        });
+        if (!applied.length) return;
+        if (hpPct) { s.maxHp = Math.round(s.maxHp * (1 + hpPct / 100)); s.hp = s.maxHp; }
+        if (armor) {
+            const base = s.physicalArmor || 0;
+            s.physicalArmor = armorCap ? Math.min(armorCap, base + armor) : base + armor;
+            s._armorFromModule = (s._armorFromModule || 0) + armor;
+        }
+        if (eCut) s.energyArmor = (s.energyArmor || 5) + eCut;
+        if (shieldPct) s.energyArmor = (s.energyArmor || 5) * (1 + shieldPct / 100);
+        /* ★ 2026-10-02 第20轮（用户权威值）：
+           · physCut   物理伤害减免%   （永恒风暴 C3 = 15）
+           · critDmgDown 受到爆伤减免% （永恒风暴 C3 = 30）
+           · shieldDrone 护盾无人机支援：使目标对能量武器闪避+15%（永恒风暴 C2 / SNT-1） */
+        if (pCut) s.physCut = (s.physCut || 0) + pCut;
+        if (cdDown) s.critDmgDown = (s.critDmgDown || 0) + cdDown;
+        if (shieldDrone) s.shieldDrone = shieldDrone;
+        if (antiInt) s.antiIntercept = (s.antiIntercept || 0) + antiInt;
+        if (flatDmg) s.dmgBonus = (s.dmgBonus || 0) + flatDmg;
+        if (ionHit || ionDmg) s.ionBoost = { hit: ((s.ionBoost && s.ionBoost.hit) || 0) + ionHit, dmg: ((s.ionBoost && s.ionBoost.dmg) || 0) + ionDmg };
+        if (dvAir) s.dodgeVsAir = Math.max(s.dodgeVsAir || 0, dvAir);
+        /* ★ 2026-10-02 第21轮：模块 effect 里的「母舰给载机」加成
+           —— 太阳鲸 B2（载机伤害+3%、冷却-15%）、天枢 C1（往返-20%）/B1（命中+30、暴击+30/50）/B2（命中+30），
+           写进与加点版共用的同一套 hangar*，载机实例会读到。 */
+        if (hDmg)    s.hangarDmg      = (s.hangarDmg || 0) + hDmg;
+        if (hHit)    s.hangarHit      = (s.hangarHit || 0) + hHit;
+        if (hCdRed)  s.hangarCdRed    = (s.hangarCdRed || 0) + hCdRed;
+        if (hFlight) s.hangarFlight   = (s.hangarFlight || 0) + hFlight;
+        if (hCr)     s.hangarCritRate = (s.hangarCritRate || 0) + hCr;
+        if (hCd)     s.hangarCritDmg  = (s.hangarCritDmg || 0) + hCd;
+        s._modEffectApplied = applied;
+    }
+    /* ★★★ 2026-10-03 系统独立血量默认值（单一可调点；改这里只影响"没单独写 sysHp 的船"）：
+       保持 25500 —— 这是用户 2026-09-24 亲自给的超主力系统血量（18 艘超主力在数据里各自带 sysHp=25500）。
+       本次标定的结论：让系统"拆得掉"要靠【判定频率】（见 SYS_JUDGE_MUL），不动血量。 */
+    const SYS_HP_DEFAULT = 25500;
+    /* 2026-10-03：`SYS_JUDGE_MUL`（判定频率倍率）已随【命中分流】模型重写而移除 ——
+       现在每发命中都按效率分流（SYS_SPLIT，见 executeShot），不再有概率判定。 */
+    function createShipInstance(shipEntry, side, isEscort, isEscorted) {
+        const s = {...shipEntry};
+        // 结构值兜底：条目缺 hp（旧存档/自定义数据）会让整场战斗变成 NaN
+        if(!(s.hp>0)){
+            const t=SHIP_DATABASE[s.id]||{};
+            s.hp = (t.hp>0) ? t.hp : 1;
+        }
+        s.maxHp = s.hp;
+        s.side = side;
+        s.isEscort = isEscort;
+        s.isEscorted = isEscorted;
+        s.alive = true;
+        s.position = s.position || '中排';
+        s.modules = s.modules || {};
+        // Carry forward strengthen data and phys resist
+        s.strengthen = shipEntry.strengthen || {};
+        s.physResistBonus = shipEntry.physResistBonus || 0;
+        s.energyResistBonus = shipEntry.energyResistBonus || 0;
+        s.hpBonus = shipEntry.hpBonus || 0;
+        s.prioritizeSuperCapital = shipEntry.prioritizeSuperCapital || false;
+        /* ★ 多方案（2026-09-24）：这条要用哪套加点 —— 存「已保存方案」的名字。
+           空/未设 = 用加点页当前那套（lagrange_addpoint）。
+           因为是【按条目】存的，同一艘船放到不同舰队条目里就能各用各的方案。 */
+        s.apBuild = shipEntry.apBuild || null;
+        /* ★ 整套方案名（舰队级）：这条船用哪一整套加点。空 = 用单船方案/默认。 */
+        s.apSet = shipEntry.apSet || null;
+        /* ★★ 加点来源留痕（开战时每条船记一笔"我最后用的是哪套"）。
+           用户 2026-09-26 反复遇到"选了方案没生效"，光看配置看不出到底用没用；
+           这个是【引擎真正查到的那个来源】，战报直接按它统计 —— 骗不了人。 */
+        try {
+            const _ap = (typeof apOf === 'function') ? apOf(s.id, s.apBuild, s.apSet) : null;
+            s._apSrc = !_ap ? '无加点'
+                     : _ap._fromSet   ? ('总体方案「' + _ap._fromSet + '」')
+                     : _ap._fromBuild ? ('单船方案「' + _ap._fromBuild + '」')
+                     : '加点页当前那套';
+        } catch (e) { s._apSrc = '?'; }
+        /* ★ 伪装舰种（如 FSV830 用模块伪装成驱逐舰）：船级 disguiseAs，
+           或【所选模块变体】上自带 disguiseAs（disguiseModule 非空时只在该模块被选中才生效） */
+        s.disguiseAs = shipEntry.disguiseAs || null;
+        s.disguiseSec = shipEntry.disguiseSec || 0;   // 0 = 全程伪装；>0 = 只在前 N 秒伪装
+        /* ★ 第62轮：公司（火力校准「本公司舰船/载机的防空武器」要按公司匹配） */
+        s.company = shipEntry.company || null;
+        try {
+            if (!s.company) { const _ap0 = (typeof apOf === 'function') ? apOf(s.id) : null;
+                if (_ap0 && BP_COMPANY && BP_COMPANY[_ap0.cdnId]) s.company = BP_COMPANY[_ap0.cdnId].company || null; }
+        } catch (e) { }
+        try {
+            Object.entries(s.modules || {}).forEach(([k, m]) => {
+                if (!m) return;
+                const sel = (s.selectedModules || {})[k];
+                const v = (m.type === 'moduleGroup' && m.variants) ? m.variants[sel || Object.keys(m.variants)[0]] : m;
+                if (v && v.disguiseAs && (!shipEntry.disguiseModule || shipEntry.disguiseModule === k)) s.disguiseAs = v.disguiseAs;
+            });
+        } catch (e) { }
+        // 加点/强化带来的其它加成（由「⬆ 从加点导入」写进条目，或手动填）
+        s.dmgBonus = shipEntry.dmgBonus || 0;            // 舰船级伤害加成 %
+        s.hitBonus = shipEntry.hitBonus || 0;            // 命中加成 %（引擎原本没有这个字段）
+        s.repairBonus = shipEntry.repairBonus || 0;      // 维修量加成 %（同上）
+        s.hangarBonus = shipEntry.hangarBonus || 0;      // 机库加成 %（同上，作用于本舰载机）
+        s.siegeBonus = shipEntry.siegeBonus || 0;        // 攻城伤害 %（本模拟器没有建筑目标，仅记录）
+        /* 机制类加点（协同指挥 / 三种打击）：连同运行期状态一起拷到实例 */
+        s.company = shipEntry.company || 0;
+        s.cmdAssist = (shipEntry.cmdAssist || []).map(c => Object.assign({}, c, { cycles: 0, fired: 0 }));
+        s.strikes = (shipEntry.strikes || []).map(k => Object.assign({}, k, { activeUntil: k.dur || 0, readyAt: 0, active: true }));
+        s.targetPriority = shipEntry.targetPriority || null;   // 主武器优先打击（加点mechanic）
+        s.sysDmgReduce = shipEntry.sysDmgReduce || 0;          // 受到的子系统伤害降低 %
+        s.hangarByModule = shipEntry.hangarByModule || null;   // 模块级机库（仅该模块的载机）
+        // 机制：掩护 / 周期性爆发
+        /* ★ 舰船自带的【舰队级旗舰技能】（如普鲁图斯之盾「庇护作战」）*/
+        s.fleetFlagship = shipEntry.fleetFlagship || null;
+        s.cover = shipEntry.cover ? Object.assign({}, shipEntry.cover, { until: 0, done: false }) : null;
+        s.coveredBy = null;
+        s.bursts = (shipEntry.bursts || []).map(k => Object.assign({}, k, { active: false, until: 0, readyAt: 0 }));
+        // ★ 加点自动生效（船级部分，必须在算 maxHp 之前）
+        applyAddPointShip(s);
+        /* ★ 2026-10-07：自定义舰船机制（条目上直接带 condEffects）——加点没有 conds 时用条目的（自定义舰走这条）。
+           与加点机制同一套条件触发系统，运行期状态 applied/done/until 逐实例独立。 */
+        /* ★ 2026-10-07：以【条目】上的 condEffects 为准重建一次：① on:false（已关闭）的不进战斗；
+           ② 每个实例独立一份运行态（applied/until）——克隆带来的那份是同一批对象，不重建会互相串状态。
+           加点提供的（applyAddPointShip 会设 s.condEffects.src）则不覆盖。 */
+        if (!(s.condEffects && s.condEffects.src)) {
+            s.condEffects = (shipEntry.condEffects || []).filter(c => c && c.on !== false).map(c => Object.assign({}, c, { applied: false, done: false, until: 0 }));
+        }
+        /* ★★ 第68轮：【信息伪装】加点节点 → 实例字段（必须放在 applyAddPointShip 之后，fleetMechs 那时才收齐）
+           节点原文：「开启伪装系统，在战斗开始后{T}秒内，会被敌方识别为战机」（如 207010304=120s） */
+        try {
+            (s.fleetMechs || []).forEach(x => {
+                if (x.fm.kind !== 'disguise') return;
+                s.disguiseAs = x.fm.as || '战机';
+                const q = (typeof fmValLv === 'function') ? fmValLv(x.fm, x.lv, 0) : null;
+                s.disguiseSec = (typeof q === 'number' && q > 0) ? q : 120;
+            });
+        } catch (e) { }
+        // Apply HP bonus
+        s.hp = Math.round(s.hp * (1 + (s.hpBonus||0)/100));
+        s.maxHp = s.hp;
+        // Initialize moduleGroup selection defaults
+        if(!s.selectedModules) s.selectedModules = {};
+        /* ⚠️ 2026-10-02 第8轮：applyModuleEffects(s) 实测通过项 8→7
+           （我方被护航对舰 +25.3%→+15.1% 改善，但敌方护航维修 +11.2%→+16.4% 变差）
+           —— 按协议回滚。待“按舰队对舰队聚合”口径修正后再一起评估。 */
+        /* ★★ 2026-10-02 第9轮：口径改成【舰队对舰队】后重新启用。
+           （第8轮在旧口径下测得 8→7 已回滚；现在目标指标已对齐，重新评估。） */
+        applyModuleEffects(s);
+        
+        // Initialize weapon cooldowns - support moduleGroup
+        s.weaponStates = [];
+        if(s.modules) {
+            for(const [key, mod] of Object.entries(s.modules)) {
+                if(key.startsWith('_')) continue;
+                let resolvedMod = mod;
+                // Resolve moduleGroup: pick selected variant or first
+                if(mod.type === 'moduleGroup' && mod.variants) {
+                    const variantKeys = Object.keys(mod.variants);
+                    const selKey = s.selectedModules[key] || variantKeys[0];
+                    s.selectedModules[key] = selKey;
+                    resolvedMod = mod.variants[selKey] || mod;
+                    resolvedMod._groupKey = key;
+                    resolvedMod._variantKey = selKey;
+                }
+                if(resolvedMod.weapons) {
+                    resolvedMod.weapons.forEach((w, wi) => {
+                // Get strengthen data for this weapon
+                const variantKey = resolvedMod._variantKey || '';
+                const skey = variantKey ? key+'_'+variantKey : key;
+                const st = (s.strengthen[skey]&&s.strengthen[skey][wi]) || {dmgBonus:0,lockReduction:0,cooldownReduction:0,lockTimeReduction:0,flightTimeReduction:0};
+                s.weaponStates.push({
+                    weapon:w, module:resolvedMod, moduleKey:key, weaponIndex:wi, strengthenKey:skey,
+                    strengthen: st,
+                    currentTarget:null,
+                    cooldownRemaining:0,
+                    lockRemaining:0,
+                    atkRemaining:0,
+                    batchTimer:0,
+                    shotsRemaining:0,
+                    batchesRemaining:0,
+                    // 「密集射击」：攻击次数翻倍，装填冷却按加点数值延长
+                    // ★ mounts = 武器安装数（名字里的「(×N)」）。只有 2026-09-24 新录的
+                    //   10 艘船带这个字段；老武器没这个字段 → ||1 不影响老数据。
+                    denseFire: (st.denseFire || 0),
+                    totalShots: shotsOf(w) * ((st.denseFire||0) > 0 ? 2 : 1),
+                    totalBatches: (w.attacks||1) * ((st.denseFire||0) > 0 ? 2 : 1),
+                    firstShot:true
+                });
+                    });
+                }
+            }
+        }
+        // 拦截率合成（读 selectedModules，必须放在上面模块解析之后）
+        applyAddPointWeapons(s);   // ★ 加点：逐武器（按系统）
+        applyIntercept(s);
+        /* ★★ 2026-10-02 第53轮：【模块级机制】——协同攻击/指挥/优先打击/反拦截/离子强化/规避/掩护，
+          原来只能从【加点】来，模块里写了也不生效。 */
+        applyModuleMechanics(s);
+        // Subsystems
+        s.subSystems = [];
+        if(s.modules) {
+            for(const [key,mod] of Object.entries(s.modules)) {
+                if(key.startsWith('_')) continue;
+                /* ★ 必须用【所选变体】而不是槽位本身：
+                   · 名字要与 ws.module.name 一致，否则 executeShot 里
+                     `subSystems.find(x=>x.name===ws.module.name)` 匹配失败 →
+                     系统被毁后武器照样开火（超主力全是 moduleGroup，都会中招）
+                   · 类型也要取变体的（决定维修次数与"被毁效果"） */
+                let rmod = mod;
+                if(mod.type === 'moduleGroup' && mod.variants) {
+                    const selKey = s.selectedModules?.[key] || Object.keys(mod.variants)[0];
+                    rmod = mod.variants[selKey] || mod;
+                }
+                const sysType = rmod.type || mod.type || 'system';
+                const sysName = rmod.name || mod.name || '';
+                /* 维修次数按《战斗机制》文档第二节的【系统类型】：
+                     主武器系统 2 次｜舰载机库 2 次｜指挥系统 3 次｜动力系统【战斗内不修】0 次
+                   文档没写的其它系统沿用 selfRepair 标记口径。 */
+                const nm = sysName + ' ' + (mod.name || '');
+                const isHangar = sysType === 'hangar' || /机库|机坞|搭载|舰载机|护航艇/.test(nm);
+                const isEngine = sysType === 'engine' || /动力|引擎/.test(nm);
+                const isWeaponSys = !isHangar && ((rmod.weapons && rmod.weapons.length) || /武器|炮|导弹|鱼雷|无人机作战中枢/.test(nm));
+                let maxRepairs;
+                if (sysType === 'command' || /指挥/.test(nm)) maxRepairs = 3;
+                else if (isEngine) maxRepairs = 0;
+                else if (isWeaponSys || isHangar) maxRepairs = 2;
+                else maxRepairs = rmod.selfRepair ? 2 : 0;
+                /* ★ 系统独立血量（用户 2026-09-24 填：超主力所有系统 25500）：
+                   船级 s.sysHp → 每个系统自带 hp。有血量时系统伤害是【累计】打满才毁；
+                   没写 sysHp 的船沿用旧的"效率骰子命中即毁"（见 executeShot）。 */
+                /* ★★★ 2026-09-26：原来只有 18 艘超主力有 sysHp=25500，其余船 _sysHp=0 →
+                   → 系统走"效率骰子命中即毁"分支，且【每艘船被自动补的"指挥系统"连 hp 都没给】
+                   → 一次命中就毁、扣 5% 船血、修好再毁……对游戏战报实测：
+                   整场双方各只击毁 1~2 个系统，而模拟器 A 队击毁 82 个、殉爆 135 万（占 B 有效血量 25%），
+                   直接把战斗从 579 秒打到 327 秒。
+                   现在：没写 sysHp 的船也给默认血量（见 SYS_HP_DEFAULT，2026-10-03 由 25500 重标定为 2400）→ 一律走"累计打满才毁"。 */
+                const _sysHp = (s.sysHp > 0) ? s.sysHp : SYS_HP_DEFAULT;
+                s.subSystems.push({
+                    name: sysName, type: sysType, key: key,
+                    hp: _sysHp, maxHp: _sysHp,
+                    destroyed:false, repairTimer:0, repairCount:0, maxRepairs:maxRepairs,
+                    permanentDestroyed:false
+                });
+            }
+        }
+        /* ⚠️ 数据缺口补丁：雷火之星/普鲁图斯之盾/天权级 的 ship_database.modules 里
+           【没有"指挥系统"】，但加点树里有「中排指挥系统」，而这三艘的旗舰机制
+           「指挥系统被摧毁后失效」依赖它。按加点树的证据补一个，否则机制永远失效不了。 */
+        if (bpHasCommandSystem(s.id) && !s.subSystems.some(x => x.type === 'command' || /指挥/.test(x.name || ''))) {
+            /* ★ 这个补的指挥系统必须带上血量 —— 原来没有 hp/maxHp → 一击即毁（见上面注释） */
+            const _cmdhp = (s.sysHp > 0) ? s.sysHp : SYS_HP_DEFAULT;
+            s.subSystems.push({ name: '指挥系统', type: 'command', key: '_cmd', hp: _cmdhp, maxHp: _cmdhp,
+                                destroyed: false, repairTimer: 0, repairCount: 0, maxRepairs: 3, permanentDestroyed: false });
+        }
+        return s;
+    }
+
+    function switchModuleVariant(shipInstance, slotKey, variantKey) {
+        // Switch moduleGroup variant on a ship instance
+        if(!shipInstance || !shipInstance.modules) return;
+        const mod = shipInstance.modules[slotKey];
+        if(!mod || mod.type !== 'moduleGroup' || !mod.variants) return;
+        if(!mod.variants[variantKey]) return;
+        
+        // Update selection
+        if(!shipInstance.selectedModules) shipInstance.selectedModules = {};
+        shipInstance.selectedModules[slotKey] = variantKey;
+        
+        // Remove old weapon states for this slot
+        shipInstance.weaponStates = (shipInstance.weaponStates||[]).filter(ws => ws.moduleKey !== slotKey);
+        
+        // Add new weapon states from selected variant
+        const resolvedMod = mod.variants[variantKey];
+        resolvedMod._groupKey = slotKey;
+        resolvedMod._variantKey = variantKey;
+        if(resolvedMod.weapons) {
+            resolvedMod.weapons.forEach(w => {
+                shipInstance.weaponStates.push({
+                    weapon:w, module:resolvedMod, moduleKey:slotKey,
+                    currentTarget:null,
+                    cooldownRemaining:0, lockRemaining:0,
+                    atkRemaining:0, batchTimer:0,
+                    shotsRemaining:0, batchesRemaining:0,
+                    totalShots: shotsOf(w),
+                    totalBatches: (w.attacks||1),
+                    firstShot:true
+                });
+            });
+        }
+        
+        // Update module name in subsystems
+        if(shipInstance.subSystems) {
+            const sys = shipInstance.subSystems.find(s => s.key === slotKey);
+            if(sys) sys.name = resolvedMod.name || sys.name;
+        }
+
+        // 换了拦截模块 → 拦截率必须跟着变（否则切换模块对拦截无效）
+        applyIntercept(shipInstance);
+    }
+
+    /* 部署载机，并把载机实例放进【与母舰相同的编队分组】——
+       否则战斗界面只渲染 护航/被护航 分组，载机会"参战但看不见" */
+    function deployAircraftInto(carrierShips, allList, groupArrs){
+        const start = allList.length;
+        deployAircraft(carrierShips, allList);
+        for(let i=start;i<allList.length;i++){
+            const ac = allList[i];
+            const arr = ac.isEscort ? groupArrs.escort : groupArrs.escorted;
+            if(arr && arr.indexOf(ac)<0) arr.push(ac);
+        }
+    }
+
+    /* 部署载机
+       【口径对齐配队页】配队页里载机数量是「整个条目的合计」——
+         容量 = 单舰容量 × 舰船数量（大矛×6 + B2=3/艘 → 显示 18/18），
+         所以这里也必须是合计：把条目上的载机按数量平均分摊给该条目的 N 个单位。
+       ⚠️ 早期版本对每个单位各部署一份整表 → 8 架会变成 8×6=48 架（数量"无故暴增"的根因） */
+    function deployAircraft(carrierShips, targetList) {
+        const groups = {};
+        carrierShips.slice().forEach(ship => {
+            if(ship.position==='aircraft') return;              // 载机不再带载机
+            if(!(ship.aircraft && ship.aircraft.length>0)) return;
+            const k = ship.uid || ship.id;                      // 同一舰队条目（同型舰多套配置用 uid 区分）
+            (groups[k] = groups[k] || []).push(ship);
+        });
+        Object.keys(groups).forEach(k=>{
+            const units = groups[k];
+            const n = units.length;
+            const list = units[0].aircraft || [];
+            // 每种载机按数量尽量平均分给 n 个单位（余数给前面的单位）→ 总数保持不变
+            const buckets = [];
+            for(let i=0;i<n;i++) buckets.push([]);
+            list.forEach(ac=>{
+                const total = ac.count||0; if(total<=0) return;
+                const base = Math.floor(total/n), rem = total % n;
+                for(let i=0;i<n;i++){
+                    const c = base + (i<rem?1:0);
+                    if(c>0) buckets[i].push(Object.assign({}, ac, {count:c}));
+                }
+            });
+            units.forEach((ship,i)=>{
+                buckets[i].forEach(ac=>{
+                    for(let j=0;j<ac.count;j++){
+                        /* 载机的加点方案跟着母舰：母舰选了总体方案，载机也读同一套 */
+                        if (ship.apSet && !ac.apSet) ac.apSet = ship.apSet;
+                        const acInst = createShipInstance(ac, ship.side, ship.isEscort, ship.isEscorted);
+                        acInst.carrierId = ship.id;
+                        acInst.carrierName = ship.name;
+                        acInst.carrierInstId = ship.instId;   // 挂在【这一艘】母舰上 → 它被毁时载机跟着毁
+                        acInst.carrierName = ship.name || ship.id;   // 战报口径：载机的伤害算在母舰那一行（游戏就是这么显示的）
+                        acInst.position = 'aircraft';
+                        acInst.isEscort = !!ship.isEscort;
+                        acInst.isEscorted = !!ship.isEscorted;
+                        /* 母舰的机库加成 → 本架载机。
+                           本舰船机库 = 全舰载机都吃；本系统机库 = 只有该模块机位上的载机吃。
+                           ⚠️ 必须按【效果】分开：伤害/命中/闪避/锁定/冷却/飞行时间是 6 件不同的事，
+                              原来全塞进一个 hangarBonus 再当 dmg+hit 用是错的。 */
+                        const acc = {
+                            dmg: ship.hangarDmg || 0, hit: ship.hangarHit || 0,
+                            evasion: ship.hangarEvasion || 0, lockRed: ship.hangarLockRed || 0,
+                            cdRed: ship.hangarCdRed || 0, flight: ship.hangarFlight || 0,
+                            critRate: ship.hangarCritRate || 0, critDmg: ship.hangarCritDmg || 0,
+                            aaResist: ship.hangarAaResist || 0   // ★ 电子掩护：同一母舰的载机都享受
+                        };
+                        if(ship.hangarByModule && ac.slot){
+                            const mvar = String(ac.slot).split('|')[0];      // 如 'M1'
+                            Object.keys(ship.hangarByModule).forEach(sk => {
+                                const parts = sk.split('_');                 // 如 'M_M1'
+                                if((parts[1] || parts[0]) === mvar){
+                                    const g = ship.hangarByModule[sk] || {};
+                                    acc.dmg += g.dmg || 0; acc.hit += g.hit || 0;
+                                    acc.evasion += g.evasion || 0; acc.lockRed += g.lockRed || 0;
+                                    acc.cdRed += g.cdRed || 0; acc.flight += g.flight || 0;
+                                    acc.critRate += g.critRate || 0; acc.critDmg += g.critDmg || 0;
+                                }
+                            });
+                        }
+                        if(acc.dmg) acInst.dmgBonus = (acInst.dmgBonus||0) + acc.dmg;
+                        if(acc.hit) acInst.hitBonus = (acInst.hitBonus||0) + acc.hit;
+                        if(acc.evasion) acInst.evasion = (acInst.evasion||0) + acc.evasion;
+                        if(acc.aaResist) acInst.hangarAaResist = (acInst.hangarAaResist||0) + acc.aaResist;   // 电子掩护
+                        acInst.hangarBonus = acc.dmg + acc.hit;              // 兼容旧字段
+                        if(acc.lockRed || acc.cdRed || acc.flight){
+                            (acInst.weaponStates||[]).forEach(ws => {
+                                ws.strengthen = ws.strengthen || {};
+                                if(acc.lockRed) ws.strengthen.lockTimeReduction = (ws.strengthen.lockTimeReduction||0) + acc.lockRed;
+                                if(acc.cdRed)   ws.strengthen.cooldownReduction  = (ws.strengthen.cooldownReduction||0) + acc.cdRed;
+                                if(acc.flight)  ws.strengthen.flightTimeReduction= (ws.strengthen.flightTimeReduction||0) + acc.flight;
+                            });
+                        }
+                        // 母舰「机库暴击」→ 本舰载机的每一门武器（如苍穹 M1「协同打击」50%概率200%暴击）
+                        // ★ 本舰船机库 + 本系统机库 两处都要累加，且【按该载机所在模块】取
+                        const hcr = acc.critRate, hcd = acc.critDmg;
+                        if(hcr || hcd){
+                            acInst.hangarCritRate = hcr; acInst.hangarCritDmg = hcd;
+                            (acInst.weaponStates||[]).forEach(ws => {
+                                ws.strengthen = ws.strengthen || {};
+                                ws.strengthen.critRate = (ws.strengthen.critRate||0) + hcr;
+                                // 引擎的暴击倍率 = 1.5 + critDmg/100；这里把目标倍率换算成增量
+                                if(hcd > 0) ws.strengthen.critDmg = (ws.strengthen.critDmg||0) + (hcd - 150);
+                            });
+                        }
+                        targetList.push(acInst);
+                    }
+                });
+            });
+        });
+    }
+
+    function startBattle() {
+        if(!battleState || battleState.ended) {
+            if(!prepareBattle()) return;
+        }
+        if(battleRunning && !battlePaused) return;
+        battleRunning = true; battlePaused = false;
+        $('battleStatus').textContent = '战斗中...';
+        runBattleLoop();
+    }
+
+    function pauseBattle() { battlePaused = !battlePaused; $('battleStatus').textContent=battlePaused?'已暂停':'战斗中...'; if(!battlePaused) runBattleLoop(); }
+
+    function syncFleetsToBattle() {
+        // Force reload fleet data from localStorage
+        loadFleetsFromStorage();
+        // Re-render fleet panels
+        renderFleetPanels();
+        // Reset battle to pick up new fleet data
+        resetBattle();
+        showToast('🔄 配队已同步到战斗模拟 | 共 ' + 
+            (fleetData['ally-escort'].main.length + fleetData['ally-escorted'].main.length + 
+             fleetData['enemy-escort'].main.length + fleetData['enemy-escorted'].main.length) + ' 个舰队有舰船');
+    }
+
+    function resetBattle() {
+        battleRunning = false; battlePaused = false;
+        if(battleTimer) clearTimeout(battleTimer);
+        battleState = null; battleLogs = []; instSeq = 0;
+        /* ⚠️ 这里原来写的是 battleAllyShips / battleEnemyShips / allyTotalHp / enemyTotalHp —— 这 4 个 id
+           在改版后已经不存在（现在是 battleShips0..3 / allyTotalHpText / enemyTotalHpText），
+           $() 拿到 null → 赋 innerHTML 直接抛异常 → 「🔄 重置」和「配队同步」只做了一半就中断。
+           现在改成当前 UI 的 id，并且逐个判空（缺元素不再让整页崩）。 */
+        const setEl = (id, fn) => { const el = $(id); if (el) { try { fn(el); } catch(e){} } };
+        setEl('battleTimeDisplay', el => el.textContent = '时间: 0.0s');
+        setEl('battleStatus', el => el.textContent = '就绪');
+        setEl('battleLog', el => el.innerHTML = '');
+        ['battleShips0','battleShips1','battleShips2','battleShips3'].forEach(id =>
+            setEl(id, el => el.innerHTML = '<div style="color:var(--text-muted);text-align:center;">点击"开始战斗"</div>'));
+        setEl('allyTotalHpText', el => el.textContent = '0 / 0');
+        setEl('enemyTotalHpText', el => el.textContent = '0 / 0');
+    }
+
+    function runBattleLoop() {
+        if(!battleRunning || battlePaused || !battleState) return;
+        if(battleState.ended) return;
+
+        const dt = 0.1 * battleSpeed; // 0.1 second per tick, multiplied by speed
+        processBattleTick(dt);
+        renderBattleUI();
+        addBattleLogEntries();
+
+        if(!battleState.ended) {
+            battleTimer = setTimeout(runBattleLoop, 100 / battleSpeed);
+        }
+    }
+
+    function processBattleTick(dt) {
+        const bs = battleState;
+        bs.time += dt;
+        updateEscortStatus(bs);
+        /* ★ 2026-09-27 生存时间累积：游戏战报每行都有「生存时间占比」，引擎原来没这个量。
+           逐 tick 给还活着的单位累加 _aliveSec（战报里按 statRowOf 归并成"每个型号一行"）。 */
+        [...bs.allyShips, ...bs.enemyShips].forEach(s => { if (s.alive) s._aliveSec = (s._aliveSec || 0) + dt; });
+
+        /* ★★ 2026-10-02 第62轮：【紧急避险】（官方 2022/01/19 维护公告）
+           「前排舰船将会在自身结构比例降至 10% 时，撤退至中排位置，一场战斗只触发一次」
+           · 所有前排舰船【默认拥有】这条隐藏策略（不是加点项）
+           · 动力系统损毁后无法紧急避险（KB：动力系统损坏不可逆）
+           影响：直射武器按 前排→中排→后排 检索，撤到中排的残血船不再被优先打。 */
+        [...bs.allyShips, ...bs.enemyShips].forEach(s => {
+            if (!s.alive || s.hp <= 0 || s._evaded) return;
+            if (s.position !== '前排') return;
+            const eng = (s.subSystems || []).find(x => x.type === 'engine' || /动力|引擎/.test(x.name || ''));
+            if (eng && eng.destroyed) { s._evaded = true; return; }
+            /* ★ 第65轮：「机动作成B」（加点节点 318030602）把撤退阈值从 10% 提到 30%；
+               没点这个节点的舰继续用官方紧急避险的 10%。 */
+            let _retreatAt = 0.10;
+            (s.fleetMechs || []).forEach(x => {
+                if (x.fm.kind !== 'retreatMid') return;
+                const q = fmValLv(x.fm, x.lv, 0);
+                if (typeof q === 'number' && q > 0) _retreatAt = Math.max(_retreatAt, q / 100);
+            });
+            if ((s.hp / (s.maxHp || 1)) <= _retreatAt) {
+                s.position = '中排';
+                s._evaded = true;
+                addBattleLog('info', '🏃 ' + (s.name || s.id) + ' 结构降至10% → 紧急避险撤至中排');
+                (s._events = s._events || []).push({ t: bs.time || 0, txt: '紧急避险（撤至中排）' });
+            }
+        });
+
+        // Process each alive ship's weapons
+        [...bs.allyShips, ...bs.enemyShips].forEach(ship => {
+            if(!ship.alive || ship.hp<=0) return;
+            const foes = ship.side==='ally' ? bs.enemyShips : bs.allyShips;
+            processCondEffects(ship, foes, dt, bs);        // ★ 加点条件触发（血量阈值/前X秒/周期…）
+            processFleetMechs(ship, foes, dt, bs);         // ★ 舰队级机制（多目标反击）
+            processShipWeapons(ship, foes, dt, bs);
+        });
+
+        // Process repairs
+        [...bs.allyShips, ...bs.enemyShips].forEach(ship => {
+            if(!ship.alive) return;
+            processRepairs(ship, ship.side==='ally'?bs.allyShips:bs.enemyShips, dt, bs);
+        });
+
+        /* ★★ 第56轮：【溶解】的 DOT 结算—— 每秒损失【层数 × perSec】结构值。
+           记账：算在施加者头上（src），进对舰列。 */
+        [...bs.allyShips, ...bs.enemyShips].forEach(t2 => {
+            if (!DISSOLVE_ON || !t2.alive || !t2._dissolve || !t2._dissolve.length) return;
+            t2._dissolve = t2._dissolve.filter(d => (bs.time - d.t) < d.dur);
+            if (!t2._dissolve.length) return;
+            let _dps = 0; t2._dissolve.forEach(d => { _dps += d.perSec; });
+            const _dd = _dps * dt;
+            if (_dd <= 0) return;
+            const _src = t2._dissolve[0].src;
+            const _sb = dmgStatOf(bs, (_src && _src.side) || t2.side);
+            if (_sb) {
+                _sb.antiShip += _dd;
+                const _p = statPer(_sb, statRowOf(_src || t2));
+                if (_p) { _p.antiShip += _dd; statSub(_p, statRowOf(t2)).s += _dd; statSubW(_p, '溶解式DOT').s += _dd; }
+            }
+            t2._taken = (t2._taken || 0) + _dd;
+            t2.hp -= _dd;
+            if (t2.hp <= 0) { t2.hp = 0; t2.alive = false;
+                if (bs) { bs._lastLossAt = bs._lastLossAt || {}; bs._lastLossAt[t2.side] = bs.time; } }
+        });
+
+        // 机制类加点（协同指挥 / 三种打击）
+        [...bs.allyShips, ...bs.enemyShips].forEach(ship => {
+            if(!ship.alive || ship.hp<=0) return;
+            processExtraMechanics(ship, ship.side==='ally'?bs.allyShips:bs.enemyShips,
+                                 ship.side==='ally'?bs.enemyShips:bs.allyShips, dt, bs);
+        });
+
+        // Process subsystem repairs
+        [...bs.allyShips, ...bs.enemyShips].forEach(ship => {
+            if(!ship.alive) return;
+            ship.subSystems.forEach(sys => {
+                if(sys.destroyed && !sys.permanentDestroyed && sys.repairCount < sys.maxRepairs) {
+                    sys.repairTimer += dt;
+                    if(sys.repairTimer >= 25) {
+                        /* ★★★ 2026-10-03 修 bug：复活时【没有恢复系统血量】（hp 停在 0）→ 下一发命中
+                           又把 0 血系统"再次击毁" → 重复计击杀、重复扣 5%（实测验收两场被刷到
+                           16 / 15 个击毁，而游戏锚点只有 1~2 个）。复活=修好 ⇒ 血量回满。 */
+                        sys.destroyed = false; sys.repairTimer = 0; sys.repairCount++;
+                        sys.hp = sys.maxHp;
+                    }
+                }
+            });
+        });
+
+        // Check battle end
+        const allyAlive = bs.allyShips.filter(s=>s.alive && s.hp>0).length;
+        const enemyAlive = bs.enemyShips.filter(s=>s.alive && s.hp>0).length;
+        if(allyAlive===0 || enemyAlive===0) {
+            bs.ended = true;
+            addBattleLog('info', allyAlive===0 ? '🔴 敌方胜利！' : '🔵 我方胜利！');
+            $('battleStatus').textContent = allyAlive===0 ? '敌方胜利' : '我方胜利';
+            generateBattleReport();
+        }
+    }
+
+    function updateEscortStatus(bs) {
+        /* ★★ 2026-10-02 第20轮：护盾无人机（SNT-1）的“对目标实施护盾支援”——
+           按“本舰队全体对能量武器闪避 +N%”近似（持续 30s > 冷却 15s，近似常驻）。
+           数据来源：永恒风暴 C2（用户 2026-10-02 权威值 + 无人机模块参数） */
+        [['ally', bs.allyShips], ['enemy', bs.enemyShips]].forEach(function(pair) {
+            const arr = pair[1];
+            let ev = 0;
+            arr.forEach(u => { if (u.shieldDrone && u.alive) ev = Math.max(ev, u.shieldDrone.evasionVsEnergy || 0); });
+            /* ⚠️ 2026-10-02 第20轮实测：开启后「我方被护航对舰」从 365.9万跌到 98.1万（-75%），
+               15% 闪避不该造成 -73% → 实现过度，先禁用待查（数据字段 shieldDrone 保留）。 */
+            // if (ev > 0) arr.forEach(u => { u.evasionVsEnergy = (u.evasionVsEnergy || 0) + ev; });
+        });
+        bs.allyEscortAlive = bs.allyShips.some(s=>s.isEscort && s.alive && s.hp>0);
+        bs.enemyEscortAlive = bs.enemyShips.some(s=>s.isEscort && s.alive && s.hp>0);
+    }
+
+    /* ================= 机制类加点 =================
+       ① 协同指挥（指挥舰把攻击"借"给友军）：
+          「战斗开始时，指挥舰队中 N 个<条件>主武器，对指挥舰的当前目标进行 1 轮额外攻击，
+            之后每隔 K 轮进行 1 轮额外打击」→ 用所属模块的武器循环数当"轮"来计时。
+       ② 三种打击（改写本系统武器的选目标规则）：
+          「战斗开始时…选择敌方<防空最高/血量较低/物抗最高>的舰船攻击，持续 T 秒，冷却 C 秒」
+          → 开启一个时间窗，窗内该模块的武器按该规则选目标。 */
+    function shipWeaponPower(ship) {
+        let p = 0;
+        (ship.weaponStates || []).forEach(ws => { p += ((ws.weapon.dpm || {}).antiShip || 0); });
+        return p;
+    }
+    function matchAssistTarget(ship, cmd, list) {
+        return list.filter(x => {
+            if(!x.alive || x.hp <= 0) return false;
+            if(cmd.match === 'aircraft') return x.position === 'aircraft';
+            if(cmd.match === 'sameRowCruiser') return x.position === ship.position && (x.type === 'cruiser');
+            if(cmd.match === 'company') return cmd.company ? (x.company === cmd.company) : false;
+            return false;
+        });
+    }
+    function processExtraMechanics(ship, friendlies, enemies, dt, bs) {
+        // ---- ⓪ 掩护：开局为前列友军吸引火力 ----
+        if(ship.cover && !ship.cover.done) {
+            ship.cover.done = true;
+            ship.cover.until = bs.time + (ship.cover.dur || 0);
+            const rows = ['前排','中排','后排'];
+            const maxN = ship.cover.all ? 99 : (ship.cover.targets || 0);
+            const startRow = ship.cover.all ? 0 : rows.indexOf(ship.position);
+            let picked = 0;
+            for(let ri = (startRow < 0 ? 0 : startRow); ri < rows.length; ri++) {
+                for(const f of friendlies) {
+                    if(picked >= maxN) break;
+                    if(f === ship || !f.alive || f.position !== rows[ri] || f.position === 'aircraft' || f.coveredBy) continue;
+                    f.coveredBy = ship.instId; picked++;
+                }
+                if(picked >= maxN) break;
+            }
+            if(picked) addBattleLog('info', '🛡 ' + (ship.name||ship.id) + ' 开始掩护 ' + picked + ' 艘友军（' + Math.round(ship.cover.dur||0) + '秒）');
+        }
+        if(ship.cover && ship.cover.until && bs.time >= ship.cover.until) {
+            friendlies.forEach(f => { if(f.coveredBy === ship.instId) f.coveredBy = null; });
+            ship.cover.until = 0;
+        }
+        // ---- ⓪b 周期性爆发：每 X 秒，本系统武器打击/冷却缩短 cut%，持续 dur 秒，冷却 cd 秒 ----
+        if(ship.bursts && ship.bursts.length) {
+            ship.bursts.forEach(k => {
+                if(!k.active) {
+                    if(k.nextAt === undefined) k.nextAt = (k.every || 10);      // 首次在 every 秒后
+                    if(bs.time >= k.nextAt) { k.active = true; k.until = bs.time + (k.dur || 0); }
+                } else if(bs.time >= k.until) {
+                    k.active = false; k.nextAt = bs.time + (k.cd || 0) + (k.every || 10);
+                }
+                (ship.weaponStates || []).forEach(ws => {
+                    if(k.skey && ws.strengthenKey !== k.skey) return;
+                    ws.burstCut = k.active ? (k.cut || 0) : 0;
+                });
+            });
+        }
+        // ---- ① 协同指挥 ----
+        if(ship.cmdAssist && ship.cmdAssist.length) {
+            ship.cmdAssist.forEach(cmd => {
+                if(!cmd.count) return;
+                // 用所属模块的武器循环数当"轮"；若该系统在库里没有武器（数据缺口），退化为全舰武器循环
+                let cycles = 0, matched = 0;
+                (ship.weaponStates || []).forEach(ws => {
+                    if(cmd.skey && ws.strengthenKey !== cmd.skey) return;
+                    cycles += (ws.completedCycles || 0); matched++;
+                });
+                if(matched === 0) (ship.weaponStates || []).forEach(ws => { cycles += (ws.completedCycles || 0); });
+                const want = (cmd.fired === 0) ? 1 : (1 + Math.floor(cycles / Math.max(1, cmd.every)));
+                if(want <= cmd.fired) return;
+                cmd.fired = want;
+                // 触发一次：挑 N 个符合条件的友军，各对"指挥舰的当前目标"打 1 轮
+                const tgt = (ship.weaponStates || []).map(ws => ws.currentTarget).find(t => t && t.alive && t.hp > 0);
+                if(!tgt) return;
+                if(!cmd.company) cmd.company = ship.company;
+                const cands = matchAssistTarget(ship, cmd, friendlies)
+                    .filter(x => x !== ship)
+                    .sort((a, b) => shipWeaponPower(b) - shipWeaponPower(a))
+                    .slice(0, cmd.count);
+                if(!cands.length) return;
+                cands.forEach(x => {
+                    (x.weaponStates || []).forEach(ws => {
+                        if(!tgt.alive || tgt.hp <= 0) return;
+                        const n = shotsOf(ws.weapon);
+                        // ★ 伤害仍按【出击的友军/载机】的武器与加成算，但战报记在指挥舰身上
+                        for(let i = 0; i < n; i++) { if(!tgt.alive || tgt.hp <= 0) break; executeShot(x, tgt, ws.weapon, ws, bs, ship); }
+                    });
+                });
+                if(RNG() < 0.35) addBattleLog('info', '📣 ' + (ship.name || ship.id) + ' 协同指挥：' + cands.length + ' 艘友军对目标进行 1 轮额外打击');
+            });
+        }
+        // ---- ② 三种打击：时间窗 ----
+        if(ship.strikes && ship.strikes.length) {
+            ship.strikes.forEach(k => {
+                if(k.active) {
+                    if(bs.time >= k.activeUntil) { k.active = false; k.readyAt = bs.time + (k.cd || 0); }
+                } else if(k.cd > 0 && bs.time >= k.readyAt) {
+                    k.active = true; k.activeUntil = bs.time + (k.dur || 0);
+                    addBattleLog('info', '🎯 ' + (ship.name || ship.id) + ' 的「打击」生效');
+                }
+            });
+        }
+    }
+    /* 该武器的所属系统是否正处于「打击」窗口内 */
+    function activeStrike(attacker, ws) {
+        if(!attacker.strikes || !attacker.strikes.length) return null;
+        /* ★★ 2026-10-02 第53轮修真 bug：原来要求 `k.skey` 非空，而「全舰武器」类的打击（如安东塔斯 A1）skey 为 null → 永远匹配不到。 */
+        return attacker.strikes.find(k => k.active && (!k.skey || k.skey === ws.strengthenKey)) || null;
+    }
+
+    /* 往复作战的【一轮额外耗时】= 去程 + 返程（秒）。
+       资料：往复式打完一轮要飞回母舰补弹，在机库内等冷却与锁定同时完成才再出舱
+       → 所以一轮 = 去程 + 攻击持续 + 返程 + 冷却（冷却在机库内等）。
+       独立作战 = 0（资料：除开局舱内首次锁敌外，其余时间就是在敌方阵型里的护卫舰，不返航）。
+       数据来自用户 2026-09-24 填报的船级 departSec / returnSec。 */
+    /* 往复打击的【去程 + 返程】秒数。
+       ★★★ 2026-10-02 第14轮：这里曾经算过 st.flightTimeReduction（→ A 对空 -8.6% → -4.9%），
+       后来用旧备份恢复时丢了（回归）—— 现在重新加回。
+       依据：《战斗机制·三·2》「降低去程/返程时间：增加往复打击的频率」；
+       用户加点里 维塔斯B010 / CV-T800 均点了飞行时间 -40%。 */
+    function flightCycleSec(ship, st) {
+        if (!ship || ship.flightMode !== 'reciprocating') return 0;
+        const base = (ship.departSec || 0) + (ship.returnSec || 0);
+        const cut = Math.min(90, ((st || {}).flightTimeReduction) || ship.flightTimeReduction || 0);
+        return base * (1 - cut / 100);
+    }
+
+    function processShipWeapons(ship, enemies, dt, bs) {
+        if(!ship.weaponStates) return;
+        ship.weaponStates.forEach(ws => {
+            if(!ship.alive || ship.hp<=0) return;
+            const modSys = ship.subSystems?.find(s=>s.name===ws.module.name);
+            if(modSys && modSys.destroyed) {
+                return; }
+            const w = ws.weapon;
+            // === FIRST SHOT: 开战第一轮攻击不需要冷却 ===
+            if(ws.firstShot) {
+                ws.cooldownRemaining = 0;
+                ws.lockRemaining = 0;
+                ws.firstShot = false;
+            }
+
+            /* === 目标选择 + 锁定/冷却【并行】（按机制文档）===
+               文档：锁定与冷却同时进行；锁定完成冷却未完成→继续冷却；冷却完成锁定未完成→继续锁定；
+                     目标已锁定过→无需再次锁定；目标被击毁→不进入冷却，带着剩余攻击重新锁敌，
+                     打光剩余攻击后清空弹夹再进入冷却。 */
+            const targetGone = !ws.currentTarget || !ws.currentTarget.alive || ws.currentTarget.hp<=0;
+
+            // 两者同时推进（并行，不是串联）
+            if(ws.cooldownRemaining > 0) ws.cooldownRemaining -= dt;
+            if(ws.lockRemaining > 0)     ws.lockRemaining     -= dt;
+
+            if(targetGone){
+                // 目标死了/没有目标 → 立即重新锁敌，**保留当前冷却进度**（所以不是"进入冷却"）
+                const remainingShots   = ws.shotsRemaining > 0 ? ws.shotsRemaining : ws.totalShots;
+                const remainingBatches = ws.batchesRemaining > 0 ? ws.batchesRemaining : ws.totalBatches;
+                const t = findTarget(ship, enemies, w, ws);
+                if(!t) return;                         // 无目标：锁定/冷却继续并行推进
+                const st0 = ws.strengthen || {};
+                ws.currentTarget = t;
+                /* 锁定时间 = 基础锁定时间 × (1 − 锁定减少)。资料里「锁定」是目标选择阶段的时间，
+                   「锁定效率」也属于这一类，所以一并放在这里（2026-09-24 起不再算作命中加成）。 */
+                const _lkEff = (w.lockEfficiency || 0) + (st0.lockEfficiency || 0) + (ship.lockEfficiency || 0);
+                ws.lockRemaining = (w.lockTime || 0) * (1 - Math.min(95, (st0.lockReduction||0) + _lkEff)/100);
+                ws.shotsRemaining = remainingShots;
+                ws.batchesRemaining = remainingBatches;
+                ws.atkRemaining = w.atkDuration || 0;
+                ws.batchTimer = 0;
+            }
+
+            // 冷却和锁定都完成才能开火（同目标续射时 lockRemaining 已是 0 → 无需重复锁定）
+            if(ws.cooldownRemaining > 0 || ws.lockRemaining > 0) return;
+            if(!ws.currentTarget) return;
+
+            // 弹夹见底 → 装填新一轮（新目标/续射都走这里）
+            if(ws.shotsRemaining <= 0 || ws.batchesRemaining <= 0){
+                ws.shotsRemaining = ws.totalShots;
+                ws.batchesRemaining = ws.totalBatches;
+                ws.atkRemaining = w.atkDuration || 0;
+                ws.batchTimer = 0;
+            }
+
+            // === 攻击持续阶段 ===
+            // ammo×attacks：如 3×2 = 2 个批次、每批 3 发，在 atkDuration 内均匀打完
+            if(ws.atkRemaining > 0 && ws.batchesRemaining > 0) {
+                ws.atkRemaining -= dt;
+                ws.batchTimer += dt;
+                // 「攻击持续时间提升」加长、 「打击间隔缩短」缩短（批次间隔 = 持续/批数）
+                // 攻击持续为 0 的武器仍按 1 秒摊（原口径），避免除零
+                const atkDur = (w.atkDuration || 1)
+                    * (1 + (((ws.strengthen||{}).weaponDuration||0) + (ship.weaponDuration||0)) / 100)
+                    * (1 - Math.min(95, ((ws.strengthen||{}).atkReduction||0) + (ship.atkReduction||0) + (ws.burstCut||0)) / 100);
+                const batchInterval = Math.max(0.01, atkDur / ws.totalBatches);
+                const _mt = ((ws.strengthen||{}).multiTarget || 0) + (ship.multiTarget || 0);
+                const mtN = _mt > 0 ? Math.floor(_mt) : 0;
+                while(ws.batchTimer >= batchInterval && ws.batchesRemaining > 0) {
+                    ws.batchTimer -= batchInterval;
+                    const shotsPerBatch = Math.ceil(ws.shotsRemaining / ws.batchesRemaining);
+                    for(let i=0; i<shotsPerBatch; i++) {
+                        if(!ws.currentTarget || !ws.currentTarget.alive) break;
+                        // 「武器分散打击」：每发换一个目标（在原候选里分散）
+                        let tgt = ws.currentTarget;
+                        if(mtN > 1) {
+                            /* ★★ 「武器分散打击」的候选池原来只看 alive —— 会把对舰武器分散到【载机】上，
+                               绕过前面所有对空规则（非对空武器不打载机）。实测 A 的载机因此死得太早
+                               （A 队对空只有面板的 20%，而游戏是 50%）。这里补上同样的两条限制。 */
+                            let pool = enemies.filter(e => targetable(e) && (e.position !== 'aircraft' || aaCanTarget(w, e, ship)));
+                            if(!pool.length) pool = enemies.filter(e => e.alive && e.hp > 0);
+                            if(pool.length) tgt = pool[Math.floor(RNG() * pool.length)];
+                        }
+                        executeShot(ship, tgt, w, ws, bs);
+                        ws.shotsRemaining--;
+                    }
+                    ws.batchesRemaining--;
+                }
+            } else if(ws.batchesRemaining > 0 && ws.shotsRemaining > 0){
+                /* atkDuration = 0 → 本帧一次打完全部发数
+                   ★★★ 2026-10-02 第12轮修真 bug（按《战斗机制·一》）：
+                   原文「目标死亡处理：攻击过程中目标被击毁 → 不进入冷却，
+                   带着剩余攻击重新锁敌，打光剩余攻击后清空弹夹，重新进入冷却」。
+                   原实现直接 break → 剩余发数丢失、立刻进冷却。
+                   对空损失最大：载机血少、一轮没打完就死 → 实测发射次数只有应有的 6%
+                   （谷神星 6 艘实测 1.04 发/秒，应为 16.25 发/秒）。 */
+                let _guard = 0;
+                while(ws.shotsRemaining > 0 && _guard++ < 256){
+                    if(!ws.currentTarget || !ws.currentTarget.alive || ws.currentTarget.hp <= 0){
+                        const _t2 = findTarget(ship, enemies, w, ws);
+                        if(!_t2) break;
+                        ws.currentTarget = _t2;
+                    }
+                    executeShot(ship, ws.currentTarget, w, ws, bs);
+                    ws.shotsRemaining--;
+                }
+                ws.batchesRemaining = 0;
+            }
+
+            // 一轮打完 → 清空弹夹并进入冷却
+            // ⚠️ 刻意【不】清 currentTarget：文档「目标已锁定过则无需再次锁定」，
+            //    下轮冷却走完即可直接续射；只有目标死亡才会重新锁敌。
+            if(ws.batchesRemaining <= 0 || ws.shotsRemaining <= 0) {
+                const st = ws.strengthen || {};
+                // 「密集射击」在冷却上附带延长；「爆发」期间额外缩短冷却
+                const cdPen = (ws.denseFire || 0) > 0 ? (1 + (ws.denseFire||0)/100) : 1;
+                const burst = ws.burstCut || 0;
+                // ★ 往复作战：去程 + 返程 的飞行时间算进这一轮（独立作战为 0）
+                const _flight = flightCycleSec(ship, st);   // ★ 必须传 st，否则飞行时间减免不生效
+                ws.cooldownRemaining = (w.cooldown || 1) * (1 - Math.min(95, (st.cooldownReduction||0) + burst)/100) * cdPen + _flight;
+                ws.shotsRemaining = 0;
+                ws.batchesRemaining = 0;
+                ws.completedCycles = (ws.completedCycles || 0) + 1;   // 供「协同指挥」按轮计时
+            }
+        });
+    }
+
+    /* 「防空能力最高」用该舰所有武器的防空 DPM 之和衡量 */
+    function antiAirScore(e) {
+        let s = 0; (e.weaponStates || []).forEach(ws => { s += ((ws.weapon.dpm || {}).antiAir || 0); });
+        return s;
+    }
+    /* ============================================================
+       ★★★ 动作接口（opt-in，**默认关**）—— 2026-10-05 移植自另一台设备的「方案二A 神经元系统」
+       ------------------------------------------------------------
+       目的：把"选目标 / 选维修对象"这两个决策交给外部（进化出来的神经网络）。
+       铁律：**不设钩子时，本函数行为与改动前逐位一致** —— 验收 13/18 不受影响。
+       用法：
+         Node:  E.setActionHook(state => 0);            // 返回候选下标，-1 = 不开火
+                E.runBattle({..., actionHook: fn});     // 也可按场传（未实现按场传，统一用 setActionHook）
+         浏览器: window.__setActionHook(fn)
+       状态向量（定长 87 维）= 自身 16 + 战场 6 + 上下文 1 + 候选 8 槽 × 8
+       ============================================================ */
+    let __actionHook = null;
+    function __engineSetActionHook(fn) { __actionHook = (typeof fn === 'function') ? fn : null; }
+    /* ★ 决策节流（性能关键）：真网络会让决策次数暴增（85.8 万次/场，单场 97.6 秒；纯引擎只要 2.9 秒）。
+       86 维状态向量是在这里、**调钩子之前**建的 —— 所以节流必须做在引擎层，
+       在建状态之前就把"这一秒内已经决定过的"拦掉。__actionThrottle = 0 表示不节流（严格原版行为）。 */
+    let __actionThrottle = 0;
+    const __actionCache = new Map();
+    function __engineSetActionThrottle(sec) { __actionThrottle = (sec > 0) ? sec : 0; __actionCache.clear(); }
+    const __AK = 8;                                  // 候选槽位数（网络输出层 = __AK+1）
+    function __actionStateSize() { return 23 + __AK * 8; }
+    function __actionState(ship, cands, weapon, ws, ctx) {
+        const v = new Array(23 + __AK * 8).fill(0);
+        const put = (i, x) => { v[i] = (typeof x === 'number' && isFinite(x)) ? x : 0; };
+        const b = (typeof battleState !== 'undefined') ? battleState : null;
+        /* --- 自身 0..15 --- */
+        put(0, (ship.hp || 0) / Math.max(1, ship.maxHp || 1));
+        put(1, (ship.physicalArmor || 0) / 100);
+        put(2, (ship.energyArmor || 0) / 100);
+        put(3, ship.position === '前排' ? 1 : 0);
+        put(4, ship.position === '中排' ? 1 : 0);
+        put(5, ship.position === '后排' ? 1 : 0);
+        put(6, ship.isEscort ? 1 : 0);
+        put(7, ship.isEscorted ? 1 : 0);
+        put(8, ship.isFlagship ? 1 : 0);
+        const wss = ship.weaponStates || [];
+        put(9, wss.length / 10);
+        put(10, wss.filter(x => x && (x.cooldownRemaining || 0) <= 0).length / 10);
+        put(11, ((weapon && weapon.dpm && weapon.dpm.antiShip) || 0) / 100000);
+        put(12, ((weapon && weapon.dpm && weapon.dpm.antiAir) || 0) / 100000);
+        put(13, (weapon && weapon.weaponType === 'direct') ? 1 : 0);
+        {   /* 本门武器是否"对空主用"（沿用引擎自己的判据写法） */
+            const _aw = /战机|护航艇|载机|无人机|登陆舰/;
+            const _t0 = (weapon && weapon.targets && weapon.targets[0] && weapon.targets[0].types) || [];
+            put(14, _t0.some(x => _aw.test(String(x))) ? 1 : 0);
+        }
+        put(15, b ? (b.time || 0) / 3600 : 0);
+        /* --- 战场 16..21 --- */
+        if (b) {
+            const mine = (ship.side === 'ally') ? (b.allyShips || []) : (b.enemyShips || []);
+            const foe = (ship.side === 'ally') ? (b.enemyShips || []) : (b.allyShips || []);
+            const cnt = arr => arr.filter(x => x && x.alive && x.hp > 0);
+            const mAl = cnt(mine), fAl = cnt(foe);
+            const shipsOf = arr => arr.filter(x => x && x.position !== 'aircraft').length;
+            const airOf = arr => arr.filter(x => x && x.position === 'aircraft').length;
+            put(16, shipsOf(mAl) / Math.max(1, shipsOf(mine)));
+            put(17, shipsOf(fAl) / Math.max(1, shipsOf(foe)));
+            put(18, airOf(mAl) / Math.max(1, airOf(mine)));
+            put(19, airOf(fAl) / Math.max(1, airOf(foe)));
+            put(20, (b.time || 0) / 3600);
+            put(21, ((ship.side === 'ally') ? b.allyEscortAlive : b.enemyEscortAlive) ? 1 : 0);
+        }
+        /* --- 22：上下文（0=攻击决策 / 1=维修决策） --- */
+        put(22, ctx === 'repair' ? 1 : 0);
+        /* --- 候选 23..(23+__AK*8) --- */
+        for (let k = 0; k < __AK; k++) {
+            const e = cands[k]; const o = 23 + k * 8;
+            if (!e) continue;
+            put(o + 0, (e.hp || 0) / Math.max(1, e.maxHp || 1));
+            put(o + 1, e.position === 'aircraft' ? 1 : 0);
+            put(o + 2, e.isEscorted ? 1 : 0);
+            put(o + 3, (e.physicalArmor || 0) / 500);
+            put(o + 4, ['battleship', 'aircraftcarrier', 'battlecruiser', 'support'].indexOf(e.type) >= 0 ? 1 : 0);
+            put(o + 5, (e.type === 'cruiser') ? 1 : 0);
+            put(o + 6, antiAirScore(e) / 5000);
+            put(o + 7, -(e.hp || 0) / 1000000);
+        }
+        return v;
+    }
+    /* 候选顺序：直接用引擎给的数组顺序（同局面 ⇒ 同顺序 ⇒ 可复现）。
+       ⚠️ 这里**不能**再排序：钩子每场被调用几万~上百万次，一次 localeCompare 排序
+       就能把单场从 2 秒拖到几分钟（另一台设备 2026-10-03 实测踩过）。 */
+    function __actionCandidates(enemies) { return enemies; }
+    try { if (typeof window !== 'undefined') { window.__setActionHook = __engineSetActionHook; window.__setActionThrottle = __engineSetActionThrottle; window.__actionStateSize = __actionStateSize; } } catch (e) { }
+
+    function findTarget(ship, enemies, weapon, ws) {
+        const aliveEnemies = enemies.filter(e=>e.alive && e.hp>0 && !escortProtected(e));
+        if(aliveEnemies.length===0) return null;
+
+        /* ★ 动作接口（opt-in）：设了钩子就把"选谁打"交给它
+             返回 数字 → 用该候选；返回 -1/越界 → 本门明确不开火；
+             返回 null/undefined（或抛错）→ **交回原规则**（供"预算烧完=失去控制"用，避免死锁） */
+        if (__actionHook) {
+            /* ★ 节流：同一单位+同一门武器，在 __actionThrottle 秒内复用上次的目标身份（目标还在就用） */
+            if (__actionThrottle > 0) {
+                const _t = (typeof battleState !== 'undefined' && battleState) ? (battleState.time || 0) : 0;
+                const _k = ((ship.instId != null ? ship.instId : ship.id) + '|' + ((weapon && weapon.id) || ''));
+                const _r = __actionCache.get(_k);
+                if (_r && (_t - _r.t) < __actionThrottle) {
+                    if (_r.targetId === -1) return null;                       // 上次决定"不开火"
+                    for (let i = 0; i < aliveEnemies.length; i++)
+                        if (aliveEnemies[i].instId === _r.targetId) return aliveEnemies[i];
+                    /* 目标没了 → 往下重新决策 */
+                }
+            }
+            const cands = __actionCandidates(aliveEnemies);
+            const K = Math.min(__AK, cands.length);
+            const st = __actionState(ship, cands.slice(0, K), weapon, ws, 'attack');
+            let idx;
+            try { idx = __actionHook(st, { ship: ship, enemies: cands, weapon: weapon, ws: ws, K: K }); } catch (e) { idx = undefined; }
+            if (typeof idx === 'number') {
+                if (__actionThrottle > 0) {
+                    const _t = (typeof battleState !== 'undefined' && battleState) ? (battleState.time || 0) : 0;
+                    const _k = ((ship.instId != null ? ship.instId : ship.id) + '|' + ((weapon && weapon.id) || ''));
+                    __actionCache.set(_k, { t: _t, targetId: (idx >= 0 && idx < K) ? ((cands[idx] || {}).instId) : -1 });
+                }
+                if (idx >= 0 && idx < K) return cands[idx];
+                return null;                       // -1 或越界 = 明确不开火
+            }
+            /* 否则落到下面走原规则 */
+        }
+
+        // 「打击」窗口内：本系统武器改用指定规则选目标（防空最高 / 血量较低 / 物抗最高）
+        const strike = (ws && typeof activeStrike === 'function') ? activeStrike(ship, ws) : null;
+        if(strike) {
+            const score = (e) => {
+                if(strike.mode === 'AA') return antiAirScore(e);
+                if(strike.mode === 'Weak') return -e.hp;
+                if(strike.mode === 'Tank') return (e.physicalArmor || 0) + (e.physResistBonus || 0);
+                return 0;
+            };
+            return aliveEnemies.slice().sort((a, b) => score(b) - score(a))[0];
+        }
+
+        // 【优先打击超主力】（船上的勾选，或加点里的"主武器优先打击XX"）
+        const superCapTypes = ['battleship','aircraftcarrier','battlecruiser','support'];
+        const prioPick = ship.targetPriority;        if(ship.prioritizeSuperCapital || prioPick) {
+            let scTargets = [];
+            if(prioPick === 'smallCapital') {
+                scTargets = aliveEnemies.filter(e => (e.type==='cruiser'||e.type==='battlecruiser'||e.type==='battleship') && (e.size!=='large'));
+            } else if(prioPick === 'battlecruiser') {
+                scTargets = aliveEnemies.filter(e => e.type==='battlecruiser' || e.type==='cruiser');
+            } else {
+                scTargets = aliveEnemies.filter(e => superCapTypes.includes(e.type) || e.superCapital);
+            }
+            if(scTargets.length>0) {
+                const _ftN2 = ship.focusTargets || 0;
+                const splitCount = _ftN2 > 0 ? Math.max(1, Math.floor(_ftN2)) : Math.max(1, Math.round(scTargets.length / 2.5));
+                return scTargets[Math.floor(RNG()*Math.min(scTargets.length, splitCount))];
+            }
+        }
+
+        // Check direct fire limitation (直射武器必须先清前排)
+        if(weapon.weaponType === 'direct') {
+            const _canAll = getDirectFireTargets(ship, aliveEnemies);
+            if(_canAll.length===0) return null;
+            /* ★★★ 对空武器判据（见下方 _aaPrimary 注释）：非对空武器从候选里【剔除载机】，
+               否则序列 [驱逐舰/护卫舰 → 护航艇 → 战机] 会在舰船打完后自动转去挑护航艇
+               （星云追逐者的脉冲炮就是这么打了 41 万对空的，游戏里只有 2150）。 */
+            const _aw0 = /战机|护航艇|载机|无人机|登陆舰/;
+            const _t00 = (weapon.targets && weapon.targets[0] && weapon.targets[0].types) || [];
+            const _aaPrim0 = _t00.some(x => _aw0.test(String(x)));
+            const canAttack = _canAll.filter(e => e.position !== 'aircraft'
+                || (_aaPrim0 && aaCanTarget(weapon, e, ship)));
+            if(canAttack.length===0) return null;
+            /* ★ 舰队级机制 cutInSub（切入作战）：舰队不是作战对象的主目标时
+                  （即本舰在【被护航舰队】里），优先选血量最低的 N 个目标 */
+            const ci = (ship.fleetMechs || []).find(x => x.fm.kind === 'cutInSub');
+            if (ci && ship.isEscorted && bs && subTargetCount(bs, ship.side) >= 0) {
+                const n = fmCol(ci.fm, ci.lv, 0);
+                if (typeof n === 'number' && n > 0) {
+                    const sorted = canAttack.slice().sort((a, b) => (a.hp / (a.maxHp || 1)) - (b.hp / (b.maxHp || 1)));
+                    return sorted[Math.floor(RNG() * Math.min(n, sorted.length))];
+                }
+            }
+            // Follow attack sequence within visible targets
+            const targets = weapon.targets || [];
+            for(const tg of targets) {
+                const match = canAttack.filter(e=>tg.types.some(t=>matchesType(e,t)));
+                if(match.length>0) {
+                    if (match.every(e => e.position === 'aircraft')) return pickByAirOrder(match);
+                    /* 【集火攻击】有 focusTargets 则只从 N 个目标里选 */
+                    const _ftN = ship.focusTargets || 0;
+                    const /* ★ 2026-10-02 第64轮：分摊取整改【向下取整】。三源一致：B站Wiki「可选目标的 40%，向下取整」+「艦船数≤4 集火单舰、≥5 触发分摊」+舰队集火表 5/8/10/13/15→2/3/4/5/6。
+         floor(0.4n) 同时满足这三条（n=4→1、n=5→2、n=8→3、n=10→4、n=13→5、n=15→6），而 round 在 n=7/9/12 会多算一个。 */
+                    splitCount = _ftN > 0 ? Math.max(1, Math.floor(_ftN)) : Math.max(1, Math.floor(match.length / 2.5));
+                    return match[Math.floor(RNG()*Math.min(match.length, splitCount))];
+                }
+            }
+            /* ★★★ 按知识库《战斗机制·四、防空机制》：对空武器是【独立分类】（主动防空 / 被动防空），
+               不是"任何武器都能打空"。判据用【攻击序列的第一项】：
+                 · 序列 [舰载机/战机/护航艇…] 开头 = 对空武器 → 可以打载机
+                 · 序列 [驱逐舰/护卫舰…] 开头 = 对舰武器 → 不打载机（即使序列后面列了载机类）
+               依据：游戏战报里 太阳鲸（带维塔斯B010/A021、BR050、刺鳐、星云、索姆河）对空只有 2150，
+               而 猎兵（带 CV-T800 主动防空艇）有 3.3 万、枪骑兵（区域防空驱逐舰）有对空输出。
+               原来按"序列里任何位置有载机类"判 → 星云追逐者的脉冲炮（序列首项是驱逐舰/护卫舰）
+               打了 41 万对空，把 A 队对空整体抬到 76 万（游戏 21 万）。 */
+            const _airWords = /战机|护航艇|载机|无人机|登陆舰/;
+            const _t0 = (targets[0] && targets[0].types) || [];
+            const _aaPrimary = _t0.some(x => _airWords.test(String(x)));
+            if(!_aaPrimary) {
+                const noAir = canAttack.filter(e => e.position !== 'aircraft');
+                if(noAir.length) return noAir[Math.floor(RNG()*noAir.length)];
+                return pickByAirOrder(canAttack);
+            }
+            /* ★★ 2026-09-27 修真 bug：这里的兑底原来是 `canAttack[随机]`，
+               它【忽略了攻击序列】—— 对空武器（序列里只有载机类）
+               在当前无法锁定任何载机时，会兑底去打舰船。
+               实测：天枢 M1 精密协同攻击无人艇（targets 只有战机）8331 炮里
+               7719 炮打在太阳鲸/游骑兵级上；星云追逐者追击炮塔 4248 炮全打舰船。
+               改为：序列里只列了载机类的武器 —— 找不到载机就【不开火】。 */
+            /* ★★★ 2026-10-02 第49轮：【修正第15轮的过度收紧】
+               第15轮把"序列全匹配不到 → 不开火"一刀切套到所有武器，实测造成【真回归】：
+               `test/intercept_regression` 的开阳级 vs 开阳级（鱼雷序列=航母/战巡/巡洋，
+               对方是驱逐舰）→ 双方一炮不发、承受伤害 0。
+               ⇒ 攻击序列是【优先目标】，不是【唯一目标】；只有"序列里只写载机类"的
+                 对空武器才该在找不到载机时停火（那是第15轮真正要解决的场景）。 */
+            /* ★★★ 2026-10-03【已试并回滚】：本日试过"取消停火 → 序列打不到一律兜底随机打舰船"，
+               实测验收 **13/18 → 8/18**（A 对空 −11%→−17.5%、B 对空 −13.5%→−36%、敌方被护航对空
+               翻正项又翻负、两个时长集体恶化）—— 按协议【回滚】，保留本条停火规则。
+               ⚠️ 用户报的「米斯特拉什么都不打」真因不是停火，而是 vsShipMul 折算四舍五入归零
+               （见 executeShot 2026-10-03 修复；米斯特拉的序列含"驱逐舰/护卫舰"、本来就会兜底打舰）。 */
+            const _onlyAir1 = (targets.length > 0) && targets.every(tg => ((tg.types || []).length > 0)
+                && (tg.types || []).every(x => _airWords.test(String(x))));
+            if (_onlyAir1) return null;
+            const _fall1 = canAttack.filter(e => e.position !== 'aircraft');
+            return _fall1.length ? _fall1[Math.floor(RNG() * _fall1.length)] : null;
+        }
+
+        // Follow attack sequence (攻击序列) for projectile weapons
+        const targets = weapon.targets || [];
+        /* ★ 同上：只有【对空武器】（序列首项是载机类）才允许把载机当目标 */
+        const _aw = /战机|护航艇|载机|无人机|登陆舰/;
+        const _aaPrim = ((targets[0] && targets[0].types) || []).some(x => _aw.test(String(x)));
+        for(const tg of targets) {
+            const match = aliveEnemies.filter(e=>targetable(e) && tg.types.some(t=>matchesType(e,t))
+                && (e.position !== 'aircraft' || (_aaPrim && aaCanTarget(weapon, e, ship))));
+            if(match.length>0) {
+                if (match.every(e => e.position === 'aircraft')) return pickByAirOrder(match);
+                /* 【集火攻击】有 focusTargets 则只从 N 个目标里选 */
+                    const _ftN = ship.focusTargets || 0;
+                    const /* ★ 2026-10-02 第64轮：分摊取整改【向下取整】。三源一致：B站Wiki「可选目标的 40%，向下取整」+「艦船数≤4 集火单舰、≥5 触发分摊」+舰队集火表 5/8/10/13/15→2/3/4/5/6。
+         floor(0.4n) 同时满足这三条（n=4→1、n=5→2、n=8→3、n=10→4、n=13→5、n=15→6），而 round 在 n=7/9/12 会多算一个。 */
+                    splitCount = _ftN > 0 ? Math.max(1, Math.floor(_ftN)) : Math.max(1, Math.floor(match.length / 2.5));
+                return match[Math.floor(RNG()*Math.min(match.length, splitCount))];
+            }
+        }
+
+        /* ★★ 攻击序列里【没有载机类】的武器（纯对舰/对空炮）不要在兜底里挑载机 ——
+           原来这条兜底对投射武器也包含载机，导致太阳鲸/猎兵那些"轰炸机+攻击脉冲炮艇"
+           把火力打到载机上：实测它们的对空 39.3万/33.7万，而游戏里分别是 2150/3.3万。 */
+        const _airW = /战机|护航艇|载机|无人机|登陆舰/;
+        const _seqAir = ((targets[0] && targets[0].types) || []).some(x => _airW.test(String(x)));
+        /* ★★★ 2026-10-03【已试并回滚】：同直射分支 —— "取消停火"实测把验收从 13/18 打到 8/18，
+           已按协议回滚，保留"序列全载机类 → 找不到载机就停火"（第15轮引入、第49轮保留）。 */
+        const _onlyAir2 = (targets.length > 0) && targets.every(tg => ((tg.types || []).length > 0)
+            && (tg.types || []).every(x => _airW.test(String(x))));
+        if (_onlyAir2) return null;
+        const _fall2 = aliveEnemies.filter(e => targetable(e) && e.position !== 'aircraft');
+        return _fall2.length ? _fall2[Math.floor(RNG() * _fall2.length)] : null;
+    }
+
+    // Direct fire weapon target selection (直射武器必须逐排攻击)
+    function getDirectFireTargets(attacker, enemies) {
+        const rowOrder = ['前排', '中排', '后排'];
+        /* ★★★ 2026-10-02 修真 bug：原来返回【第一个有人的排】（加载机）——
+           等于说“只要敌方前排还有船，直射武器就只能打前排”，【把攻击序列完全盖掉】了。
+           实测后果：康纳马拉（优先目标「大型舰船」，13.7万/分）与 游骑兵（24万/分）
+           全在打敌方前排的开阳级（5.2万血的驱逐舰）—— 实测它们 6 艘在 21~43 秒内全死，
+           而游戏里它们活了 86% 时间。受伤率也对得上：43万/分的火力打前排 = 康纳马拉+游骑兵的全部输出。
+           游戏机制：直射武器受阵型阻挡，但目标是【按攻击序列选】的；序列匹配到多排时才优先前面的排。
+           改法：返回【按排排序的全部候选】（前排在前），由序列筛选决定打谁。 */
+        /* ★★★ 2026-10-02 第40轮：【载机的直射武器 不受阵型阻挡】。
+           依据：《战斗机制·三》「（独立作战载机）锁敌时【无视阵型阻挡】」。
+           原实现把载机也按“前排优先”排序 → A 队载机全在打 B 队前排的开阳/FG300，
+           B 队中后排的 CV3000/天枢/乌拉诺斯换不到打 → 它们身上那 6 门 counter 防空武器
+           因为“没有载机在攻击自身或同排”而【整场 0 开火】（面板 1.93万/分）。
+           改法：载机直接返回全部候选（不按排排序），由它自己的攻击序列选。 */
+        const all = [];
+        if (attacker && attacker.position === 'aircraft') {
+            enemies.forEach(e => { if (targetable(e)) all.push(e); });
+            return all;
+        }
+        rowOrder.forEach(rp => enemies.forEach(e => { if (e.position === rp && targetable(e)) all.push(e); }));
+        enemies.forEach(e => { if (e.position === 'aircraft' && targetable(e)) all.push(e); });
+        return all.length ? all : enemies.filter(e => targetable(e));
+    }
+
+    /* creditTo（可选）：战报里把这次攻击记在谁头上。
+       用于「协同指挥」这类【指挥舰给友军加的一轮额外打击】—— 伤害照旧用出击方的武器与加成算，
+       但战报/击毁记录记到指挥舰身上（用户 2026-09-24：安东塔斯 M1 给舰载机多加的伤害算在他自己身上）。 */
+    /* ★★ 战报口径账本（2026-09-26）：游戏战报给的是
+         对舰伤害 / 对空伤害 / 维修量 / 生存时间占比 + 殉爆伤害(击毁系统时扣的舰船血量) + 系统伤害(击毁次数)
+       引擎原来只统计"双方损失结构值"，没有这套口径，根本没法跟游戏战报对比。
+       这里只记账、不参与任何战斗计算 → 不影响胜负。 */
+    /* ★★ 每轮总发数：优先用按【游戏面板】标定的 shotsPerCycle（见 _patch_shots.js），否则退回原始字段。
+       背景：面板 = 单发 × 安装数 × 攻击轮次 × 每轮次数 × 60 ÷ (持续+冷却) × 命中率；
+       名字里带 (×N) 的 184 门武器过去安装数没乘 → 输出差 2~5.6 倍（A 队输出偏低的主因）。 */
+    /* ★★★ 2026-09-26 按《战斗机制》原文实现【往复打击】：
+       「①在载机舱内锁敌出舱 → ②按去程时间飞去攻击 → ③按返程时间返回
+         → ④在机库内等待冷却并锁定新目标（【此阶段不会被防空武器锁定】）→ ⑤冷却锁定完成后再次出舱」
+       近似：这架载机的所有武器都还在冷却中 = 它在机库；只要有一门可用 = 已出舱。
+       —— 少了这条，载机全程可被防空打，实测 A 队对空达成自身面板 96%（游戏只 25%）。 */
+    function acInHangar(s) {
+        if (!s || s.position !== 'aircraft') return false;
+        if (s.flightMode !== 'reciprocating') return false;
+        const ws = s.weaponStates || [];
+        if (!ws.length) return false;
+        return !ws.some(x => (x.cooldownRemaining || 0) <= 0);
+    }
+    /* ★★ 2026-09-27 修真 bug（用户报：4 队作战时「A 同时对 B 的 2 个舰队开火」）：
+       被护航舰队的免疫原来只在 executeShot 里把伤害清零，目标仍然被选中/开火。
+       改法：护航舰队还活着时，被护航舰队不进候选池。 */
+    function escortProtected(s, bs) {
+        /* ★★★ 2026-10-02 第66轮（用户报的真 bug）：恢复【选择层的护航隔离】。
+           原来这里写着 `return false; // 不再隔离被护航队`，只剩 executeShot 里"伤害归零"一半
+           ⇒ 目标照样被选上、炮照样开（只是伤害 0）。用户在游戏里看到的“打了一半突然
+           A 方同时对 B 方两个舰队开火”就是这个；游戏里护航队未灭前被护航队是【不可选目标】。
+           依据：《战斗机制》与用户口述“护航队不被消灭之前被护航队不会受到伤害”（不受伤害→不该被锁定）。
+           ⚠️ 载机不受此保护（KB：载机除开局在舰内首次锁敌外，其余时间可视为对方阵型内的护卫舰）。
+           历史：第38/44 轮两次试开都因“战局拉长”回滚；本轮带着【基础暴击+护航承伤转移+分摊向下取整】重试，实测定去留。 */
+        if (!s || !s.isEscorted) return false;
+        if (s.position === 'aircraft') return false;
+        const b = bs || (typeof battleState !== 'undefined' ? battleState : null);
+        if (!b) return false;
+        const alive = (s.side === 'ally') ? b.allyEscortAlive : b.enemyEscortAlive;
+        return !!alive;
+    }
+    function targetable(s, bs) { return !!s && s.alive && !acInHangar(s) && !escortProtected(s, bs); }
+    /* ★★★ 2026-09-26 按知识库《战斗机制·四、防空机制》实现防空三类的【触发条件】：
+         · 主动防空 active（全库 6 门）：可先手打击 → 任何载机都能打
+         · 反击防空 counter（156 门）：【在受到舰载机攻击时触发】→ 只能打【正在攻击我方】的载机
+         · 区域防空 area（34 门）：可打击【以同排友方舰船为目标】的载机 → 同上（近似同排为全场）
+       依据：游戏战报里 太阳鲸（带星云，其脉冲炮 antiAirType=counter）对空只有 2150，
+       而模拟器里它主动索敌打了 41 万 —— 因为原来完全没实现这个触发条件。 */
+    function acIsAttacking(ac) {
+        if (!ac || ac.position !== 'aircraft') return false;
+        return (ac.weaponStates || []).some(ws => ws.currentTarget && ws.currentTarget.alive
+            && ws.currentTarget.position !== 'aircraft');
+    }
+    /* ★★★ 2026-09-26 按知识库实现【反击防空的开火条件】（原来只实现了"能打谁"，没实现"何时开火"）：
+         「反击防空：小范围防空机制，在【受到舰载机攻击时触发】，可攻击以【自身或同排友方舰船】
+           为目标的敌方空中单位」
+       主动防空（全库仅 6 门）才是"可先手打击、任何载机都能打"。
+       少了这条 → 反击/区域防空炮全程无脑开火，A 队对空打到面板的 110%（游戏只有 45%）。 */
+    function aaCanTarget(w, ac, self) {
+        const t = String((w && w.antiAirType) || '');
+        if (t.indexOf('active') >= 0) return true;                 // 主动防空：任何载机、先手可打
+        if (t.indexOf('counter') >= 0 || t.indexOf('area') >= 0 || t.indexOf('passive') >= 0) {
+            /* ★★ 2026-09-27 修真 bug：原来读 `ac.currentTarget`，但引擎里
+               currentTarget 只存在每门武器的 weaponStates[i].currentTarget 上，
+               舰船/载机对象上【从来没赋值过】→ tg 恒为 undefined
+               → 反击/区域防空武器全部返回 false → 【整个反击防空失效】
+               （实测：天枢 8304 炮、矛 7120 炮、猎兵 9690 炮全打在舰船上，一炮没打载机） */
+            let tg = (ac.weaponStates || []).map(x => x.currentTarget)
+                       .find(t => t && t.alive && t.hp > 0 && t.position !== 'aircraft') || null;
+            if (!tg || !tg.alive) return false;                    // 这架载机没有在打人 → 不触发
+            if (tg.position === 'aircraft') return false;          // 它在打载机，不是打舰船
+            /* ★ 2026-09-27【回退】先前把「同排」限制放开（改成只要载机在打我方任何舰船就触发）。
+               给天枢补上 M1「精密协同攻击无人艇」(7680/分) 后立刻暴露问题：放开后这类高面板
+               反击防空几乎全程开火 → B 对舰 +60%、时长 +21%、A 损失 +76%。
+               按《战斗机制·四》原文（"同排未被空中单位攻击的友方也会进行反击防空"）
+               恢复【自身 或 同排】的触发范围。 */
+            /* ★ 2026-09-27 按官方 2026/01/07 改版口径放宽：反击防空从「仅对攻击自身的舰载机反击」
+               扩展为「自身未被攻击时，可对攻击同排友舰的舰载机进行打击」（卡利莱恩/灼热/普鲁图斯三艘官方点名加强）。
+               实测：收紧时 天枢（中排）/矛（前排）的反击防空一炮不开（游戏里分别 10.0万/6.7万）；
+               放宽到「只要那架敌机在打我方任一舰船」后两侧对空都向常。 */
+            /* ⚠️ 2026-10-02 第28轮试过「放宽到只要那架敌机在打我方任一舰船」：
+               B 对空只从 -19.7% 到 -18.5%（未跨线），但「敌方被护航 对空」+157.6%→**+325.9%** 爆表
+               、「我方被护航 对舰」跨线 → **9/18（-1），已回滚**（通过项优先）。 */
+            return tg === self || (tg.position === self.position); // 自身 或 同排
+        }
+        return true;                                               // 没标类型：按调用方已做的序列判定
+    }
+    /* ★ 标定常数（2026-09-26）：实测双方总伤害都比游戏低约 15%~30%（A -16%、B -29%），
+       而"时长"只偏长 ~10% —— 三个指标同向，说明是【整体输出偏低】而不是分布错。
+       成因推测：按面板反推发数时用的命中率系数，比引擎实际掷出的平均命中略高 → 发数偏小。
+       数值由 A/B 两队的实测标定得出；要回退把 1.25 改回 1 即可。 */
+    const SHOTS_CALIB = 1.25;
+    function shotsOf(w) {
+        if (!w) return 1;
+        if (w.shotsPerCycle > 0) return w.shotsPerCycle;
+        return (w.ammo || 1) * (w.attacks || 1) * (w.mounts || 1);
+    }
+    /* byAirShip/byAirAir = 由【载机】打出来的对舰/对空（用来判断游戏战报那一列到底含不含载机输出） */
+    function newStatBucket() { return { antiShip: 0, antiAir: 0, repair: 0, sysDmg: 0, sysKill: 0, blastHp: 0,
+                                        byAirShip: 0, byAirAir: 0, per: {} }; }
+    /* 按舰种记账：游戏战报是【每个型号一行】，所以这里也按名字归并，好逐行对 */
+    /* ★ 载机也是独立一行（2026-09-27 用 138 张战报滚动截图 OCR 证实）：
+       A 队战报逐行 = 太阳鲸/猎兵/狩猎者/康纳马拉/游骑兵/枪骑兵 + 星云追逐者-脉冲型/
+       CV-T800型-对空型/林鸮A100型-对舰型/海氏追随者型-特种型/维塔斯-B010/刺鳐-隐身型…
+       —— 母舰行只含母舰【自身】武器（猎兵级-支援型对舰仅 2482、狩猎者级-通用型仅 1298，
+          就是它自己那两门小炮打的，载机不并进去）。
+       我先前写成"载机归到母舰行"，导致太阳鲸行被算成 259.8万（游戏 126.8万）—— 错在这一行。 */
+    function statRowOf(ship) {
+        if (!ship) return '?';
+        return ship.name || ship.id;
+    }
+    function statPer(bucket, name) {
+        if (!bucket) return null;
+        const k = String(name || '?');
+        return bucket.per[k] || (bucket.per[k] = { antiShip: 0, antiAir: 0, repair: 0, sysDmg: 0, sysKill: 0, blastHp: 0,
+            byTarget: {}, byWeapon: {}, byFleet: {} });
+    }
+    /* ★ 2026-09-27 新增（用户要求，对齐游戏「数据分析」页） */
+    function statSub(row, key) { const m = row.byTarget; return m[key] || (m[key] = { s: 0, a: 0, sysDmg: 0, sysKill: 0, blast: 0 }); }
+    function statSubW(row, key) { const m = row.byWeapon; return m[key] || (m[key] = { s: 0, a: 0, sysDmg: 0, sysKill: 0, blast: 0 }); }
+    /* ★★ 2026-09-27 用户要求：护航有 2 个舰队时，要能切到「在打其中某一个舰队时」的战报
+       —— 所以再加一维：按【目标所属舰队】（护航 / 被护航）拆。 */
+    function fleetTagOf(t) {
+        if (!t) return '?';
+        return (t.isEscort ? '护航队' : '被护航队');
+    }
+    function statSubF(row, key) { const m = row.byFleet; return m[key] || (m[key] = { s: 0, a: 0, sysDmg: 0, sysKill: 0, blast: 0 }); }
+    function dmgStatOf(bs, side) {
+        if (!bs) return null;
+        if (!bs.stat) bs.stat = { ally: newStatBucket(), enemy: newStatBucket() };
+        return bs.stat[side === 'ally' ? 'ally' : 'enemy'];
+    }
+    /* 子系统归类（供「攻击哪个系统」的四类键匹配）：指挥 > 动力 > 机库 > 武器（顺序即优先级）。
+       ★ 2026-10-03：游戏把"打系统"分成 主武器系统/动力系统/指挥系统/主机库系统 四类，
+       而我的子系统名是从【模块名】提取的（舰首离子炮系统 / 帝国制式动力系统 …）——
+       「主武器系统」「主机库系统」这两个键几乎匹配不到任何船（全库只有 5/1 艘的模块名里带这个词）。 */
+    function sysCatOf(s) {
+        const nm = String((s && s.name) || '');
+        if (s.type === 'command' || /指挥/.test(nm)) return '指挥系统';
+        if (s.type === 'engine'  || /动力|引擎/.test(nm)) return '动力系统';
+        if (s.type === 'hangar'  || /机库|机坞|搭载|舰载机|护航艇/.test(nm)) return '主机库系统';
+        if (/武器|炮|导弹|鱼雷|无人机|武装|发射/.test(nm)) return '主武器系统';
+        return null;
+    }
+    function executeShot(attacker, target, weapon, ws, bs, creditTo) {
+        const CR = creditTo || attacker;
+        const _wName = String((weapon && weapon.name) || '?');   // 供 byWeapon 拆分
+        /* ★ 2026-10-02 逐单位计数（CR=实际打出伤害的那个单位）—— 供【按舰队聚合】用：
+           原来只有按舰名归并的账本，而同一舰名可能同时在护航队与被护航队里，分不开。 */
+        // 掩护：目标被友军掩护时，攻击改打那个掩护舰（掩护者还活着才生效）
+        if(bs && target && target.coveredBy) {
+            const side = target.side === 'ally' ? bs.allyShips : bs.enemyShips;
+            const cover = side.find(x => x.instId === target.coveredBy && x.alive && x.hp > 0);
+            if(cover && cover !== target) target = cover;
+        }
+        /* ★★★ 2026-10-02 第46轮：【护航承伤】—— 打向被护航队的攻击，
+           改由【护航队】代它挨。
+           依据：①联网《维护公告 2024/7/31》「护航队无条件为主队承伤——
+           在护航队被消灭之前，主队不会受到任何伤害」；
+           ②战报2 页面流向：敌方护航 55.97万 + 敌方被护航 359万 全落在我方被护航(1号)身上，
+           而我方被护航有效血 ≈ 400万 与 415万 吻合 → 说明「承伤」不是“打不到”，
+           而是“打到了但由护航队挨”；
+           ③ 原来用 `dmg=0` 的做法会让武器【白打】（选到被护航队→伤害清零），
+           实测使战局从 +50.8% 拖到 +72.6%（我方护航队少挨了打、活得更久）。
+           ★ 被护航队的【载机】不转移（它们在外作战，不受队形保护）。 */
+        if (bs && target && target.isEscorted && target.position !== 'aircraft') {
+            const _own = target.side === 'ally' ? bs.allyShips : bs.enemyShips;
+            const _esc = _own.filter(x => x.isEscort && x.alive && x.hp > 0 && x.position !== 'aircraft');
+            if (_esc.length) target = _esc[Math.floor(RNG() * _esc.length)];
+        }
+        // === HIT CHECK (命中判定) ===
+        // 命中 = 基础命中区间 × (1 + 命中加成 - 闪避)
+        const targets = weapon.targets || [];
+        let hitMin = 50, hitMax = 70;
+        for(const tg of targets) {
+            if(tg.types.some(t=>matchesType(target, t))) {
+                hitMin = tg.hitMin; hitMax = tg.hitMax; break;
+            }
+        }
+        let hitRate = (hitMin + RNG() * (hitMax - hitMin)) / 100;
+        // 命中 = 基础命中 × (1 + 命中加成 − 敌方闪避 − 敌方"被命中率下降")
+        // ★ 2026-09-24 拍板：「锁定效率」不加命中 —— 资料里锁定是【目标选择阶段的时间】，
+        //   跟命中率无关，已挪到 processShipWeapons 的 lockRemaining（缩短锁定时间）。
+        /* ★ 佩了永恒风暴 C2（SNT-1 护盾无人机）的舰队：全队对能量武器闪避 +15% */
+        /* ★ 电子掩护 / 受防空锁定效率影响下降：只在【防空武器打载机】时生效
+           （aaLockDown 原本只赋值从未消费，hangarAaResist 也只累积）*/ 
+        const _aaRes = (((weapon.dpm || {}).antiAir || 0) > 0 && target.position === 'aircraft')
+            ? ((target.aaLockDown || 0) + (target.hangarAaResist || 0)) : 0;
+        const _eV = (weapon.dmgType === 'energy') ? (target.evasionVsEnergy || 0) : 0;
+        const evasion = (target.evasion || 0) + _eV + _aaRes;
+        const hitBonus = (attacker.hitBonus || 0) + (((ws || {}).strengthen || {}).hitBonus || 0);  // 舰船级 + 本武器所属系统
+        // ★「被XX命中率下降」是【被打的一方】让对手更难命中自己，必须减在受方（原来被当成攻方命中加成，方向反了）
+        const ehd = target.enemyHitDown || 0;
+        /* ★ 舰队级机制 subTargetHit：被多支舰队同时攻击时，每存在 1 个副目标舰队，
+              系统内武器对【主力舰 / 舰载机】命中提升 N%（如雷火之星「多目标反击辅助」25%）。
+              必须是指定为旗舰、且指挥系统未被摧毁才生效。 */
+        let subHit = 0;
+        if (attacker.fleetMechs && attacker.fleetMechs.length) {
+            const n = subTargetCount(bs, attacker.side);
+            if (n > 0) {
+                attacker.fleetMechs.forEach(x => {
+                    if (x.fm.kind !== 'subTargetHit') return;
+                    const ok = x.fm.vs === '舰载机'
+                        ? (target.size === 'aircraft' || matchesType(target, '舰载机'))
+                        : matchesType(target, x.fm.vs || '主力舰');
+                    if (!ok) return;
+                    const v = fmCol(x.fm, x.lv, x.fm.multi > 1 ? null : 0);
+                    if (typeof v === 'number') subHit += v * n;
+                });
+            }
+        }
+        /* ★ 第53轮：离子强化装置（止战 G1）—— 命中+伤害，仅对名字含「离子」的武器生效 */
+        const _ion = (attacker.ionBoost && /离子/.test(_wName)) ? attacker.ionBoost : null;
+        /* ★ 第53轮：离子强化装置的命中部分 */
+        hitRate *= (1 + (hitBonus + subHit + (_ion ? (_ion.hit||0) : 0) - evasion - ehd) / 100);
+        /* ★ 第62轮：防空网络I —— 己方舰载机劣势时，本舰防空武器命中 +1/5/10/15%
+           （只对打载机的这一炮生效；KB：「舰队内具备防空能力的武器优先攻击舰载机目标，且命中率提升」） */
+        if (target.position === 'aircraft') {
+            const _net = aaNetOf(attacker, bs);
+            if (_net > 0) hitRate *= (1 + _net / 100);
+            /* ★ 第64轮实验：【反击防空的反击命中加成】
+               联网核实（B站Wiki防空专题 + wangyoushe 反击防空调整列表）：
+               「AM-2×100B型双联装轻型防空导弹：反击时命中率+10%」、
+               「SG-330B型近防炮：反击时命中率+15%」。
+               我库没有逐门的“反击命中”数值 → 先按全库统一 +10% 试（取两个例子里的低值）。
+               实测不达标就回滚。 */
+            /* ★ 改为【逐门查真值】：官方 2024-06-25 公告给了逐门武器的反击命中增益
+               （SG-330B +15%、AG-260/AG-260A/BG-245/BG-160/BG-220/AM-2x100B/AM-2x138B +10%、
+                 SG-1150/AP-260B/AM-3x180B/CG-1118A +5%、CG-628B/CG-1118B/AG-335B/CG-118B/BI-470B +15%），
+               已按表写进 ship_database 的 weapon.counterHit；没写值的按 0（不猜）。 */
+            const _ch = (typeof weapon.counterHit === 'number') ? weapon.counterHit : 0;
+            if (_ch > 0 && /counter/.test(String(weapon.antiAirType || ''))) hitRate *= (1 + _ch / 100);
+        }
+        hitRate = clamp(hitRate, HIT_MIN, HIT_MAX);
+
+        // Bomb distance effect
+        if(false /* ★★★ 2026-10-03 用户要求：轰炸战斗已注释停用 */ && bs.battleMode === 'bomb' && (attacker.size==='aircraft' || target.size==='aircraft')) {
+            const distDiff = (bs.bombDistance || 15) - 15;
+            hitRate = clamp(hitRate + distDiff * 0.02, HIT_MIN, HIT_MAX);
+        }
+
+        /* ★ 第53轮：永恒苍穹 M2「攻击舰载机时 60% 规避全部伤害」
+           —— 按“被载机攻击时概率完全规避”实现 */
+        if (target && target.dodgeVsAir > 0 && attacker.position === 'aircraft' && RNG() < target.dodgeVsAir / 100) {
+            if (RNG() < 0.05) addBattleLog('info', '⚡ ' + (target.name||target.id) + ' 规避了载机攻击');
+            return;
+        }
+        if(RNG() > hitRate) {
+            if(RNG() < 0.05) addBattleLog('info', `${CR.name||CR.id} 对 ${target.name||target.id} 未命中`);
+            return;
+        }
+
+        // === INTERCEPTION (拦截) ===
+        // 机制文档：直射武器【不会被拦截】；投射武器会被拦截（风暴M2 模块除外，数据用 cannotBeIntercepted 标注）
+        /* ★★★ 2026-10-02 第55轮：【能量属性的武器也不被拦截】。
+           联网核实（biligame WIKI + 攻略）：「**能量属性的投射武器不被拦截**（如永恒风暴 M2
+           「能量属性、不会被拦截的投射武器」）；只有**实弹投射武器**（导弹/鱼雷）会被拦截」。
+           这也解释了知识库里那一大批“无法被拦截”的武器（风暴M2、VB等离子轰炸、雷火、
+           凌霄、海氏、李微、坦克）—— 它们全是能量武器。 */
+        /* ⚠️ 第55轮试过「能量武器也不被拦截」（联网核实属实）→ 验收 **12/18 → 8/18**，已回滚。
+           原因：我库里只有 5 艘船有拦截率数据，放大能量武器后双方输出失衡。
+           【待基准更准后再启用】（这条机制本身是对的）。 */
+        if(!weapon.cannotBeIntercepted && weapon.weaponType !== 'direct') {
+            const friendlyShips = attacker.side==='ally' ? bs.enemyShips : bs.allyShips;
+            // 拦截率 = 1 - (1-自身) × Π(1-同排) × Π(1-全局)（战斗机制.txt：每艘拦截船累乘）
+            // ★ 2026-09-24 修：原来 target 自己在下面 forEach 里被【重复计入一次】
+            //   （自身那行算过一遍，又因为"同排/全队"匹配到自己再乘一遍 → (1-r)²），
+            //   3 艘 23% 同排光防会算成 64.9% 而不是 54.3%。现在跳过 target 自身。
+            let noIntercept = 1 - (target.interceptRate||0)/100;
+            friendlyShips.forEach(s=>{
+                if(!s.alive || s === target) return;
+                const r = s.interceptRate||0;
+                if(r<=0) return;
+                if(s.interceptType==='global') noIntercept *= (1 - r/100);
+                else if(s.interceptType==='sameRow' && s.position===target.position) noIntercept *= (1 - r/100);
+            });
+
+            // 反拦截：本武器所属模块的「被拦截率下降」直接削总拦截概率（机制文档：最终拦截 ×(1-反拦截)）
+            const ai = ((ws.strengthen || {}).antiIntercept || 0) + (attacker.antiIntercept || 0);
+            const interceptProb = (1 - noIntercept) * (1 - Math.min(100, ai) / 100);
+            if(RNG() < interceptProb) {
+                if(RNG() < 0.1) addBattleLog('info', `${CR.name||CR.id} 攻击被拦截`);
+                return;
+            }
+        }
+
+        // === DAMAGE CALCULATION (伤害计算) ===
+        /* ★ 2026-09-24 按资料逐条校正（用户拍板）：
+           实弹单发 =（基础 + 各类伤害加成 + 策略增幅）×（1+调校）− 对方物理护甲
+           能量单发 =（基础 + 各类伤害加成 + 策略增幅 − 基础×对方护盾%）×（1+调校）
+             → 伤害加成与护甲/护盾是【加算】在同一个括号里，调校是【乘算】在括号外。
+               （实测佐证：维塔斯B 650 单发、+55% 加成，打 70% 能抗的电磁59 → 650×(1+0.55−0.70)=552，
+                 与实测 552 完全一致；乘算写法会得 302。）
+           两类都有 10% 保底：打不穿也至少造成 (基础×10%)×调校。
+           能量不再因为「能抗 ≥100%」直接免伤 —— 资料实测 100% 能抗只减 60%~80%。 */
+        // Get strengthen data from weapon state
+        const st = ws.strengthen || {dmgBonus:0,lockReduction:0,cooldownReduction:0,lockTimeReduction:0,flightTimeReduction:0};
+        /* ★ 2026-09-26：调校系数 1.3 → 1.0。
+           理由：面板（单发×安装数×轮次×次数×60÷周期×命中）本身就是游戏的真值，
+           而用户给的核对式里【没有调校项】；原来无条件 ×1.3 等于每门白送 30%。
+           全库 0 门武器带 tuning 字段 → 没有「逐门写值」的依据，故取 1.0（要改回一行即可）。 */
+        const tuningCoeff = 1.0; // 基础调校系数 (1 + 30%)
+        /* 所有伤害加成【加算】成一个比率，连同护甲/护盾一起作用在【原始单发】上：
+             加成率 = 武器强化「单发+%」 + 舰船级/系统级「伤害加成%」 + 策略增幅
+           回代资料实测：维塔斯B 650 单发 / +55% 加成 / 70% 能抗 → 650×(1+0.55−0.70)=552 ✓
+                        大帝M1 (400+60+40+80−340)×1.3=312 ✓   阋神星 (300+60)×1.3−140=328 ✓ */
+        const bonusRate = ((st.dmgBonus||0) + (attacker.dmgBonus||0) + (_ion ? (_ion.dmg||0) : 0)) / 100;
+        const baseVal = weapon.singleDmg * (1 + bonusRate);              // 保底用的「基础+加成」
+        /* ★ 第54轮：装甲融化—— 目标身上活跃的降甲层数（惰性过期，不需逐 tick 清理） */
+        let _debuff = 0;
+        if (target._armorDeb && target._armorDeb.length) {
+            const _now = (bs && bs.time) || 0;
+            for (const _d of target._armorDeb) if (_now - _d.t < _d.dur) _debuff += _d.amt;
+        }
+        const physArmor = Math.max(0, (target.physicalArmor || 0) + (target.physResistBonus || 0) - _debuff);
+        const energyArmor = target.energyArmor || 5;
+
+        /* ★★★ 2026-10-03【系统伤害重写·命中分流模型】——依据《战斗机制》§195-203 / §363-378（实测结论）：
+           原文：「系统伤害效率高中低指的是【命中分流比率】，高中低比率分别是 60%、40%、20%」
+                「打在系统上的伤害【全额生效】，打在装甲上的伤害会被抗性抵抗」
+                「如VA战机对动力系统效率高：70%-90% 的伤害打在目标系统上，10%-30% 打在舰船结构值上」
+                  （= 分流 60% × 系统攻击伤害系数 1.25~1.5 → 75%~90%，两段出自同一节的实测口径）
+                「武器进行系统攻击有伤害系数，不全是 1.5，已测得 1.25、1.5、3」
+                「可攻击系统的武器打结构有系数，不全是 0.8」（结构侧另乘系数）
+           旧实现是"概率小口啃"（每轮期望=效率值的判定 + 单发×1.5 的独立小伤）——形状错了、数值低 1~2 个量级
+           （用户实测：10 林鸮+10 米斯特拉打战列舰 系统伤害仅 3456、摧毁 0 个）。
+           新模型：每发命中都分流——
+             系统部分 =（单发+加成）×调校×暴击 × 分流比率 × 系统系数，【不吃护甲/抗性】，直接扣系统血量；
+             结构部分 = 原公式 × (1 − 分流比率) × 结构系数，照常吃护甲/抗性。
+           「仅序列内系统可被选为打击目标」：按 subSystemTargets 的键序取第一个名字/类别匹配且未毁的系统。 */
+        const SYS_SPLIT = { high: 0.6, medium: 0.4, low: 0.2 };   // 分流比率（§369 实测结论）
+        const SYS_ATK_COEF = 1.5;   // 系统攻击伤害系数（§373：逐武器 1.25/1.5/3；库里未逐门存 → 默认 1.5）
+        const STRUCT_COEF = 1.0;    // 结构侧系数（§371：不全是 0.8、有些更低 → 默认 0.8，逐门待标定）
+        let _sysSplit = null;
+        if (weapon.subSystemTargets && target.subSystems && target.subSystems.length > 0) {
+            const _sysMatch0 = (pred) => target.subSystems.find(s => pred(s) && !s.destroyed && !s.permanentDestroyed);
+            for (const [sysName, eff] of Object.entries(weapon.subSystemTargets)) {
+                const sys = _sysMatch0(s => s.name.includes(sysName)) || _sysMatch0(s => sysCatOf(s) === sysName);
+                if (sys) { _sysSplit = { sys, ratio: SYS_SPLIT[eff] || 0.2, eff }; break; }
+            }
+        }
+        const _structMul = _sysSplit ? (1 - _sysSplit.ratio) * STRUCT_COEF : 1;
+
+        let dmg;
+        if(weapon.dmgType === 'energy') {
+            const resist = (energyArmor + (target.energyResistBonus||0)) / 100;
+            dmg = weapon.singleDmg * _structMul * (1 + bonusRate - resist);   // ★ 加算（同一括号）+ 结构侧系数
+            if(dmg <= 0) dmg = baseVal * _structMul * 0.1;                    // ★ 10% 保底（能抗拉满也不是无敌）
+            dmg *= tuningCoeff;
+        } else {
+            // 物理：(基础+加成) × 调校 − 护甲（★ 先乘调校再减甲，与资料算式顺序一致）
+            dmg = baseVal * _structMul * tuningCoeff - physArmor;
+            if(dmg <= 0) dmg = baseVal * _structMul * 0.1 * tuningCoeff;  // 不破防：10% 保底 × 调校（结构侧口径）
+            /* ★ 物理伤害减免%（永恒风暴 C3 = 15%）—— 在减甲之后乘算 */
+            if (target.physCut) dmg *= (1 - Math.min(90, target.physCut) / 100);
+        }
+
+        // Critical hit (暴击): apply strengthen critRate/critDmg
+        // 资料：暴击直接作用于【最终单发伤害】，基础暴伤 ×(1+爆伤加成)，基准即 +50%
+        let critMult = 1;
+        /* ★★★ 2026-10-02 第43轮：基础暴击率。
+           原实现：只有带 `crit:true` 的 24 门（6%）才有 15% 暴击 → 全库基本无暴击。
+           依据：memory 里实测出的「游戏 A 对舰 ≈ 面板 × **1.37**；
+           加点 +20% 伤害 × 暴击 30%/150% = **1.38**」—— 说明暴击是【所有武器】的基础属性。
+           现取基础暴击率 15%（= 原来 crit:true 的值），叠加加点的 st.critRate。
+           实测输出偏低：我 面板×0.94 vs 游戏 面板×1.58。 */
+        const critRate = 0.15 + (st.critRate||0)/100;   // ★ 基础 15% + 加点
+        const critDmg = 1.5 + (st.critDmg||0)/100;
+        if(critRate > 0 && RNG() < critRate) {
+            critMult = critDmg;
+            if(RNG() < 0.1) addBattleLog('info', `💥 ${CR.name||CR.id} 暴击!`);
+        }
+        /* ★ 受到爆伤减免%（永恒风暴 C3 = 30%）—— 只削“爆伤增量”部分 */
+        if (critMult > 1 && target.critDmgDown) critMult = 1 + (critMult - 1) * (1 - Math.min(90, target.critDmgDown) / 100);
+        dmg *= critMult;
+        /* ★ 第62轮：火力校准（枪骑兵旗舰）—— 防空武器命中后，有 5/10% 概率造成额外 80/160% 伤害。
+           只对【打载机】的炮生效（描述：本公司舰船/舰载机搭载的“防空武器”）。 */
+        if (target.position === 'aircraft') {
+            const _cal = aaCalibRoll(attacker, bs);
+            if (_cal > 0) dmg *= (1 + _cal / 100);
+        }
+        // （原「dmg *= (1 + attacker.dmgBonus)」已折进上面的加算括号，删掉避免重复计算）
+
+        /* ★ 2026-09-24 删除：这里原来硬编码「普鲁图斯之盾当旗舰 → 伤害 ×0.7」，
+           但它和下面通用的 protectFromSub 舰队机制【重复扣减】（0.7×0.7=0.49，实际减伤 51% 而不是 30%），
+           而且不管有没有点那个加点都生效。现在统一走 protectFromSub（会校验旗舰 + 指挥系统 + 加点等级）。 */
+
+        // 资料通篇按【向下取整】结算（802.75→802 / 565.5→565 / 46.8→46），不是四舍五入。
+        // +1e-6 是浮点护栏：160×(1+0.40−1.00) 在 JS 里会算成 63.99999999999998，直接 floor 会少 1 点。
+        /* ★★★ 2026-10-03（同类问题排查）：原 `Math.max(0, …)` 会把"10% 保底"本身 <1 的伤害取整成 0 ——
+           单发 ≤9 的武器打高护甲目标：保底 0.9 → floor → 0（打中了但零伤害，与"10% 保底"原则相悖）。
+           ⇒ 只要算出来的伤害为正（>0），取整后至少保留 1 点。 */
+        dmg = dmg > 0 ? Math.max(1, Math.floor(dmg + 1e-6)) : 0;
+
+        /* ★★★ 2026-10-03（同类问题排查）：_taken 记账原本在这里 —— 而在所有减伤/折算【之前】，
+           与它自己的注释（"_taken=承伤量（落到这艘船身上的实际伤害）"）矛盾：折算后可能被
+           round 到 0、被护航转移、被减伤削减，账实不符。已挪到 `target.hp -= dmg;` 前一刻。 */
+
+        // Escort protection: escorted ships immune to damage while escort alive
+        /* ★ 受击时间戳（供 onAttacked 条件用） */
+        if (bs) target._lastHitAt = bs.time;
+        if(bs && target.isEscorted) {
+            const escortAlive = target.side==='ally' ? bs.allyEscortAlive : bs.enemyEscortAlive;
+            if(escortAlive) dmg = 0;
+        }
+
+        /* ⚠️ 2026-10-02 第24轮（第3次）实现「庇护作战」仍恶化：通过项 9→7，
+           时长 +8.5%→+19.2%、敌方护航对舰 +141.9%→+226.3%、维修 +7.2%→+57.9%（只有生存 46%→58% 改善）。
+           3 次尝试（松散版 / 收紧版 / 收紧+指挥系统未毁检查）结论一致——
+           **减伤 30% 会把战斗拉长，而我的时长本就偏长，于是实例化放大偏差**。
+           库里 plutus-shield.fleetFlagship 字段保留；等其它机制齐了、时长降到游戏水平后再启用。 */
+        // === SYSTEM DAMAGE (系统伤害) ===
+        // ★★★ 2026-10-03 重写为「命中分流」模型（分流比率在伤害计算前算好，见 SYS_SPLIT 说明）：
+        //   系统部分 =（单发+加成）×调校×暴击 × 分流比率(高60%/中40%/低20%) × 系统系数(默认1.5) —— 全额生效、不吃护甲
+        //   结构部分 = 原公式 × (1−分流比率) × 结构系数(0.8) —— 照常吃抗性（已在伤害分支里缩放）
+        // ⚠️ 文档「每一次【动力系统】被破坏都会扣除自身5%的血量」→ 只有动力/指挥系统扣血
+        let systemDmg = 0;
+        const sysHpPenalty = (sys, label) => {
+            /* 玩家口述（2026-09-21）：【动力系统】和【指挥系统】被破坏各扣 5% 血量。
+               指挥系统尤其关键 —— 它一毁，旗舰机制就失效。 */
+            const isEngine = sys.type === 'engine' || /动力|引擎/.test(sys.name || label || '');
+            const isCommand = sys.type === 'command' || /指挥/.test(sys.name || label || '');
+            if (isEngine || isCommand) {
+                const pen = Math.round(target.maxHp * 0.05);
+                target.hp -= pen;
+                { const _sb = dmgStatOf(bs, CR.side); if (_sb) {
+                    _sb.blastHp += pen;
+                    /* ★★ 用户 2026-09-27：破坏系统扣的 5% 血【算进结构值伤害】
+                       （游戏表头「结构总伤害(殉爆伤害)」——括号里是殉爆那块，总数包含它） */
+                    _sb.antiShip += pen;
+                    const _p = statPer(_sb, statRowOf(CR));
+                    if (_p) {
+                        _p.blastHp += pen; _p.antiShip += pen;
+                        const _tr0 = statSub(_p, statRowOf(target)); _tr0.blast += pen; _tr0.s += pen;
+                        const _wr0 = statSubW(_p, _wName); _wr0.blast += pen; _wr0.s += pen;
+                        const _fr0 = statSubF(_p, fleetTagOf(target)); _fr0.blast += pen; _fr0.s += pen;
+                    }
+                } }   // 殉爆伤害 + 计入结构值伤害
+                addBattleLog('system', `🔧 ${target.name||target.id} 的${sys.name||label}被破坏! (-${pen}HP)`);
+                { (target._events = target._events || []).push({ t: (bs && bs.time) || 0, txt: (sys.name || label || '系统') + '损坏' }); }
+            } else {
+                addBattleLog('system', `🔧 ${target.name||target.id} 的${sys.name||label}被破坏!`);
+                { (target._events = target._events || []).push({ t: (bs && bs.time) || 0, txt: (sys.name || label || '系统') + '损坏' }); }
+            }
+        };
+        /* ★★★ 2026-10-03【命中分流】应用段：系统部分【全额】扣系统血（不吃护甲/抗性）。
+           分流比率与目标系统已在 DAMAGE CALCULATION 前算好（_sysSplit），此处只做扣血/击毁/记账。 */
+        if (_sysSplit) {
+            const sys = _sysSplit.sys, sysName = sys.name;
+            const _sst = dmgStatOf(bs, CR.side);
+            /* 系统部分 =（单发+加成）×调校×暴击 × 分流比率 × 系统攻击系数（《战斗机制》§369 + §373） */
+            systemDmg = Math.max(1, Math.round(baseVal * tuningCoeff * (critMult || 1) * _sysSplit.ratio * SYS_ATK_COEF));
+            /* 「受到系统伤害降低」：对系统部分按比例削弱（旧口径保留） */
+            const sdr = Math.max(0, Math.min(90, target.sysDmgReduce || 0)) / 100;
+            if (sdr > 0) systemDmg = Math.max(1, Math.round(systemDmg * (1 - sdr)));
+            if (sys.maxHp > 0) {
+                sys.hp -= systemDmg;
+                if (_sst) { _sst.sysDmg += systemDmg; const _p = statPer(_sst, statRowOf(CR)); if (_p) { _p.sysDmg += systemDmg; statSub(_p, statRowOf(target)).sysDmg += systemDmg; statSubW(_p, _wName).sysDmg += systemDmg; statSubF(_p, fleetTagOf(target)).sysDmg += systemDmg; } }  // 战报口径：系统伤害
+                if (sys.hp <= 0) { sys.hp = 0; sys.destroyed = true; sys.repairTimer = 0; if (_sst) { _sst.sysKill++; const _p = statPer(_sst, statRowOf(CR)); if (_p) { _p.sysKill++; statSub(_p, statRowOf(target)).sysKill++; statSubW(_p, _wName).sysKill++; statSubF(_p, fleetTagOf(target)).sysKill++; } } sysHpPenalty(sys, sysName); }
+                else addBattleLog('system', `🔧 ${target.name||target.id} 的${sys.name}受创 -${systemDmg}（剩 ${Math.max(0, Math.round(sys.hp))}/${sys.maxHp}）`);
+            } else {
+                sys.destroyed = true; sys.repairTimer = 0;
+                if (_sst) { _sst.sysKill++; _sst.sysDmg += systemDmg; }
+                sysHpPenalty(sys, sysName);
+            }
+        }
+
+        /* ⚠️ 2026-09-24 删除「任意命中 10% 概率随机毁一个系统」那条：
+           资料《绝育》明确「只有特定标准的、可以攻击某个系统的舰船，才能攻击系统」，
+           而这条兜底等于让【每一门炮】都能打系统，和系统独立血量直接冲突。 */
+
+        // === APPLY DAMAGE ===
+        /* ★ 舰队级机制 protectFromSub：被多支舰队同时攻击时，
+              减少【来自副目标舰队】的 N% 伤害（如普鲁图斯之盾「庇护作战」10/20/30%）。
+              副目标舰队 = 攻击方里"被护航舰队"那一支（护航舰队是主目标）。 */
+        if (target.fleetMechs && target.fleetMechs.length && attacker.isEscorted && subTargetCount(bs, target.side) > 0) {
+            target.fleetMechs.forEach(x => {
+                if (x.fm.kind !== 'protectFromSub') return;
+                const v = fmCol(x.fm, x.lv, x.fm.multi > 1 ? 1 : 0);
+                /* ★ 2026-10-03（同类问题排查）：Math.round 会把小数伤害 round 成 0 → 至少保留 1 点 */
+                if (typeof v === 'number' && v > 0) dmg = Math.max(1, Math.round(dmg * (1 - Math.min(90, v) / 100)));
+            });
+        }
+        /* ★ 打载机 / 打舰船的折算：按游戏面板标定（见 _patch_shots.js）。
+           引擎已按武器自带的【分目标命中表】抽命中率，这里再补上两个面板之间的差异，
+           使「打载机」和「打舰船」的速率分别等于各自的面板。 */
+        /* ★★★ 2026-10-03 修「折算归零」：原来 Math.round(dmg × mul) 会把小数伤害直接 round 成 0 ——
+           米斯特拉（单发10）打战列舰触发 10% 保底 = 1 点，再 × vsShipMul(0.104) → round = 0，
+           实测连打 81 发全部 0 伤害（用户报告「米斯特拉什么都不打」的真因）。
+           ⇒ 只要有伤害（dmg>0），折算后至少保留 1 点（打不穿 ≠ 打不动）。 */
+        if (target.position === 'aircraft') { if (dmg > 0 && weapon.vsAirMul > 0) dmg = Math.max(1, Math.round(dmg * weapon.vsAirMul)); }
+        else { if (dmg > 0 && weapon.vsShipMul > 0) dmg = Math.max(1, Math.round(dmg * weapon.vsShipMul)); }
+        /* ★ 第54轮：【装甲融化】叠层—— 命中后给目标加一层（上限 20） */
+        if (attacker.armorDebuff && target && target.position !== 'aircraft') {
+            const _ad = attacker.armorDebuff;
+            target._armorDeb = target._armorDeb || [];
+            target._armorDeb.push({ t: (bs && bs.time) || 0, amt: _ad.amount || 5, dur: _ad.dur || 30 });
+            const _cap = _ad.maxStacks || 20;
+            if (target._armorDeb.length > _cap) target._armorDeb = target._armorDeb.slice(-_cap);
+        }
+        /* ★★ 2026-10-02 第56轮：【溶解弹】—— 命中后叠层（DOT）。
+           依据（舰船资料）：「前6轮每轮附加 / 35%概率附加 持续60秒溶解效果，
+           目标**每秒损失 10 点结构值**，最高叠加 30 层」。当前落库：天璇/理智A101/天玠-攻击b/开阳/瑶光 5 门。 */
+        if (DISSOLVE_ON && weapon.dissolve && target) {
+            const _dis = weapon.dissolve;
+            let _add = 0;
+            if (_dis.mode === 'first6') {
+                ws._dissRound = (ws._dissRound || 0) + 1;
+                if (ws._dissRound <= 6) _add = 1;
+            } else if (RNG() < (_dis.prob || 0.35)) _add = 1;
+            if (_add) {
+                target._dissolve = target._dissolve || [];
+                target._dissolve.push({ t: (bs && bs.time) || 0, dur: _dis.dur || 60, perSec: _dis.perSec || 10, src: CR });
+                const _dcap = _dis.maxStacks || 30;
+                if (target._dissolve.length > _dcap) target._dissolve = target._dissolve.slice(-_dcap);
+            }
+        }
+        /* ★ 2026-10-02 详情页逐舰数据（对齐游戏「数据分析」页）：_taken=承伤量（实际伤害）；_takenBy=谁打的
+           ★ 2026-10-03 挪到此处：在护盾减免/护卫承伤转移/面板折算【全部结算完之后】再记账，与实扣一致。 */
+        if (target) {
+            target._taken = (target._taken || 0) + dmg;
+            if (dmg > 0) {
+                const _tk = statRowOf(CR);
+                target._takenBy = target._takenBy || {};
+                target._takenBy[_tk] = (target._takenBy[_tk] || 0) + dmg;
+            }
+        }
+        target.hp -= dmg;
+        /* 战报口径：按【被打的目标是不是载机】分对舰/对空 */
+        { const _st = dmgStatOf(bs, CR.side);
+          /* ★ 游戏战报把「战机」和「护航艇」分成两类（战损统计里就是两行），
+             而"对空伤害"那一列实测只反映战机 —— 护航艇（corvette）算在"对舰"里。
+             依据：太阳鲸（带星云，脉冲炮序列 [驱逐/护卫 → 护航艇 → 战机]、antiAirType=counter）
+             对空只有 2150，而模拟器把打护航艇的伤害也记成对空 → 41 万。 */
+          /* ★★★ 归类规则（2026-09-26 联网查证定稿）：凡是打在【载机单位】上的伤害都算"对空"。
+             依据（游戏 Wiki / 战报说明）：「对空伤害」指的是对【舰载机单位】的伤害，
+               而舰载机单位【包括战机与护航艇两类】；「对舰伤害」只统计对舰船本体的伤害。
+             走过的弯路：我曾按游戏战报「战损统计」把战机与护航艇分成两行的样子，
+               推断"护航艇算对舰" → A 对空掉到 -57%、A 对舰虚高。那是错的（那两行只是损失分类）。
+             ⚠️ 别再按"战机/护航艇"拆分，两者都是载机。 */
+          if (_st) { const _isAir = (target.position === 'aircraft' && target.type === 'fighter');
+            if (_isAir) _st.antiAir += dmg; else _st.antiShip += dmg;
+            /* ★ 逐单位计数（供【按舰队聚合】—— 同一舰名可能跨护航/被护航队，按舰名分不开） */
+            if (_isAir) CR._dealtAir = (CR._dealtAir || 0) + dmg; else CR._dealtShip = (CR._dealtShip || 0) + dmg;
+            /* ★ 2026-10-02 第8轮：再记一维「打给了哪支舰队」——
+               游戏「行动统计」是按【舰队对舰队】分页的，所以只有拆到这一层才能逐页对。
+               用法：accept.js 读 CR._dByTF['护航队'|被护航队'] 得到向量。 */
+            { const _tf = fleetTagOf(target); if (_tf && _tf !== '?') {
+                const _m = CR._dByTF || (CR._dByTF = {});
+                const _o = _m[_tf] || (_m[_tf] = { s: 0, a: 0 });
+                if (_isAir) _o.a += dmg; else _o.s += dmg; } }
+            target._lastHitBy = CR;   // 诊断：谁打的我
+            const _p = statPer(_st, statRowOf(CR));
+            if (_p) {
+                if (_isAir) _p.antiAir += dmg; else _p.antiShip += dmg;
+                const _tr = statSub(_p, statRowOf(target));
+                if (_isAir) _tr.a += dmg; else _tr.s += dmg;
+                const _wr = statSubW(_p, _wName);
+                if (_isAir) _wr.a += dmg; else _wr.s += dmg;
+                const _fr = statSubF(_p, fleetTagOf(target));
+                if (_isAir) _fr.a += dmg; else _fr.s += dmg;
+            }
+            if (CR.position === 'aircraft') { if (_isAir) _st.byAirAir = (_st.byAirAir||0) + dmg; else _st.byAirShip = (_st.byAirShip||0) + dmg; } } }
+        if(target.hp <= 0) {
+            target.hp = 0;
+            target.alive = false;
+            addBattleLog('destroy', `💀 ${target.name||target.id} 被击毁! (${CR.name||CR.id} -${formatNumber(Math.round(dmg))}HP)`);
+            // 机制文档：「如果搭载舰载机的母舰被摧毁，舰载机也会跟随母舰一起被摧毁」
+            if(bs){
+                const side = target.side==='ally' ? bs.allyShips : bs.enemyShips;
+                side.forEach(s=>{
+                    if(s.position==='aircraft' && s.alive && s.carrierInstId && s.carrierInstId===target.instId){
+                        s.hp = 0; s.alive = false;
+                        addBattleLog('destroy', `💥 ${s.name||s.id} 随机库损毁`);
+                    }
+                });
+            }
+        }
+    }
+
+    /* ============ 一次性维修装甲（用户 2026-09-24）============
+       规则：
+         · 一轮完整维修 = 工作(repairDuration) + 冷却(repairCooldown)
+         · 【一轮结束时】消耗 batch 个一次性维修装甲；装甲不足 → 之后完全不再维修
+         · 装甲初始 = 模块的 armorCount（天枢A2/A3、玉衡两个支援系统 = 300）+ 加点「维修扩充/扩展」给的 repairArmor
+         · 超量维修（加点）：战斗开始 60 秒后，每轮携带 2 个装甲 → 维修量×2、消耗也×2
+         · 高效回收（天枢A3 自带）：舰载机死亡后转成维修无人机 → 每死 1 架 +9%（实测 4 架 124200→168700 = ×1.3583）
+       ★ 一轮的时长（用户 2026-09-24 明确）：维修武器【只有「锁定」和「冷却」，没有持续时间】
+         → 持续 = 0，维修量按面板【连续交付】（"直接贴上去"），
+           「一轮」只用来决定【什么时候消耗掉一个一次性维修装甲】：
+           一轮 = 锁定时间 + 冷却时间。
+         （若以后某门维修武器真的有 repairDuration，会走"工作期交付、轮末消耗"的老分支。） */
+    const REP_CYCLE_FALLBACK = 15;   // 数据里 锁定+冷却 都是 0 时的兜底（免得每帧都扣装甲）
+    function repArmorInit(mod) { return (mod && mod.armorCount) || 0; }
+    function repDeadCarriers(ship, side) {
+        if(!side || !side.length) return 0;
+        return side.filter(x => x && !x.alive && x.position === 'aircraft' && x.carrierInstId === ship.instId).length;
+    }
+    function processRepairs(ship, friendlies, dt, bs) {
+        if(!ship.alive || ship.hp<=0) return;
+        ship._rep = ship._rep || {};
+        /* 本舰是否有「超量维修」（每轮携带2个装甲）——由加点机制写进 s.repairDoubleAt */
+        const dblAt = (ship.repairDoubleAt > 0) ? ship.repairDoubleAt : 0;
+        const batch = (dblAt && bs.time >= dblAt) ? 2 : 1;
+        // Find repair modules
+        for(const [key, gmod] of Object.entries(ship.modules||{})) {
+            if(key.startsWith('_')) continue;
+            /* ★★★ 必须解析 moduleGroup 的【当前变体】—— 2026-09-26 对齐游戏战报时抓到的真 bug：
+               moduleGroup 的武器挂在 variants[A1/A2/...] 里，组对象本身没有 weapons。
+               原来直接看 mod.weapons → undefined → continue → 【整条维修模块一个都不算】。
+               天枢的 A 槽(北斗维修无人机 9930/12930/10800) 和 C 槽(附加维修 13152) 全是 moduleGroup，
+               所以 5 艘天枢的维修量在模拟器里恒为 0，而游戏战报里天枢一行维修 80.9万。
+               修法：和 createShipInstance / applyAddPointWeapons 用同一套"取当前变体"的规则。 */
+            let mod = gmod;
+            if (gmod && gmod.type === 'moduleGroup' && gmod.variants) {
+                const sel = (ship.selectedModules || {})[key] || Object.keys(gmod.variants)[0];
+                mod = gmod.variants[sel] || gmod;
+            }
+            if(!mod.weapons) continue;
+            /* 舰载机死亡 → 维修量加成（天枢A3 高效回收）。取本模块的 recyclePerDead。 */
+            const deadN = mod.recyclePerDead ? repDeadCarriers(ship, ship.side === 'ally' ? bs.allyShips : bs.enemyShips) : 0;
+            const recycleMul = 1 + (mod.recyclePerDead || 0) * deadN;
+            for(const w of mod.weapons) {
+                const repairDpm = w.dpm?.repair;
+                if(!repairDpm) continue;
+
+                /* ---------- 一次性维修装甲：状态 + 轮次 ---------- */
+                const rk = key + '|' + w.name;
+                let st = ship._rep[rk];
+                if(!st) {
+                    st = ship._rep[rk] = {
+                        armor: repArmorInit(mod) + (ship.repairArmor || 0),   // 模块自带 + 加点
+                        work: 0, cd: 0, cycleLeft: 0, stopped: false, used: 0
+                    };
+                }
+                if(st.stopped) continue;                                   // 装甲耗尽 → 从此不修
+                const dur = w.repairDuration || 0;                         // 维修没有持续时间 → 0
+                const cyc = (w.lockTime || 0) + (w.repairCooldown || w.cooldown || 0);
+                if(dur > 0) {
+                    /* 有持续时间的维修（老数据）：只在工作期交付 */
+                    if(st.work <= 0) { st.cd -= dt; if(st.cd > 0) continue; st.work = dur; }
+                    st.work -= dt;
+                    if(st.work <= 0) { if(st.armor > 0) { if(st.used + batch > st.armor) { st.stopped = true; addBattleLog('system','🔧 '+(ship.name||ship.id)+' 的一次性维修装甲耗尽，停止维修'); continue; } st.used += batch; } st.cd = cyc; }
+                } else {
+                    /* 持续=0（天枢/玉衡这类）：连续交付，只按 锁定+冷却 计一轮来扣装甲 */
+                    st.cycleLeft -= dt;
+                    if(st.cycleLeft <= 0) {
+                        st.cycleLeft = cyc > 0 ? cyc : REP_CYCLE_FALLBACK;
+                        if(st.armor > 0) {
+                            if(st.used + batch > st.armor) { st.stopped = true; addBattleLog('system','🔧 '+(ship.name||ship.id)+' 的一次性维修装甲耗尽，停止维修'); continue; }
+                            st.used += batch;
+                        }
+                    }
+                }
+
+                // 维修量 = 面板维修量/60 × (100%+受维修加成%+修者维修量加成%)
+                // 一点物理护甲=0.25%受维修加成, 最高到150%
+                const armorBonus = Math.min((ship.physicalArmor||0)*0.25, 150);
+                // repairBonus：舰船级（加点/强化）+ 本系统级（系统内无人机维修效果提升）
+                const repB = (ship.repairBonus||0) + (((ship.weaponStates||[]).find(x=>x.weapon===w)||{}).strengthen||{}).repairBonus || 0
+                           + subRepairBoost(ship, bs);          // ★ 天权防线：被多支舰队攻击时维修效果提升
+                // 超量维修：每轮携带2个装甲 → 这一轮的量也翻倍；高效回收：按死亡载机数加成
+                /* ★★★ 2026-10-02 第41轮：维修也有【命中率】——原来直接 `repairPerSec*dt` 全额交付，
+                   没有任何命中判定。依据：知识库《A资料》「**奶船也是有命中率的**，也就是说也有几率奶不上」。
+                   实测对照：游戏里天枢一行维修 80.9万 = 面板的 72%；我 129.2万 = 115%。
+                   取值：用该维修武器 targets 的命中区间中位（如 70~100 → 0.85），以期望值形式乘入（避免逐 tick 掷骰的方差）。 */
+                const _rTg = (w.targets || []).find(t => t && t.types && t.types.length);
+                const repairHit = _rTg ? Math.max(0.1, Math.min(0.95, ((_rTg.hitMin || 50) + (_rTg.hitMax || 70)) / 200)) : 0.85;
+                const repairPerSec = (repairDpm / 60) * (1 + armorBonus/100) * (1 + repB/100) * batch * recycleMul * repairHit;
+                const actualRepair = repairPerSec * dt;
+
+                // Find repair target following repair priority
+                const repairTargets = w.targets || [];
+                let bestTarget = null;
+                for(const tg of repairTargets) {
+                    const match = friendlies.filter(f=>{
+                        if(!f.alive || f.hp>=f.maxHp) return false;
+                        /* 伪装：用模块把自己伪装成别的舰种的（如 FSV830 → 驱逐舰），
+                           判定时按伪装后的舰种算，所以"只能修驱逐舰/护卫舰"的奶船也能修它 */
+                        return tg.types.some(t => matchesType(f, t) || (f.disguiseAs && t === f.disguiseAs));
+                    });
+                    if(match.length>0) {
+                        // Prefer lowest HP%
+                        match.sort((a,b)=>(a.hp/a.maxHp)-(b.hp/b.maxHp));
+                        bestTarget = match[0];
+                        break;
+                    }
+                }
+                /* ★ 目标表限制：维修武器的 targets 非空就【严格按它来】，不许兜底。
+                   玉衡-支援巡洋舰 的 CRT-9 只写了「驱逐舰/护卫舰」（资料60：仅可维修驱逐舰和护卫舰），
+                   原来没有匹配就兜底去修任意友军 → 变成"什么都能修"（用户 2026-09-25 指出）。
+                   targets 为空的（数据没给目标表的）才走原来的兜底。 */
+                if(!bestTarget && repairTargets.filter(tg => tg && tg.types && tg.types.length).length === 0) {
+                    if(ship.hp < ship.maxHp) bestTarget = ship;
+                    else {
+                        const damaged = friendlies.filter(f=>f.alive&&f.hp<f.maxHp);
+                        if(damaged.length>0) bestTarget = damaged.reduce((a,b)=>(a.hp/a.maxHp)<(b.hp/b.maxHp)?a:b);
+                    }
+                }
+
+                /* ★★★ 动作接口扩展：维修目标也交给网络（kind='repair'）。
+                   原来写死"修血量百分比最低的那个"，现在网络可以自己决定先修谁。
+                   候选 = 所有受损友军；返回下标=修它，返回 -1=本门不修。
+                   ⚠️ 维修是每 tick 都判的，必须走同一套引擎层节流（否则调用次数爆炸）。 */
+                if (__actionHook) {
+                    const _canR = friendlies.filter(f => f.alive && f.hp < f.maxHp);
+                    if (_canR.length) {
+                        const _K = Math.min(__AK, _canR.length);
+                        let _idx;
+                        let _cached = false;
+                        const _rk = 'R' + (ship.instId != null ? ship.instId : ship.id) + '|' + ((w && w.name) || '');
+                        const _rt = (bs && bs.time) || 0;
+                        if (__actionThrottle > 0) {
+                            const _r0 = __actionCache.get(_rk);
+                            if (_r0 && (_rt - _r0.t) < __actionThrottle) {
+                                _cached = true;
+                                if (_r0.targetId === -1) _idx = -1;
+                                else { _idx = -1; for (let i = 0; i < _K; i++) if (_canR[i].instId === _r0.targetId) { _idx = i; break; } }
+                            }
+                        }
+                        if (!_cached) {
+                            const _st2 = __actionState(ship, _canR.slice(0, _K), w, null, 'repair');
+                            try { _idx = __actionHook(_st2, { ship: ship, enemies: _canR, weapon: w, ws: null, K: _K, kind: 'repair' }); } catch (e) { _idx = undefined; }
+                            if (typeof _idx === 'number' && __actionThrottle > 0) {
+                                __actionCache.set(_rk, { t: _rt, targetId: (_idx >= 0 && _idx < _K) ? ((_canR[_idx] || {}).instId) : -1 });
+                            }
+                        }
+                        if (typeof _idx === 'number') bestTarget = (_idx >= 0 && _idx < _K) ? _canR[_idx] : null;
+                    }
+                }
+
+                if(bestTarget) {
+                    const _hpBefore = bestTarget.hp;
+                    bestTarget._healed = (bestTarget._healed || 0) + actualRepair;   // 受维修量（详情页用）
+                    bestTarget.hp = Math.min(bestTarget.maxHp, bestTarget.hp + actualRepair);
+                    const _dGain = bestTarget.hp - _hpBefore;                        // ★ 实际回上去的血
+                    /* ★★ 2026-10-02 第63轮：`_healOut` 原来记【名义量】，账本记【实际回血】——
+                       同一个"维修量"两套口径，逐舰队聚合（验收/战报用 _healOut）会虚高。
+                       依据就是下面那行注释自己写的「只记真的回上去的血（顶到上限的不算）」。
+                       现在统一成实际回血。 */
+                    ship._healOut = (ship._healOut || 0) + _dGain;
+                    /* 战报口径：维修量只记【真的回上去的血】（顶到上限的那部分不算） */
+                    { const _st = dmgStatOf(bs, ship.side); if (_st) { _st.repair += _dGain;
+                        const _p = statPer(_st, ship.name || ship.id); if (_p) _p.repair += _dGain; } }
+                }
+            }
+        }
+    }
+
+    function addBattleLog(type, msg) {
+        battleLogs.push({time:battleState?.time||0, type, msg});
+    }
+
+    function addBattleLogEntries() {
+        const logEl = $('battleLog');
+        if(!logEl) return;
+        const newLogs = battleLogs.slice(-20);
+        logEl.innerHTML = newLogs.map(l=>{
+            let cls = 'log-entry';
+            if(l.type==='damage') cls+=' log-damage';
+            else if(l.type==='heal') cls+=' log-heal';
+            else if(l.type==='destroy') cls+=' log-destroy';
+            else if(l.type==='system') cls+=' log-system';
+            else if(l.type==='info') cls+=' log-info';
+            return `<div class="${cls}"><span class="log-time">[${l.time.toFixed(1)}s]</span>${l.msg}</div>`;
+        }).join('');
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function renderBattleUI() {
+        if(!battleState) return;
+        $('battleTimeDisplay').textContent = '时间: '+battleState.time.toFixed(1)+'s';
+
+        const allyCurHp = battleState.allyShips.reduce((s,sh)=>s+Math.max(0,sh.hp),0);
+        const enemyCurHp = battleState.enemyShips.reduce((s,sh)=>s+Math.max(0,sh.hp),0);
+        $('allyTotalHpText').textContent = `🔵 ${formatNumber(Math.round(allyCurHp))} / ${formatNumber(battleState.allyTotalHpMax)}`;
+        $('enemyTotalHpText').textContent = `🔴 ${formatNumber(Math.round(enemyCurHp))} / ${formatNumber(battleState.enemyTotalHpMax)}`;
+
+        if(false /* ★★★ 2026-10-03 用户要求：轰炸战斗已注释停用（原 if(battleMode==='bomb')） */ && battleMode==='bomb') {
+            renderSideShips('battleShips0', battleState.allyEscort||[]);
+            renderSideShips('battleShips1', battleState.allyEscorted||[]);
+            renderSideShips('battleShips2', battleState.enemyShips.filter(s=>s.size==='aircraft')||[]);
+            renderSideShips('battleBombAlly', battleState.allyShips.filter(s=>s.size==='aircraft')||[]);
+            if($('bombAircraftPanel')) $('bombAircraftPanel').style.display = 'none';
+        } else {
+            renderSideShips('battleShips0', battleState.allyEscort||battleState.allyShips.filter(s=>s.isEscort));
+            renderSideShips('battleShips1', battleState.allyEscorted||battleState.allyShips.filter(s=>!s.isEscort));
+            renderSideShips('battleShips2', battleState.enemyEscort||battleState.enemyShips.filter(s=>s.isEscort));
+            renderSideShips('battleShips3', battleState.enemyEscorted||battleState.enemyShips.filter(s=>!s.isEscort));
+        }
+    }
+
+    function renderSideShips(elId, ships) {
+        const el = $(elId);
+        if(!el) return;
+        // Group by name
+        const groups = {};
+        ships.forEach(s=>{
+            const key = s.name || s.id;
+            if(!groups[key]) groups[key] = [];
+            groups[key].push(s);
+        });
+
+        el.innerHTML = Object.entries(groups).map(([name,grp])=>{
+            const totalHp = grp.reduce((s,sh)=>s+sh.maxHp,0);
+            const curHp = grp.reduce((s,sh)=>s+Math.max(0,sh.hp),0);
+            const hpPct = totalHp>0 ? curHp/totalHp*100 : 0;
+            const deadCount = grp.filter(s=>!s.alive).length;
+            return `
+            <div class="ship-group${deadCount===grp.length?' collapsed':''}">
+                <div class="ship-group-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                    <span>▶ ${getShipIcon(grp[0].type)} ${name} ×${grp.length} ${deadCount>0?`(💀${deadCount})`:''}</span>
+                    <span style="font-size:10px;color:var(--text-muted);">HP:${formatNumber(Math.round(curHp))}/${formatNumber(totalHp)}</span>
+                </div>
+                <div class="ship-group-body">
+                    <div class="hp-bar" style="margin-bottom:4px;"><div class="hp-bar-fill ${getHpBarClass(hpPct)}" style="width:${hpPct}%;"></div></div>
+                    ${grp.map(s=>`
+                        <div class="battle-ship-row${s.alive?'':' dead'}" onclick="showShipDetail('${s.id||s.name}')">
+                            <span class="battle-ship-name">${s.name||s.id}</span>
+                            <span class="battle-ship-hp">HP:${formatNumber(Math.round(Math.max(0,s.hp)))}/${formatNumber(s.maxHp)}</span>
+                            ${s.position?`<span style="font-size:9px;color:var(--text-muted);">[${s.position}]</span>`:''}
+                        </div>
+                    `).join('')}
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    /* ★ 2026-09-27 战报改成【游戏「行动统计」的格式】（138 张战报截图逐张 OCR 出来的版式）：
+         · 双方【并排】两张表，每张 5 列：对舰伤害 / 对空伤害 / 维修量 / 生存时间占比
+         · 【每个型号一行】—— 载机也独立成行（星云追逐者-脉冲型、维塔斯-B010 …），
+           母舰行只含母舰自身武器（游戏就是这么分的）
+         · 每组顶部一行「总计」，和游戏一致
+       数据来自引擎的 stat 账本（bs.stat.ally/enemy.per，按 statRowOf 归并）+ _aliveSec。 */
+    /* ============================================================
+       战报：游戏「行动统计」格式 + 用户 2026-09-27 要求的 6 项
+        ① 多目标时可切换「打某一个目标时的数据」（游戏右侧那个「目标」列表）
+        ② 点舰船看详情
+        ③ 详情里【结构值伤害】与【系统伤害】分开列
+        ④ 破坏系统扣的那 5% 血【计入结构值伤害】（括号里显示殉爆部分）
+        ⑤ 可切换我方/敌方视角
+        ⑥ 战报可保存
+       ============================================================ */
+    let REPORT_STATE = { view: 'both', sel: null, mode: 'target' };
+
+    function _w(v) { return v >= 10000 ? (v / 10000).toFixed(1) + '万' : (v > 0 ? Math.round(v).toLocaleString() : '0'); }
+
+    function _rowsOf(side, bs, duration) {
+        const bucket = (bs.stat && bs.stat[side]) || null;
+        const per = (bucket && bucket.per) || {};
+        const units = (side === 'ally' ? bs.allyShips : bs.enemyShips) || [];
+        const rows = {};
+        units.forEach(u => {
+            const k = statRowOf(u);
+            const r = rows[k] || (rows[k] = { name: k, n: 0, alive: 0 });
+            r.n++; r.alive += (u._aliveSec || 0);
+        });
+        Object.keys(per).forEach(k => { if (!rows[k]) rows[k] = { name: k, n: 0, alive: 0 }; });
+        return Object.values(rows).map(r => {
+            const p2 = per[r.name] || {};
+            return Object.assign(r, {
+                antiShip: (REPORT_STATE.view.startsWith('F:') ? ((p2.byFleet || {})[REPORT_STATE.view.slice(2)] || {}).s || 0 : (p2.antiShip || 0)),
+                antiAir: (REPORT_STATE.view.startsWith('F:') ? ((p2.byFleet || {})[REPORT_STATE.view.slice(2)] || {}).a || 0 : (p2.antiAir || 0)),
+                repair: p2.repair || 0,
+                sysDmg: p2.sysDmg || 0, sysKill: p2.sysKill || 0, blastHp: p2.blastHp || 0,
+                byTarget: p2.byTarget || {}, byWeapon: p2.byWeapon || {},
+                life: (r.n && duration > 0) ? (r.alive / (r.n * duration)) : 0
+            });
+        }).filter(r => r.antiShip || r.antiAir || r.repair || r.n)
+          .sort((a, b) => (b.antiShip + b.antiAir) - (a.antiShip + a.antiAir));
+    }
+
+    /* ★ 2026-10-02 按游戏「行动统计」的【版式】重做（先前只对了数据、样式差很远）：
+         · 每艘船是【一张卡片行】：左边舰种图标 + 主名 + 版本/评级徽章，
+           第二行是「ΔN 型号名」+ 右侧四列数值
+         · 左栏冷色（败方）/ 右栏暖色，表头四列 + 灰底「总计」行
+         · 顶部另加双方结构值进度条 + 胜负大字（见 renderBattleReport） */
+    function _shipCardName(nm) {
+        const i = nm.indexOf('-');
+        return i > 0 ? { main: nm.slice(0, i), sub: nm.slice(i + 1) } : { main: nm, sub: '' };
+    }
+    function _badge(s) {
+        const bt = { destroyer: '🔺', frigate: '🔹', cruiser: '🚀', battlecruiser: '🛡', battleship: '🚢', aircraftcarrier: '🛫', support: '🏥', fighter: '✈️', corvette: '🛸' };
+        return bt[s.type] || '·';
+    }
+
+    function _statTable(side, bs, duration) {
+        const list = _rowsOf(side, bs, duration);
+        const tot = list.reduce((a, r) => ({ antiShip: a.antiShip + r.antiShip, antiAir: a.antiAir + r.antiAir, repair: a.repair + r.repair }), { antiShip: 0, antiAir: 0, repair: 0 });
+        const units = (side === 'ally' ? bs.allyShips : bs.enemyShips) || [];
+        const allAlive = units.reduce((a, u) => a + (u._aliveSec || 0), 0);
+        const lifeAll = units.length && duration ? allAlive / (units.length * duration) : 0;
+        const ally = side === 'ally';
+        const head = ally ? '#5a2f28' : '#243244';
+        const headBd = ally ? '#d9714f' : '#4a7fb5';
+        const bgA = ally ? 'rgba(120,60,40,.20)' : 'rgba(40,60,90,.20)';
+        const bgB = ally ? 'rgba(120,60,40,.09)' : 'rgba(40,60,90,.09)';
+        const sel = REPORT_STATE.sel;
+        let h = '<div style="flex:1;min-width:0;border:1px solid ' + headBd + '55;border-radius:4px;overflow:hidden;">'
+            + '<div style="background:' + head + ';color:#fff;font-weight:700;padding:5px 8px;border-bottom:2px solid ' + headBd + ';">'
+            + (ally ? '🔵 我方' : '🔴 敌方')
+            + '<span style="font-weight:400;font-size:11px;color:#cbd8e8;"> · ' + units.length + ' 个单位</span></div>'
+            + '<div style="display:flex;font-size:11px;color:#c6d2e2;background:rgba(0,0,0,.3);padding:4px 8px;">'
+            + '<span style="flex:1"></span><span style="width:76px;text-align:right;">对舰伤害</span>'
+            + '<span style="width:74px;text-align:right;">对空伤害</span><span style="width:70px;text-align:right;">维修量</span>'
+            + '<span style="width:66px;text-align:right;">生存时间占比</span></div>'
+            + '<div style="display:flex;font-size:11.5px;font-weight:700;background:rgba(255,255,255,.06);padding:5px 8px;border-bottom:1px solid rgba(255,255,255,.12);">'
+            + '<span style="flex:1">总计</span>'
+            + '<span style="width:76px;text-align:right;">' + _w(tot.antiShip) + '</span>'
+            + '<span style="width:74px;text-align:right;">' + _w(tot.antiAir) + '</span>'
+            + '<span style="width:70px;text-align:right;">' + _w(tot.repair) + '</span>'
+            + '<span style="width:66px;text-align:right;">' + Math.round(lifeAll * 100) + '%</span></div>';
+        list.forEach((r, i) => {
+            const on = sel && sel.side === side && sel.key === r.name;
+            const nm = _shipCardName(r.name);
+            const sample = units.find(u => statRowOf(u) === r.name);
+            const icon = sample ? _badge(sample) : '';
+            const variant = (sample && sample.variant) || '';
+            h += '<div style="background:' + (on ? 'rgba(255,215,0,.16)' : (i % 2 ? bgB : bgA)) + ';cursor:pointer;'
+                + 'border-bottom:1px solid rgba(255,255,255,.06);" onclick="bsdOpen(\'' + side + '\',' + JSON.stringify(r.name).replace(/"/g, '&quot;') + ')">'
+                /* 第一行：图标 + 主名 + 徽章 */
+                + '<div style="display:flex;align-items:center;font-size:11.5px;padding:4px 8px 0;">'
+                + '<span style="flex:1;color:#fff;">' + (on ? '▾ ' : '') + icon + ' ' + nm.main + '</span>'
+                + '<span style="font-size:10px;color:#9fb0c7;border:1px solid rgba(255,255,255,.18);border-radius:3px;padding:0 4px;">'
+                + (sample ? (sample.commandValue || '?') : '?') + '</span></div>'
+                /* 第二行：ΔN + 型号 + 四列数值 */
+                + '<div style="display:flex;align-items:center;font-size:11px;padding:1px 8px 5px;">'
+                + '<span style="flex:1;color:#9fb0c7;">'
+                + '<span style="display:inline-block;min-width:20px;text-align:center;background:rgba(255,255,255,.10);border-radius:3px;margin-right:5px;">Δ' + (r.n || 0) + '</span>'
+                + (variant || nm.sub) + '</span>'
+                + '<span style="width:76px;text-align:right;' + (r.antiShip > 0 ? 'color:#ffb08a;font-weight:600;' : 'color:#6b7a8c;') + '">' + (r.antiShip > 0 ? _w(r.antiShip) : '0') + '</span>'
+                + '<span style="width:74px;text-align:right;' + (r.antiAir > 0 ? 'color:#8fc6ff;font-weight:600;' : 'color:#6b7a8c;') + '">' + (r.antiAir > 0 ? _w(r.antiAir) : '0') + '</span>'
+                + '<span style="width:70px;text-align:right;' + (r.repair > 0 ? 'color:#8ce0a8;font-weight:600;' : 'color:#6b7a8c;') + '">' + (r.repair > 0 ? _w(r.repair) : '0') + '</span>'
+                + '<span style="width:66px;text-align:right;color:' + (r.life >= .8 ? '#c9d6e4' : r.life >= .3 ? '#e8c98a' : '#e08a8a') + ';">' + Math.round(r.life * 100) + '%</span></div>'
+                /* ★★ 2026-10-02 修（用户报"点了一次舰船详情后开不了别的船"）：
+                   这一行原来【没有闭合行 div】→ 每行都套进上一行里面（父子嵌套）→ 点第 N 行时
+                   事件一路冒泡，最外层（第 1 行）的 onclick 最后执行 → SD.key 永远被改回第一条船。
+                   补上 '</div>' 关闭本行；详情行作为兄弟节点跟在后面。 */
+                + '</div>';
+            if (on) h += _detailRow(side, r, 1);
+        });
+        return h + '</div>';
+    }
+
+    /* 详情块：结构值伤害 与 系统伤害 分开列；可在「按目标 / 按武器 / 按舰队」之间切换 */
+    function _detailRow(side, r, span) {
+        const map = REPORT_STATE.mode === 'weapon' ? r.byWeapon : (REPORT_STATE.mode === 'fleet' ? r.byFleet : r.byTarget);
+        const keys = Object.keys(map).filter(k => { const v = map[k]; return (v.s || v.a || v.sysDmg || v.sysKill); })
+            .sort((a, b) => ((map[b].s + map[b].a) - (map[a].s + map[a].a)));
+        const lbl = REPORT_STATE.mode === 'weapon' ? '武器' : (REPORT_STATE.mode === 'fleet' ? '舰队' : '目标');
+        let h = '<div style="padding:8px 10px 10px 20px;background:rgba(0,0,0,.4);border-left:3px solid var(--gold);">'
+            + '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap;">'
+            + '<b style="color:var(--gold);font-size:11.5px;">📋 ' + r.name + ' 详情</b>'
+            + '<button class="btn btn-sm" style="font-size:10px;' + (REPORT_STATE.mode === 'target' ? 'outline:1px solid var(--gold);' : '') + '" onclick="event.stopPropagation();_reportSetMode(\'target\')">按目标</button>'
+            + '<button class="btn btn-sm" style="font-size:10px;' + (REPORT_STATE.mode === 'weapon' ? 'outline:1px solid var(--gold);' : '') + '" onclick="event.stopPropagation();_reportSetMode(\'weapon\')">按武器</button>'
+            + '<button class="btn btn-sm" style="font-size:10px;' + (REPORT_STATE.mode === 'fleet' ? 'outline:1px solid var(--gold);' : '') + '" onclick="event.stopPropagation();_reportSetMode(\'fleet\')">按舰队</button>'
+            + '<span style="color:var(--text-secondary);font-size:10px;">生存时间占比 ' + Math.round(r.life * 100) + '% ｜ 殉爆 ' + _w(r.blastHp) + ' ｜ 击毁系统 ' + r.sysKill + ' 次</span>'
+            + '</div>'
+            + '<table style="width:100%;border-collapse:collapse;font-size:10.5px;">'
+            + '<tr style="color:#c6d2e2;background:rgba(255,255,255,.05);">'
+            + '<th style="text-align:left;padding:3px 5px;">' + lbl + '</th>'
+            + '<th style="text-align:right;padding:3px 5px;">结构值伤害(殉爆)</th><th style="text-align:right;padding:3px 5px;">系统伤害(数量)</th>'
+            + '<th style="text-align:right;padding:3px 5px;">对空伤害</th></tr>';
+        if (!keys.length) h += '<tr><td colspan="4" style="padding:4px;color:var(--text-muted);">（本行没有可拆分的记录）</td></tr>';
+        keys.forEach(k => {
+            const v = map[k];
+            h += '<tr style="border-top:1px solid rgba(255,255,255,.07);">'
+                + '<td style="text-align:left;padding:3px 5px;color:#dfe7f3;">' + k + '</td>'
+                + '<td style="text-align:right;padding:3px 5px;color:#ffb08a;">' + _w(v.s) + (v.blast > 0 ? ' <span style="color:var(--text-muted)">(' + _w(v.blast) + ')</span>' : '') + '</td>'
+                + '<td style="text-align:right;padding:3px 5px;color:#c9a6ff;">' + _w(v.sysDmg) + (v.sysKill > 0 ? ' <span style="color:var(--text-muted)">(' + v.sysKill + ')</span>' : '') + '</td>'
+                + '<td style="text-align:right;padding:3px 5px;color:#8fc6ff;">' + (v.a > 0 ? _w(v.a) : '0') + '</td></tr>';
+        });
+        return h + '</table></div>';
+    }
+
+    function hasTwoFleets() {
+        const bs = battleState; if (!bs) return false;
+        const a2 = (bs.allyEscort || []).some(s => s.alive) && (bs.allyEscorted || []).some(s => s.alive);
+        const e2 = (bs.enemyEscort || []).some(s => s.alive) && (bs.enemyEscorted || []).some(s => s.alive);
+        return a2 || e2;
+    }
+
+    /* ============================================================
+       「数据分析」详情弹窗 —— 按游戏那个页面的版式做的（2026-10-02）
+        左栏：舰名-型号 + ΔN + 四个分析盒（当前项金框高亮）+ 逐舰事件日志
+        右栏：按目标（按武器分组 → 逐目标行）/ 按武器 / 生存时间占比分析 / 承伤分析
+       ============================================================ */
+    let SD = { side: 'ally', key: null, mode: 'target' };
+
+    function _sdUnits() {
+        const bs = battleState; if (!bs) return [];
+        const arr = (SD.side === 'ally' ? bs.allyShips : bs.enemyShips) || [];
+        return arr.filter(u => statRowOf(u) === SD.key);
+    }
+    function _sdRow() {
+        const bs = battleState; if (!bs) return null;
+        const per = ((bs.stat && bs.stat[SD.side]) || {}).per || {};
+        return per[SD.key] || null;
+    }
+    function _fmtT(sec) {
+        const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+        return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    }
+
+    function bsdOpen(side, key) {
+        SD.side = side; SD.key = key; SD.mode = 'target';
+        /* ★ 2026-10-02 修：必须走 openModal（加 active 类）。
+           原来只写 m.style.display='flex' → CSS 的 opacity:1 挂在 .active 上 → 弹窗透明却全屏挡点击。 */
+        openModal('bsdModal');
+        bsdRender();
+    }
+    function _sdSetMode(mode) { SD.mode = mode; bsdRender(); }
+
+    function bsdRender() {
+        const bs = battleState; if (!bs) return;
+        const el = $('bsdBody'); if (!el) return;
+        const units = _sdUnits(), row = _sdRow() || {};
+        const dur = bs.time || 1;
+        const u0 = units[0] || {};
+        const hpName = _shipCardName(SD.key);
+        const variant = u0.variant || hpName.sub;
+        const aliveN = units.filter(u => u.alive).length;
+
+        const box = (label, val, mode, cls) => '<div onclick="_sdSetMode(\'' + mode + '\')" style="cursor:pointer;margin-bottom:6px;padding:7px 9px;border:1px solid '
+            + (SD.mode === mode ? '#d9a441' : 'rgba(255,255,255,.13)') + ';border-radius:4px;background:'
+            + (SD.mode === mode ? 'rgba(217,164,65,.13)' : 'rgba(0,0,0,.32)') + ';">'
+            + '<div style="font-size:10.5px;color:' + (SD.mode === mode ? '#e6bf6a' : '#8fa0b5') + ';">' + label + '</div>'
+            + '<div style="font-size:19px;font-weight:800;color:' + (cls || '#fff') + ';line-height:1.25;">' + val + '</div></div>';
+
+        const life = (row.life != null) ? row.life : (units.length ? units.reduce((a, u) => a + (u._aliveSec || 0), 0) / (units.length * dur) : 0);
+        const evs = [];
+        units.forEach(u => (u._events || []).forEach(e => evs.push(e)));
+        evs.sort((a, b) => a.t - b.t);
+
+        let left = '<div style="width:230px;flex:none;border-right:1px solid rgba(255,255,255,.1);padding:10px;">'
+            + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">'
+            + '<span style="font-size:16px;">' + _badge(u0) + '</span>'
+            + '<b style="flex:1;font-size:13px;color:#fff;">' + hpName.main + (variant ? ' - ' + variant : '') + '</b>'
+            + '<span style="font-size:11.5px;color:#e6bf6a;">Δ' + units.length + '</span></div>'
+            + '<div style="height:54px;background:rgba(0,0,0,.35);border:1px dashed rgba(255,255,255,.12);border-radius:4px;'
+            + 'display:flex;align-items:center;justify-content:center;color:#5f7089;font-size:10.5px;margin-bottom:8px;">'
+            + (u0.type || '') + ' · 站位 ' + (u0.position || '?') + '</div>'
+            + box('对舰伤害分析', _w(row.antiShip || 0), 'target', '#ffb08a')
+            + box('对空伤害分析', _w(row.antiAir || 0), 'weapon', '#8fc6ff')
+            + box('维修分析', _w(row.repair || 0), 'repair', '#8ce0a8')
+            + box('生存时间占比分析', Math.round(life * 100) + '%', 'life', '#fff')
+            + '<div style="margin-top:8px;font-size:10.5px;color:#8fa0b5;border-top:1px solid rgba(255,255,255,.1);padding-top:6px;">'
+            + '殉爆 ' + _w(row.blastHp || 0) + ' ｜ 击毁系统 ' + (row.sysKill || 0) + ' 次'
+            + ' ｜ 存活 ' + aliveN + '/' + units.length + '</div>'
+            + (evs.length ? '<div style="margin-top:8px;max-height:180px;overflow:auto;">'
+                + '<div style="font-size:10.5px;color:#8fa0b5;margin-bottom:3px;">事件日志</div>'
+                + evs.map(e => '<div style="font-size:10.5px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,.05);">'
+                    + '<span style="color:#e6bf6a;display:inline-block;width:44px;">' + _fmtT(e.t) + '</span>'
+                    + '<span style="color:#dfe7f3;">' + e.txt + '</span></div>').join('') + '</div>' : '')
+            + '</div>';
+
+        /* 右栏 */
+        const tab = (m, t) => '<button class="btn btn-sm" style="font-size:11px;' + (SD.mode === m ? 'outline:1px solid #d9a441;' : '') + '" onclick="_sdSetMode(\'' + m + '\')">' + t + '</button>';
+        let right = '<div style="flex:1;min-width:0;padding:10px;overflow:auto;">'
+            + '<div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;">'
+            + tab('target', '按目标') + tab('weapon', '按武器') + tab('repair', '维修去向') + tab('life', '生存时间占比分析') + tab('taken', '承伤分析')
+            + '</div>';
+
+        const th = (cols) => '<tr style="color:#c6d2e2;background:rgba(255,255,255,.06);">'
+            + cols.map(c => '<th style="text-align:' + (c[1] || 'right') + ';padding:4px 6px;font-weight:600;">' + c[0] + '</th>').join('') + '</tr>';
+
+        if (SD.mode === 'target' || SD.mode === 'weapon') {
+            const map = SD.mode === 'weapon' ? (row.byWeapon || {}) : (row.byTarget || {});
+            const keys = Object.keys(map).filter(k => { const v = map[k]; return v.s || v.a || v.sysDmg || v.sysKill; })
+                .sort((a, b) => (map[b].s + map[b].a) - (map[a].s + map[a].a));
+            const total = keys.reduce((a, k) => a + map[k].s + map[k].a, 0) || 1;
+            if (SD.mode === 'target') {
+                /* 按武器分组（游戏里就是「武器名(伤害占比)」当分组标题，下面列逐目标） */
+                const groups = {};
+                Object.keys(row.byWeapon || {}).forEach(w => { groups[w] = []; });
+                right += '<table style="width:100%;border-collapse:collapse;font-size:11px;">'
+                    + th([['目标', 'left'], ['结构总伤害(殉爆)'], ['系统伤害(数量)'], ['对空伤害']]);
+                if (SD.mode === 'target') {
+                    keys.forEach(k => {
+                        const v = map[k];
+                        right += '<tr style="border-top:1px solid rgba(255,255,255,.07);">'
+                            + '<td style="text-align:left;padding:4px 6px;color:#dfe7f3;">' + k + '</td>'
+                            + '<td style="padding:4px 6px;color:#ffb08a;font-weight:600;">' + _w(v.s) + (v.blast > 0 ? ' <span style="color:#8fa0b5">(' + _w(v.blast) + ')</span>' : '') + '</td>'
+                            + '<td style="padding:4px 6px;color:#c9a6ff;">' + _w(v.sysDmg) + (v.sysKill > 0 ? ' <span style="color:#8fa0b5">(' + v.sysKill + ')</span>' : '') + '</td>'
+                            + '<td style="padding:4px 6px;color:#8fc6ff;">' + (v.a > 0 ? _w(v.a) : '0') + '</td></tr>';
+                    });
+                }
+                right += '</table>';
+            } else {
+                right += '<table style="width:100%;border-collapse:collapse;font-size:11px;">'
+                    + th([['武器', 'left'], ['结构总伤害(殉爆)'], ['系统伤害(数量)'], ['对空伤害'], ['占比']]);
+                keys.forEach(k => {
+                    const v = map[k];
+                    right += '<tr style="border-top:1px solid rgba(255,255,255,.07);">'
+                        + '<td style="text-align:left;padding:4px 6px;color:#dfe7f3;">' + k + '</td>'
+                        + '<td style="padding:4px 6px;color:#ffb08a;">' + _w(v.s) + '</td>'
+                        + '<td style="padding:4px 6px;color:#c9a6ff;">' + _w(v.sysDmg) + (v.sysKill > 0 ? ' (' + v.sysKill + ')' : '') + '</td>'
+                        + '<td style="padding:4px 6px;color:#8fc6ff;">' + (v.a > 0 ? _w(v.a) : '0') + '</td>'
+                        + '<td style="padding:4px 6px;color:#8fa0b5;">' + ((v.s + v.a) / total * 100).toFixed(0) + '%</td></tr>';
+                });
+                right += '</table>';
+            }
+        } else if (SD.mode === 'repair') {
+            const map = row.byTarget || {};
+            const keys = Object.keys(map).filter(k => map[k].s || map[k].a).sort((a, b) => (map[b].s + map[b].a) - (map[a].s + map[a].a));
+            right += '<div style="font-size:11px;color:#8fa0b5;margin-bottom:5px;">本行维修量 ' + _w(row.repair || 0) + '（按被打的舰队/舰种归并；游戏里是「目标 + 维修量」两列）</div>'
+                + '<table style="width:100%;border-collapse:collapse;font-size:11px;">' + th([['目标（维修去向参考）', 'left'], ['该目标承受伤害']]);
+            keys.forEach(k => right += '<tr style="border-top:1px solid rgba(255,255,255,.07);">'
+                + '<td style="text-align:left;padding:4px 6px;">' + k + '</td><td style="padding:4px 6px;color:#ffb08a;">' + _w(map[k].s) + '</td></tr>');
+            right += '</table>';
+        } else if (SD.mode === 'life') {
+            /* 逐架一行（游戏里 CV-T800 ×12 就是 12 行，各有自己的生存时间/承伤量） */
+            right += '<table style="width:100%;border-collapse:collapse;font-size:11px;">'
+                + th([['#', 'left'], ['型号', 'left'], ['生存时间占比'], ['生存时间'], ['承伤量'], ['受维修量']]);
+            units.forEach((u, i) => {
+                const lr = u._aliveSec ? u._aliveSec / dur : 0;
+                right += '<tr style="border-top:1px solid rgba(255,255,255,.07);">'
+                    + '<td style="text-align:left;padding:4px 6px;color:#8fa0b5;">' + (i + 1) + '</td>'
+                    + '<td style="text-align:left;padding:4px 6px;">' + (u.variant || hpName.sub || SD.key) + (u.alive ? '' : ' <span style="color:#e08a8a">💀</span>') + '</td>'
+                    + '<td style="padding:4px 6px;color:' + (lr >= .8 ? '#dfe7f3' : lr >= .3 ? '#e8c98a' : '#e08a8a') + ';">' + Math.round(lr * 100) + '%</td>'
+                    + '<td style="padding:4px 6px;">' + _fmtT(u._aliveSec || 0) + '</td>'
+                    + '<td style="padding:4px 6px;color:#ff8a6b;">' + _w(u._taken || 0) + '</td>'
+                    + '<td style="padding:4px 6px;color:#8ce0a8;">' + _w(u._healed || 0) + '</td></tr>';
+            });
+            right += '</table>';
+        } else if (SD.mode === 'taken') {
+            right += '<table style="width:100%;border-collapse:collapse;font-size:11px;">'
+                + th([['承伤来源（谁打的）', 'left'], ['伤害']]);
+            const agg = {};
+            units.forEach(u => Object.keys(u._takenBy || {}).forEach(k => { agg[k] = (agg[k] || 0) + u._takenBy[k]; }));
+            Object.keys(agg).sort((a, b) => agg[b] - agg[a]).forEach(k => {
+                right += '<tr style="border-top:1px solid rgba(255,255,255,.07);"><td style="text-align:left;padding:4px 6px;">' + k + '</td>'
+                    + '<td style="padding:4px 6px;color:#ff8a6b;">' + _w(agg[k]) + '</td></tr>';
+            });
+            right += '<tr style="border-top:1px solid rgba(255,255,255,.18);font-weight:700;">'
+                + '<td style="text-align:left;padding:5px 6px;">合计承伤</td><td style="padding:5px 6px;color:#ff8a6b;">' + _w(units.reduce((a, u) => a + (u._taken || 0), 0)) + '</td></tr></table>';
+        }
+        right += '</div>';
+
+        el.innerHTML = '<div style="display:flex;min-height:420px;max-height:82vh;">' + left + right + '</div>';
+    }
+
+    function _reportSelect(side, key) {
+        const s = REPORT_STATE.sel;
+        REPORT_STATE.sel = (s && s.side === side && s.key === key) ? null : { side: side, key: key };
+        renderBattleReport();
+    }
+    function _reportSetMode(m) { REPORT_STATE.mode = m; renderBattleReport(); }
+    function _reportSetView(v) { REPORT_STATE.view = v; REPORT_STATE.sel = null; renderBattleReport(); }
+
+    function _reportSave() {
+        const bs = battleState; if (!bs) return;
+        const body = $('battleReportContent').innerHTML;
+        const html = '<!doctype html><meta charset="utf-8"><title>战报</title>'
+            + '<style>body{background:#0f1620;color:#dfe7f3;font-family:system-ui,"Microsoft YaHei";padding:16px;}'
+            + 'table{border-collapse:collapse;}th,td{padding:2px 6px;}button{display:none}</style>'
+            + '<h2>拉格朗日模拟器 · 战报</h2>'
+            + '<div style="color:#9fb0c7;font-size:12px;">保存于 ' + new Date().toLocaleString() + ' ｜ 战斗时长 ' + (bs.time || 0).toFixed(1) + ' 秒</div>'
+            + body;
+        const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+        const a = document.createElement('a');
+        const t = new Date(); const pad = n => String(n).padStart(2, '0');
+        a.href = URL.createObjectURL(blob);
+        a.download = '战报_' + t.getFullYear() + pad(t.getMonth() + 1) + pad(t.getDate()) + '_' + pad(t.getHours()) + pad(t.getMinutes()) + '.html';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+    }
+    /* ★ 2026-10-05：战报入库 / 发给 AI 分析（用户要求"保存的战报放到网页里，可发给 AI Agent 分析"）
+       —— 数据另存 localStorage['lagrange_battle_reports']（只为 AI 工具 get_battle_reports 准备，最多留 10 条） */
+    function _reportData() {
+        const bs = battleState; if (!bs) return null;
+        const clean = rows => (rows || []).map(r => ({ 舰船: r.name, 数量: r.n, 存活: r.alive,
+            对舰: Math.round(r.antiShip || 0), 对空: Math.round(r.antiAir || 0), 维修: Math.round(r.repair || 0),
+            系统伤害: Math.round(r.sysDmg || 0), 击毁系统: r.sysKill || 0, 殉爆: Math.round(r.blastHp || 0),
+            生存占比: +((r.life || 0)).toFixed(2) }));
+        let ally = [], enemy = [];
+        try { ally = clean(_rowsOf('ally', bs, bs.time)); enemy = clean(_rowsOf('enemy', bs, bs.time)); } catch (e) { }
+        return { kind: 'battle', savedAt: new Date().toISOString(), duration: +(bs.time || 0).toFixed(0), 结束: !!bs.ended,
+            ally: ally, enemy: enemy,
+            舰队: { 我方护航: (bs.allyEscort || []).map(s => s.name), 我方被护航: (bs.allyEscorted || []).map(s => s.name),
+                    敌方护航: (bs.enemyEscort || []).map(s => s.name), 敌方被护航: (bs.enemyEscorted || []).map(s => s.name) } };
+    }
+    function _saveReportToLib(silent) {
+        const rep = _reportData(); if (!rep) { alert('还没有战斗数据 —— 先点「开始战斗」'); return false; }
+        let arr = []; try { arr = JSON.parse(localStorage.getItem('lagrange_battle_reports') || '[]'); } catch (e) { }
+        arr.unshift(rep);
+        try { localStorage.setItem('lagrange_battle_reports', JSON.stringify(arr.slice(0, 10))); }
+        catch (e) { alert('存储失败（可能太大）：' + e.message); return false; }
+        if (!silent) alert('已存入战报库 ✓\n（在 AI 对话里说"分析我保存的战报"就行）');
+        return true;
+    }
+    function _sendReportToAI() {
+        const rep = _reportData(); if (!rep) { alert('还没有战斗数据 —— 先点「开始战斗」'); return; }
+        _saveReportToLib(true);
+        const lines = [];
+        lines.push('【模拟器战报 · 请帮我分析】时长 ' + rep.duration + 's' + (rep.结束 ? '（打完了）' : '（到时间上限）'));
+        const tab = (rows, label) => {
+            lines.push('== ' + label + ' ==');
+            rows.forEach(r => lines.push(r.舰船 + '×' + r.数量 + '｜对舰 ' + r.对舰 + '｜对空 ' + r.对空 + '｜维修 ' + r.维修 + '｜系统伤害 ' + r.系统伤害 + '(击毁' + r.击毁系统 + ')｜殉爆 ' + r.殉爆 + '｜存活 ' + r.存活 + '｜生存占比 ' + r.生存占比));
+            lines.push('');
+        };
+        tab(rep.ally, '我方'); tab(rep.enemy, '敌方');
+        lines.push('请：① 找出双方输出/生存的关键差距；② 指出我方配队的问题；③ 给改进方案（可用 make_fleet 输出）。');
+        try { localStorage.setItem('lagrange_chat_prefill', lines.join('\n')); location.href = 'chat.html?prefill=1'; }
+        catch (e) { alert('发送失败：' + e.message); }
+    }
+
+    function renderBattleReport() {
+        const bs = battleState;
+        if (!bs) { $('battleReportContent').innerHTML = '<div style="padding:12px;color:var(--text-muted);">还没有战斗数据 —— 先点「开始战斗」。</div>'; return; }
+        const duration = bs.time || 1;
+        const aliveA = bs.allyShips.filter(s => s.alive).length, aliveB = bs.enemyShips.filter(s => s.alive).length;
+        const V = REPORT_STATE.view;
+        const tab = (v, t) => '<button class="btn btn-sm" style="font-size:11px;' + (V === v ? 'outline:1px solid var(--gold);' : '') + '" onclick="_reportSetView(\'' + v + '\')">' + t + '</button>';
+        /* 顶部：双方结构值进度条 + 胜负大字（游戏那个版式的样子） */
+        const hpA = bs.allyShips.reduce((a, s) => a + s.maxHp, 0), hpA0 = bs.allyShips.reduce((a, s) => a + (s.maxHp - Math.max(0, s.hp)), 0);
+        const hpB = bs.enemyShips.reduce((a, s) => a + s.maxHp, 0), hpB0 = bs.enemyShips.reduce((a, s) => a + (s.maxHp - Math.max(0, s.hp)), 0);
+        const bar = (cur, max, col) => '<div style="flex:1;height:12px;background:rgba(0,0,0,.55);border-radius:6px;overflow:hidden;">'
+            + '<div style="width:' + Math.max(0, Math.min(100, cur / (max || 1) * 100)).toFixed(1) + '%;height:100%;background:' + col + ';"></div></div>';
+        const result = !bs.ended ? '未结束' : (aliveB === 0 && aliveA > 0 ? '我方胜利' : (aliveA === 0 && aliveB > 0 ? '敌方胜利' : '两败俱伤'));
+        const rCol = /我方胜利/.test(result) ? '#7fb2ff' : /敌方胜利/.test(result) ? '#ff8a6b' : '#c9d6e4';
+        let html = '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">'
+            /* 左 = 敌方（冷色） | 中 = 胜负大字 | 右 = 我方（暖色）—— 和游戏那个版式一致 */
+            + '<div style="flex:1;min-width:0;">'
+            + '  <div style="display:flex;justify-content:space-between;font-size:11px;color:#ffb08a;margin-bottom:2px;">'
+            + '    <span>🔴 敌方</span><span>' + ((hpB-hpB0)/10000).toFixed(1) + '万 / ' + (hpB/10000).toFixed(1) + '万' + '</span></div>'
+            + '  <div style="height:14px;background:rgba(0,0,0,.55);border-radius:7px;overflow:hidden;border:1px solid rgba(255,138,107,.35);">'
+            + '    <div style="width:' + Math.max(0, Math.min(100, (hpB - hpB0) / (hpB || 1) * 100)).toFixed(1) + '%;height:100%;background:linear-gradient(90deg,#ff8a6b,#d94f2b);"></div></div>'
+            + '  <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">损失 ' + ((hpB0)/10000).toFixed(1)+"万" + ' 结构值</div></div>'
+            + '<div style="text-align:center;font-weight:800;font-size:19px;letter-spacing:2.5px;color:' + rCol + ';text-shadow:0 0 16px ' + rCol + '66;white-space:nowrap;padding:0 6px;">' + result + '</div>'
+            + '<div style="flex:1;min-width:0;">'
+            + '  <div style="display:flex;justify-content:space-between;font-size:11px;color:#8fc6ff;margin-bottom:2px;">'
+            + '    <span>🔵 我方</span><span>' + ((hpA-hpA0)/10000).toFixed(1) + '万 / ' + (hpA/10000).toFixed(1) + '万' + '</span></div>'
+            + '  <div style="height:14px;background:rgba(0,0,0,.55);border-radius:7px;overflow:hidden;border:1px solid rgba(127,178,255,.35);">'
+            + '    <div style="width:' + Math.max(0, Math.min(100, (hpA - hpA0) / (hpA || 1) * 100)).toFixed(1) + '%;height:100%;background:linear-gradient(90deg,#7fb2ff,#3f6ea8);"></div></div>'
+            + '  <div style="font-size:10px;color:var(--text-muted);margin-top:2px;text-align:right;">损失 ' + ((hpA0)/10000).toFixed(1)+"万" + ' 结构值</div></div>'
+            + '</div>'
+            + '<div style="font-weight:700;font-size:13px;margin-bottom:6px;">📊 行动统计'
+            + '<span style="color:var(--text-secondary);font-weight:400;font-size:11px;">'
+            + ' ｜ 战斗时长 ' + duration.toFixed(1) + ' 秒 ｜ 存活 我方 ' + aliveA + '/' + bs.allyShips.length + ' · 敌方 ' + aliveB + '/' + bs.enemyShips.length
+            + '</span></div>'
+            + '</span></div>'
+            + '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">'
+            + '<span style="font-size:11px;color:var(--text-secondary);">统计范围：</span>'
+            + tab('both', '全部') + tab('ally', '只看我方') + tab('enemy', '只看敌方')
+            + (hasTwoFleets() ? '<span style="font-size:11px;color:var(--text-secondary);margin-left:8px;">只看在打：</span>'
+                + tab('F:护航队', '护航队') + tab('F:被护航队', '被护航队') : '')
+            + '<span style="flex:1"></span>'
+            + '<button class="btn btn-sm" style="font-size:11px;" onclick="_reportSave()">💾 保存战报</button>'
+            + '<button class="btn btn-sm" style="font-size:11px;" onclick="_saveReportToLib()" title="存进网页里的战报库（AI 对话可以读它分析）">💾 存入战报库</button>'
+            + '<button class="btn btn-sm" style="font-size:11px;" onclick="_sendReportToAI()" title="存进战报库并打开 AI 对话，让它分析这场">📤 发给AI分析</button></div>'
+            + '<div style="color:var(--text-muted);font-size:10.5px;margin-bottom:6px;">点任意舰船行可展开详情；详情里「结构值伤害」与「系统伤害」分列，破坏系统扣的 5% 血量已计入结构值伤害（括号里是殉爆部分）。</div>'
+            + '<div style="display:flex;gap:14px;">';
+        if (V !== 'enemy') html += _statTable('ally', bs, duration);
+        if (V !== 'ally') html += _statTable('enemy', bs, duration);
+        html += '</div>';
+
+        try {
+            const _grp = [['我方护航', bs.allyEscort], ['我方被护航', bs.allyEscorted],
+                          ['敌方护航', bs.enemyEscort], ['敌方被护航', bs.enemyEscorted]];
+            const rows = _grp.map(([nm, arr]) => {
+                const a = (arr || []).filter(s => s && s.position !== 'aircraft');
+                if (!a.length) return '';
+                const cnt = {};
+                a.forEach(s => { const k = s._apSrc || '?'; cnt[k] = (cnt[k] || 0) + 1; });
+                const keys = Object.keys(cnt);
+                const txt = keys.map(k => (cnt[k] > 1 ? k + '×' + cnt[k] : k)).join(' + ');
+                return '<div style="font-size:11px;padding:2px 0;">· ' + nm + '：<b>' + txt + '</b>'
+                     + '<span style="color:var(--text-muted)"> （' + a.length + ' 艘）</span></div>';
+            }).join('');
+            if (rows) html += '<div style="margin-top:12px;padding:8px;border:1px solid rgba(45,74,111,.5);border-radius:6px;">'
+                            + '<b style="color:var(--gold)">⚙ 本场实际采用的加点（引擎逐船查到的来源）</b>' + rows + '</div>';
+        } catch (e) { }
+        $('battleReportContent').innerHTML = html;
+    }
+
+    function generateBattleReport() {
+        REPORT_STATE.sel = null;
+        renderBattleReport();
+        openModal('battleReportModal');
+    }
+
+    // ============================================================
+    //  ENCYCLOPEDIA
+    // ============================================================
+    function renderEncyclopedia() {
+        const ships = Object.values(SHIP_DATABASE);
+        $('encycloGrid').innerHTML = ships.map(s=>`
+            <div class="encyclo-ship-card" onclick="showShipDetail('${s.id}')">
+                <div class="encyclo-ship-name">${getShipIcon(s.type)} ${s.name} <span style="font-size:11px;color:var(--text-muted);">${s.variant||''}</span></div>
+                <div class="encyclo-ship-info">${getTypeName(s.type)} | ${s.position||'中排'} | HP:${formatNumber(s.hp)} | 指挥:${s.commandValue||'?'}</div>
+                ${s.ratings?`<div class="encyclo-ratings">${Object.entries(s.ratings).map(([k,v])=>`<span class="rating-badge rating-${v}">${k==='antiShip'?'对舰':k==='antiAir'?'防空':k==='siege'?'攻城':k}:${v}</span>`).join('')}</div>`:''}
+            </div>
+        `).join('');
+
+        $('encycloFilters').innerHTML = Object.entries(SHIP_TYPES).map(([k,v])=>
+            `<button class="category-btn" onclick="filterEncyclopedia('${k}',this)">${v.icon} ${v.name}</button>`
+        ).join('') + '<button class="category-btn active" onclick="filterEncyclopedia(\'all\',this)">📋 全部</button>';
+    }
+
+    function filterEncyclopedia(type, btn) {
+        document.querySelectorAll('#encycloFilters .category-btn').forEach(b=>b.classList.remove('active'));
+        if(btn) btn.classList.add('active');
+        const ships = type==='all' ? Object.values(SHIP_DATABASE) : Object.values(SHIP_DATABASE).filter(s=>s.type===type);
+        $('encycloGrid').innerHTML = ships.map(s=>`
+            <div class="encyclo-ship-card" onclick="showShipDetail('${s.id}')">
+                <div class="encyclo-ship-name">${getShipIcon(s.type)} ${s.name}</div>
+                <div class="encyclo-ship-info">${getTypeName(s.type)} | HP:${formatNumber(s.hp)}</div>
+            </div>
+        `).join('');
+    }
+
+    // ============================================================
+    //  EVENT LISTENERS
+    // ============================================================
+    function setupEventListeners() {
+        // Nav tabs
+        document.querySelectorAll('.nav-tab').forEach(tab=>{
+            tab.addEventListener('click', ()=>navigateTo(tab.dataset.page));
+        });
+
+        // Speed buttons
+        document.querySelectorAll('.speed-btn').forEach(btn=>{
+            btn.addEventListener('click', ()=>{
+                document.querySelectorAll('.speed-btn').forEach(b=>b.classList.remove('active'));
+                btn.classList.add('active');
+                battleSpeed = parseInt(btn.dataset.speed);
+            });
+        });
+
+        // Close modals on overlay click
+        document.querySelectorAll('.modal-overlay').forEach(overlay=>{
+            overlay.addEventListener('click', (e)=>{
+                if(e.target===overlay) overlay.classList.remove('active');
+            });
+        });
+    }
+
+    // ============================================================
+    //  INITIALIZATION
+    // ============================================================
+    async function init() {
+        await loadShipDatabase();     // 先加载唯一数据源（唯一 async 依赖）
+        loadFleetsFromStorage();
+        initFleetBuilder();
+        setupEventListeners();
+        renderCustomShips();
+        // Scroll-based nav hide/show
+        let lastScroll=0, scrollTimer;
+        window.addEventListener('scroll', () => {
+            const nav = document.querySelector('.top-nav');
+            if(!nav) return;
+            const st = window.scrollY || document.documentElement.scrollTop;
+            if(st > lastScroll && st > 100) {
+                // Scrolling down - hide nav
+                nav.classList.add('nav-hidden');
+            } else if(st < lastScroll) {
+                // Scrolling up - show nav
+                nav.classList.remove('nav-hidden');
+            }
+            lastScroll = st;
+            clearTimeout(scrollTimer);
+            scrollTimer = setTimeout(() => nav.classList.remove('nav-hidden'), 2000);
+        }, {passive: true});
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+    // 预先加载加点数据（含 slug→编号 映射），否则强化弹窗里列不出"已保存的加点方案"
+    setTimeout(async () => {
+        try {
+            await loadBlueprintData();
+            // 预载"加点配置涉及的那些船"的加点树（机制解析需要；船级数值不依赖它）
+            const store = apStore();
+            /* ★★ 还要把【所有总体加点方案】里涉及的船一起预载。
+               不加这一步会踩这个坑：选了某套方案时，方案里有、而当前 store 里没有的船，
+               它的加点树没加载 → buildAddPointBonus 里 nodeSys 为空 → 不知道该节点属于哪个系统
+               → 武器系统的加点会被当成"舰船级"整船生效（"本系统"的不再只作用本系统）。
+               2026-09-26 查「选了方案没生效」时发现这条链路。 */
+            const cdnSet = new Set(Object.keys(store));
+            try {
+                (JSON.parse(localStorage.getItem('lagrange_addpoint_sets') || '[]') || []).forEach(st0 => {
+                    Object.keys((st0 && st0.addpoints) || {}).forEach(cdn => cdnSet.add(cdn));
+                });
+            } catch (e) { }
+            for(const cdn of cdnSet) { try { await loadBpTree(cdn); } catch(e) {} }
+        } catch(e) {}
+    }, 500);
+
+    // ===== 从「战舰配队」页导入舰队 =====
+    // 支持指定目标舰队：f.target ∈ ally-escort / ally-escorted / enemy-escort / enemy-escorted
+    // f.mode: 'append'(默认，合并) | 'replace'(覆盖)
+    document.addEventListener('DOMContentLoaded', function(){
+        if(!/[?&]import=1/.test(location.search)) return;
+        // 等舰船库就绪（最多等 15 秒）
+        let waited=0;
+        const timer=setInterval(function(){
+            waited+=200;
+            if(SHIP_DB_READY || waited>15000){
+                clearInterval(timer);
+                setTimeout(doFleetImport, 300);
+            }
+        }, 200);
+    });
+    function doFleetImport(){
+        try{
+            var raw=localStorage.getItem('lagrange_sim_import'); if(!raw) return;
+            localStorage.removeItem('lagrange_sim_import');
+            var f=JSON.parse(raw);
+            if(!SHIP_DB_READY){ alert('舰船数据未加载成功，无法导入配队。请用 http 服务打开本页。'); return; }
+            var build=function(arr){ return (arr||[]).map(function(s){
+                var base=SHIP_DATABASE[s.id];
+                /* ★ 2026-10-07：配队页带过来的自定义舰船快照（exportFleet 的 _ship）——本机库里没有就现场补登记，
+                   否则整船被静默丢弃（原行为：base 找不到直接 return null） */
+                if(!base && s._ship){
+                    base=s._ship; SHIP_DATABASE[s.id]=base;
+                    try{ var cs=JSON.parse(localStorage.getItem('lagrange_custom_ships')||'{}');
+                         cs[s.id]=base; localStorage.setItem('lagrange_custom_ships', JSON.stringify(cs)); }catch(e){}
+                }
+                if(!base) return null;
+                var e=ensureUid(JSON.parse(JSON.stringify(base)));
+                e.count=s.qty||1; e.selectedModules={};
+                if(s.mods) Object.keys(s.mods).forEach(function(k){ e.selectedModules[k]=s.mods[k]; });
+                if(s.pos) e.position=s.pos;                      // 站位（影响直射/分排）
+                /* ★★ 加点方案名必须原样带过来 —— 这是「选了总体加点方案没生效」的真因之一：
+                   配队页 exportFleet 明明导出了 apSet/apBuild，这里却从 SHIP_DATABASE 重建条目时
+                   把这两个字段整段丢掉 → 开战时条目上没有方案名 → apOf 落到「加点页当前那套」
+                   → 表现就是「四个方案时长几乎一样」。 */
+                if(s.apSet) e.apSet=s.apSet;
+                if(s.apBuild) e.apBuild=s.apBuild;
+                recalcAircraftSlots(e);                          // 先算载机位，再挂载机
+                // 载机：模拟器要求「完整舰船对象 + count + slot」
+                e.aircraft=[];
+                (s.air||[]).forEach(function(a){
+                    var t=SHIP_DATABASE[a.id]; if(!t) return;
+                    var slot=a.slot||'';
+                    var usedIn=function(key){ return (e.aircraft||[]).filter(function(y){ return y.slot===key; })
+                        .reduce(function(n,y){ return n+(y.count||0); },0); };
+                    var sl=(e.simSlots||[]).find(function(x){ return x.key===slot; });
+                    // slot 缺失/失效 → 按机型落到第一个还有余量的载机位
+                    if(!sl){
+                        var kind=(t.aircraftType||t.type)==='corvette'?'corvette':'fighter';
+                        /* ★ 也要认 allow==='ALL'（那一栏同时收战机和护航艇）——
+                           只看 kind 会让护航艇在这个兜底里找不到位、直接被丢掉 */
+                        var _fits=function(x){ return x.allow==='ALL' || x.kind===kind; };
+                        sl=(e.simSlots||[]).find(function(x){ return _fits(x) && usedIn(x.key)<x.cap; });
+                    }
+                    if(!sl) return;                                   // 没有载机位 → 不塞进去（与配队页口径一致）
+                    var entry=JSON.parse(JSON.stringify(t));
+                    entry.count=a.qty||1; entry.slot=sl.key;
+                    e.aircraft.push(entry);
+                });
+                return e;
+            }).filter(Boolean); };
+            var target=(f.target && fleetData[f.target]) ? f.target : 'ally-escort';
+            var mode=(f.mode==='replace') ? 'replace' : 'append';
+            var into=fleetData[target];
+            var mainN=build(f.main), reinN=build(f.reinforcement);
+            if(mode==='replace'){ into.main=mainN; into.reinforcement=reinN; into.flagship=f.flagship||null; }
+            else{
+                var addInto=function(list, arr){ arr.forEach(function(ne){
+                    var ex=list.find(function(x){ return x.id===ne.id; });
+                    if(ex) ex.count += ne.count; else list.push(ne);
+                }); };
+                addInto(into.main, mainN); addInto(into.reinforcement, reinN);
+                if(f.flagship && !into.flagship) into.flagship=f.flagship;
+            }
+            // —— 安全网：按服役上限校正（同型舰在「主力+增援」合计），超限则截断并报告 ——
+            // 防的是"同一套配队反复复制，数量一路累加"（8→16→24…），或手填了超过上限的数量
+            var fixes=[];
+            sanitizeFleetLimits(target, fixes);
+
+            currentFleetType=target; currentFleetTab='main';
+            try{ renderFleetPanels(); }catch(e){}
+            try{ if(typeof renderFleetEditorContent==='function') renderFleetEditorContent(); }catch(e){}
+            try{ if($('inlineFleetEditor') && $('inlineFleetEditor').style.display!=='none') renderInlineFleetEditor(); }catch(e){}
+            try{ saveFleetsToStorage(); }catch(e){}
+            console.log('已导入配队:', f.name, '→', target, '主', mainN.length, '增援', reinN.length, fixes.length?('校正'+fixes.length+'处'):'');
+            alert('已'+(mode==='replace'?'覆盖':'加入')+'「'+(FLEET_TYPE_NAMES[target]||target)+'」：\n主舰队 '+mainN.length+' 种 · 增援 '+reinN.length+' 种'
+                + (fixes.length ? ('\n\n⚠️ 已按服役上限校正 '+fixes.length+' 处：\n'+fixes.slice(0,8).join('\n')+(fixes.length>8?'\n…':'')) : ''));
+        }catch(e){ console.error('舰队导入失败', e); alert('舰队导入失败：'+(e&&e.message||e)); }
+    }
+
+/* ============================================================
+   导出块：给"进化 / 批量跑战斗"用的干净 API
+   ============================================================ */
+async function __engineInit() {
+    await loadShipDatabase();
+    const ok = await loadBlueprintData();
+    /* 预载所有船的加点树（可选：跑加点方案时需要） */
+    return { shipReady: SHIP_DB_READY, bpReady: !!ok, ships: Object.keys(SHIP_DATABASE).length };
+}
+/* 预载某几艘船的加点树 */
+async function __engineLoadBpTrees(ids) {
+    for (const id of (ids || [])) { try { await loadBpTree(id); } catch (e) { } }
+}
+/* 组装一边的舰队（spec: [{id,count,position,mods,apSet,air:[{id,qty,slot,kind}]}]） */
+function __engineBuildSide(spec) {
+    return (spec || []).map(s => {
+        const t = SHIP_DATABASE[s.id];
+        if (!t) return null;
+        const e = JSON.parse(JSON.stringify(t));
+        e.count = s.count || 1;
+        e.selectedModules = Object.assign({}, s.mods || {});
+        if (s.position) e.position = s.position;
+        if (s.apSet) e.apSet = s.apSet;
+        recalcAircraftSlots(e);
+        e.aircraft = [];
+        (s.air || []).forEach(a => {
+            const at = SHIP_DATABASE[a.id];
+            if (!at) return;
+            const slots = e.simSlots || e.airSlots || [];
+            const sl = slots.find(x => x.key === a.slot) || slots.find(x => x.allow === 'ALL' || x.kind === a.kind);
+            if (!sl) return;
+            const inst = JSON.parse(JSON.stringify(at));
+            inst.count = a.qty || 1;
+            inst.slot = sl.key;
+            e.aircraft.push(inst);
+        });
+        return e;
+    }).filter(Boolean);
+}
+/* 跑一场（返回战果；seed 相同则结果完全相同） */
+function __engineRunBattle(opt) {
+    const o = opt || {};
+    FLEET_TYPES.forEach(k => { fleetData[k].main = []; fleetData[k].reinforcement = []; fleetData[k].apSet = null; });
+    fleetData['ally-escort'].main = __engineBuildSide(o.A);
+    __actionCache.clear();          // ★ 每场清空决策缓存（避免上一场的记录串场）
+    fleetData['enemy-escort'].main = __engineBuildSide(o.B);
+    /* ★ 4 舰队护航格式：A=我方护航队 / AEscorted=我方被护航队 / B=敌方护航队 / BEscorted=敌方被护航队
+       （兼容旧名 Aescort/Bescort） */
+    if (typeof o.AEscorted !== 'undefined' || typeof o.Aescort !== 'undefined')
+        fleetData['ally-escorted'].main = __engineBuildSide(o.AEscorted || o.Aescort);
+    if (typeof o.BEscorted !== 'undefined' || typeof o.Bescort !== 'undefined')
+        fleetData['enemy-escorted'].main = __engineBuildSide(o.BEscorted || o.Bescort);
+    /* ★ 旗舰选择：把旗舰 id 写进舰队（prepareBattle 会据此给实例打 isFlagship）
+       ★ 2026-10-05 新增 per-fleet 旗舰（opt-in，移植自另一台设备）：
+         AEscortedFlagship / BEscortedFlagship 不传 → 与原来完全一致（沿用 AFlagship/BFlagship），
+         13/18 验收不受影响；显式传 null → 该舰队没有旗舰。 */
+    fleetData['ally-escort'].flagship = (o.AFlagship === undefined ? null : o.AFlagship);
+    fleetData['ally-escorted'].flagship = (o.AEscortedFlagship !== undefined) ? o.AEscortedFlagship
+        : (o.AFlagship === undefined ? null : o.AFlagship);
+    fleetData['enemy-escort'].flagship = (o.BFlagship === undefined ? null : o.BFlagship);
+    fleetData['enemy-escorted'].flagship = (o.BEscortedFlagship !== undefined) ? o.BEscortedFlagship
+        : (o.BFlagship === undefined ? null : o.BFlagship);
+    /* ★ 加点方案：传对象 {cdnId:{lv:{...}}} → 自动注册成方案并挂到该舰队 */
+    if (o.AAddPoints) {
+        const sets = JSON.parse(localStorage.getItem('lagrange_addpoint_sets') || '[]').filter(x => x.name !== '__EVO_A');
+        sets.push({ name: '__EVO_A', addpoints: o.AAddPoints });
+        localStorage.setItem('lagrange_addpoint_sets', JSON.stringify(sets));
+        fleetData['ally-escort'].apSet = '__EVO_A';
+        fleetData['ally-escorted'].apSet = '__EVO_A';
+    }
+    if (o.BAddPoints) {
+        const sets = JSON.parse(localStorage.getItem('lagrange_addpoint_sets') || '[]').filter(x => x.name !== '__EVO_B');
+        sets.push({ name: '__EVO_B', addpoints: o.BAddPoints });
+        localStorage.setItem('lagrange_addpoint_sets', JSON.stringify(sets));
+        fleetData['enemy-escort'].apSet = '__EVO_B';
+        fleetData['enemy-escorted'].apSet = '__EVO_B';
+    }
+    try { refreshFleetViews(); } catch (e) { }
+    if (typeof o.seed === 'number') battleSeed = o.seed; else battleSeed = null;
+    if (!prepareBattle()) return null;
+    const bs = battleState;
+    const cap = o.maxSec || 30000;
+    let t = 0;
+    /* ★ 僵局提前判定（2026-10-05，移植自另一台设备）：
+       用户规则是"2.5 小时还没结果才算平局"。但网络发散的打法会把战斗拖满 9000 秒，
+       实测每代从 30 秒涨到 10 分钟以上。这里做一个**等价优化**：
+         每隔 30 秒采样双方的剩余结构占比；若**连续 STALL 秒内双方占比都没跌超过 2%**，
+         说明"长期没有实质进展"，按"无结果"提前结束（与"等满 2.5 小时"同判）。
+       可用 o.stallSec 覆盖；设 0 关闭（关闭后与旧行为逐位一致）。 */
+    const STALL = (o.stallSec !== undefined) ? o.stallSec : 900;
+    const samples = [];
+    let tSample = 0, stalled = false;
+    const fracOf = arr => {
+        const s = arr.filter(x => x.position !== 'aircraft');
+        const tot = s.reduce((a, x) => a + (x.maxHp || 0), 0);
+        const rem = s.reduce((a, x) => a + Math.max(0, x.hp || 0), 0);
+        return tot > 0 ? rem / tot : 0;
+    };
+    while (!bs.ended && t < cap) {
+        processBattleTick(o.dt || 0.2); t += (o.dt || 0.2);
+        if (STALL > 0) {
+            tSample += (o.dt || 0.2);
+            if (tSample >= 30) {
+                tSample = 0;
+                samples.push({ t: t, a: fracOf(bs.allyShips), e: fracOf(bs.enemyShips) });
+                while (samples.length && (t - samples[0].t) > STALL) samples.shift();
+                const s0 = samples[0];
+                if (s0 && (t - s0.t) >= STALL - 31) {
+                    const cur = samples[samples.length - 1];
+                    if ((s0.a - cur.a) < 0.02 && (s0.e - cur.e) < 0.02) { stalled = true; break; }
+                }
+            }
+        }
+    }
+    const agg = arr => {
+        const ships = arr.filter(x => x.position !== 'aircraft');
+        const ac = arr.filter(x => x.position === 'aircraft');
+        const sum = (list, f) => list.reduce((a, x) => a + f(x), 0);
+        return {
+            舰船数: ships.length, 载机数: ac.length,
+            存活舰船: ships.filter(x => x.alive).length, 存活载机: ac.filter(x => x.alive).length,
+            总输出对舰: sum(arr, x => x._dealtShip || 0), 总输出对空: sum(arr, x => x._dealtAir || 0),
+            总承伤: sum(arr, x => x._taken || 0), 总维修: sum(arr, x => x._healOut || 0),
+            总结构值: sum(ships, x => x.maxHp || 0),
+            剩余结构值: sum(ships, x => Math.max(0, x.hp || 0)),
+            平均生存时间占比: arr.length ? sum(arr, x => x._aliveSec || 0) / (arr.length * t) : 0
+        };
+    };
+    return { 时长: t, 结束: !!bs.ended, 僵局: !!stalled, 我方: agg(bs.allyShips), 敌方: agg(bs.enemyShips), _bs: bs };
+}
+/* 全灭/胜利判定 */
+function __engineOutcome(r) {
+    if (!r) return 'error';
+    const a = r.我方.存活舰船 + r.我方.存活载机, b = r.敌方.存活舰船 + r.敌方.存活载机;
+    if (a === 0 && b === 0) return 'draw';
+    if (a === 0) return 'loss';
+    if (b === 0) return 'win';
+    return 'timeout';
+}
+
+/* ★ 给"生成加点方案"用的工具（进化实验要用） */
+function __cdnOf(shipId) { return (BP_MAP && BP_MAP[shipId] && BP_MAP[shipId].cdnId) || null; }
+function __treeOf(cdnId) { return BP_TREE[cdnId] || null; }
+
+self.LagrangeEngine = {
+    init: __engineInit,
+    cdnOf: __cdnOf,
+    treeOf: __treeOf,
+    loadBpTrees: __engineLoadBpTrees,
+    runBattle: __engineRunBattle,
+    outcome: __engineOutcome,
+    buildSide: __engineBuildSide,
+    /* 直接暴露内部数据与状态（进化实验里取用） */
+    get ships() { return SHIP_DATABASE; },
+    get stats() { return BP_STATS; },
+    get battleState() { return (typeof battleState !== 'undefined') ? battleState : null; },
+    setSeed: s => { battleSeed = s; },
+    /* ★ 动作接口（opt-in，默认关；移植自另一台设备的神经元系统）。传 null 关闭，恢复原规则 */
+    setActionHook: __engineSetActionHook,
+    actionStateSize: __actionStateSize,
+    /* ★ 决策节流（秒，0=关闭）：引擎层在建状态向量之前拦掉重复决策 —— 性能关键 */
+    setActionThrottle: __engineSetActionThrottle,
+    /* ★ 把项目的舰队校验器原样导出（载机位/模块槽唯一权威口径，进化实验里必须用它，不能自己重写） */
+    get FleetCheck() { return (typeof window !== 'undefined' && window.FleetCheck) ? window.FleetCheck : null; },
+    RNG: () => RNG(),
+    version: 'engine-1 (extracted from simulator.html)'
+};
+
+/* ============================================================
+   神经元实验室 · IndexedDB 存储层（页面 / Worker 共用）
+   ------------------------------------------------------------
+   为什么用 IndexedDB 而不是 localStorage：
+     · 快照（完整基因组 + 战果统计）每份 ~200KB，localStorage 只有 ~5MB 且是同步接口；
+     · 训练在 Worker 里跑，Worker 和页面都能访问同一个 IndexedDB（同源共享）；
+     · 每 5 代存一次快照 → 刷新/断网/关浏览器后能【从最近一次快照无损续跑】。
+   库结构：lagrange_neuron
+     kv  : 通用键值（'snap:<isle>' 快照 / 'arc:<isle>' 行为档案 / 'e8:<isle>' E8图 /
+           'champ:<isle>' 岛冠军 / 'log:<isle>' 逐代日志 / 'run:<isle>' 运行状态）
+     reports : 战报库（神经网络的实战结果，供发给 AI 分析）
+   ============================================================ */
+(function (root) {
+    'use strict';
+    const DB_NAME = 'lagrange_neuron';
+    const DB_VER = 1;
+    let _dbp = null;
+
+    function open() {
+        if (_dbp) return _dbp;
+        _dbp = new Promise((resolve, reject) => {
+            let req;
+            try { req = indexedDB.open(DB_NAME, DB_VER); }
+            catch (e) { reject(e); return; }
+            req.onupgradeneeded = () => {
+                const db = req.result;
+                if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
+                if (!db.objectStoreNames.contains('reports')) db.createObjectStore('reports');
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error || new Error('indexedDB open failed'));
+        });
+        return _dbp;
+    }
+
+    function tx(store, mode, fn) {
+        return open().then(db => new Promise((resolve, reject) => {
+            const t = db.transaction(store, mode);
+            const s = t.objectStore(store);
+            let out;
+            try { out = fn(s); } catch (e) { reject(e); return; }
+            t.oncomplete = () => resolve(out && out.result !== undefined ? out.result : out);
+            t.onerror = () => reject(t.error || new Error('idb tx error'));
+            t.onabort = () => reject(t.error || new Error('idb tx abort'));
+        }));
+    }
+
+    const Store = {
+        DB_NAME,
+        open,
+        /** 写：put('kv', key, value) / put('reports', key, value) */
+        put(store, key, val) {
+            return open().then(db => new Promise((resolve, reject) => {
+                const t = db.transaction(store, 'readwrite');
+                t.objectStore(store).put(val, key);
+                t.oncomplete = () => resolve();
+                t.onerror = () => reject(t.error || new Error('idb put error'));
+                t.onabort = () => reject(t.error || new Error('idb put abort'));
+            }));
+        },
+        /** 读一个键（不存在 → undefined） */
+        get(store, key) {
+            return open().then(db => new Promise((resolve, reject) => {
+                const t = db.transaction(store, 'readonly');
+                const r = t.objectStore(store).get(key);
+                t.oncomplete = () => resolve(r.result);
+                t.onerror = () => reject(t.error || new Error('idb get error'));
+                t.onabort = () => reject(t.error || new Error('idb get abort'));
+            }));
+        },
+        /** 删一个键 */
+        del(store, key) {
+            return open().then(db => new Promise((resolve, reject) => {
+                const t = db.transaction(store, 'readwrite');
+                t.objectStore(store).delete(key);
+                t.oncomplete = () => resolve();
+                t.onerror = () => reject(t.error || new Error('idb del error'));
+            }));
+        },
+        /** 列全部键（可选前缀） */
+        keys(store, prefix) {
+            return open().then(db => new Promise((resolve, reject) => {
+                const t = db.transaction(store, 'readonly');
+                const r = t.objectStore(store).getAllKeys();
+                t.oncomplete = () => resolve(r.result.filter(k => !prefix || String(k).indexOf(prefix) === 0));
+                t.onerror = () => reject(t.error || new Error('idb keys error'));
+            }));
+        },
+        /** 按前缀取 [key, value] 列表 */
+        entries(store, prefix) {
+            return open().then(db => new Promise((resolve, reject) => {
+                const t = db.transaction(store, 'readonly');
+                const o = t.objectStore(store);
+                const ks = o.getAllKeys(), vs = o.getAll();
+                t.oncomplete = () => {
+                    const out = [];
+                    for (let i = 0; i < ks.result.length; i++) {
+                        if (!prefix || String(ks.result[i]).indexOf(prefix) === 0) out.push([ks.result[i], vs.result[i]]);
+                    }
+                    resolve(out);
+                };
+                t.onerror = () => reject(t.error || new Error('idb entries error'));
+            }));
+        },
+        /** 清掉某前缀的所有键（键多时逐个删） */
+        async clearPrefix(store, prefix) {
+            const ks = await Store.keys(store, prefix);
+            for (const k of ks) await Store.del(store, k);
+            return ks.length;
+        },
+        /* ---------- 战报库（神经网络实战结果，供发给 AI 分析） ---------- */
+        async addReport(rep) {
+            const key = 'r' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+            const rec = Object.assign({ key, savedAt: new Date().toISOString() }, rep);
+            await Store.put('reports', key, rec);
+            /* 只留最近 30 条（防库无限膨胀） */
+            const ks = await Store.keys('reports');
+            if (ks.length > 30) { ks.sort(); for (const k of ks.slice(0, ks.length - 30)) await Store.del('reports', k); }
+            return rec;
+        },
+        async listReports(limit) {
+            const es = await Store.entries('reports');
+            es.sort((a, b) => String(b[0]).localeCompare(String(a[0])));
+            return es.slice(0, limit || 20).map(x => x[1]);
+        }
+    };
+    root.NeuronStore = Store;
+    if (typeof module !== 'undefined' && module.exports) module.exports = Store;
+})(typeof self !== 'undefined' ? self : this);
+
+/* ============================================================
+   神经元实验室 · 训练核心（浏览器 Worker / Node 自测 共用）
+   ------------------------------------------------------------
+   移植自另一台设备的「方案二A · 神经元对打」demo/evolve_duel_neuron.js（2026-10-05 完整状态）。
+   算法逐段对照移植（NEAT 网络 / 双轨选择 / 新颖性档案 / E8 行为空间 / 岛间迁移 / 可进化目标向量），
+   差异只在【I/O】与【运行形态】：
+     · 文件读写（jsonl / 快照 / 桌面产出）→ IndexedDB（NeuronStore）/ 内存 + postMessage 上报
+     · argv → cfg 对象；主进程 spawn 多岛 → 页面开 N 个 Worker，每 Worker 一个岛
+     · 新增：单方固定（打指定对手）/ 双方进化（自对弈）/ 纯规则（方案一）
+     · 新增：暂停 / 停止 / 每 N 代存档（默认 5）/ 断点续跑 / 舰船库约束（可选）
+   ============================================================ */
+(function (root) {
+    'use strict';
+
+    /* 纯函数工具 */
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const clamp01 = x => Math.max(0, Math.min(1, isFinite(x) ? x : 0));
+
+    function start(E, cfg0, post) {
+        const cfg = Object.assign({
+            isle: 0, seedBase: 20261004, pop: 6, oppEval: 2, oppSample: 3,
+            maxSec: 9000, stallSec: 90, dt: 0.5, throttle: 1.0,
+            minCV: 390, cvCap: 420, reinfCap: 5,
+            saveEvery: 5, gens: 999999,
+            pure: false,                       // 纯规则模式（无网络；方案一）
+            evolve: { A: true, B: true },      // 哪一方参与进化（另一方=给定固定）
+            warmNet: null, welcome: null,      // 热启动网络 / 预训练
+            lib: null,                          // 舰船库约束（null=不限制）
+            store: (typeof self !== 'undefined' && self.NeuronStore) || null,
+            tag: ''
+        }, cfg0 || {});
+        const Store = cfg.store;
+        const ISLE = cfg.isle;
+        const TAG = '[I' + String(ISLE).padStart(2, '0') + '] ';
+        const SIZE_LAMBDA_NODE = 25, SIZE_LAMBDA_CONN = 0.8;
+        const CV_CAP = cfg.cvCap, REINF_CAP = cfg.reinfCap, MIN_CV = cfg.minCV;
+        const OPP_POOL = 5, OPP_FRESH = 2, OPP_TOP = OPP_POOL - OPP_FRESH;
+        const OPP_EVAL = cfg.oppEval;
+        const CROSS_RATE = 0.35, MAP_PARENT_RATE = 0.25;
+        const ELITE_BAR = 0.75;
+        const ARCH_K = 15, ARCH_MAX_ENTER = 4, ARCH_RARE_GENS = 500;
+        const HOLD_BIAS = 0.5;
+
+        /* ---------- 随机数（可复现） ---------- */
+        let _s = ((cfg.seedBase + ISLE * 7919) >>> 0) || 1;
+        const rnd = () => { _s |= 0; _s = (_s + 0x6D2B79F5) | 0; let t = Math.imul(_s ^ (_s >>> 15), 1 | _s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+        const pick = a => a[Math.floor(rnd() * a.length)];
+        const gauss = () => { let u = 0, v = 0; while (!u) u = rnd(); while (!v) v = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+
+        /* ---------- 控制（暂停/继续/停止） ---------- */
+        let _pause = false, _stop = false, _resumeResolve = null;
+        const control = {
+            pause() { _pause = true; },
+            stop() { _stop = true; if (_resumeResolve) { _resumeResolve(); _resumeResolve = null; } },
+            resume() { _pause = false; if (_resumeResolve) { _resumeResolve(); _resumeResolve = null; } },
+            get paused() { return _pause; },
+            get stopped() { return _stop; }
+        };
+
+        /* ---------- 网络（NEAT 式） ---------- */
+        const ACT = { identity: x => x, tanh: Math.tanh, sigmoid: x => 1 / (1 + Math.exp(-clamp(x, -30, 30))), relu: x => x > 0 ? x : 0, step: x => x > 0 ? 1 : 0, abs: Math.abs, sin: Math.sin, gauss: x => Math.exp(-x * x), square: x => clamp(x * x, -1e6, 1e6) };
+        const ACT_NAMES = Object.keys(ACT);
+        let NEXT_INNOV = 1; const INNOV_MAP = new Map();
+        const innovOf = (a, b) => { const k = a + '>' + b; if (!INNOV_MAP.has(k)) INNOV_MAP.set(k, NEXT_INNOV++); return INNOV_MAP.get(k); };
+        const NIN = () => E.actionStateSize(), NOUT = () => 9;
+        function newNetwork() {
+            const nodes = [];
+            for (let i = 0; i < NIN(); i++) nodes.push({ id: 'i' + i, type: 'in', act: 'identity' });
+            for (let j = 0; j < NOUT(); j++) nodes.push({ id: 'o' + j, type: 'out', act: 'tanh' });
+            const conns = [];
+            for (let i = 0; i < NIN(); i++) for (let j = 0; j < NOUT(); j++) if (rnd() < 0.35) conns.push({ in: 'i' + i, out: 'o' + j, w: gauss() * 0.5, enabled: true, innov: innovOf('i' + i, 'o' + j) });
+            return { nodes, conns, hidSeq: 1 };
+        }
+        function forward(net, inputs) {
+            const val = new Map(); let ops = 0;
+            for (const n of net.nodes) { if (n.type === 'in') { val.set(n.id, inputs[parseInt(n.id.slice(1), 10)] || 0); ops++; } else val.set(n.id, 0); }
+            for (let p = 0; p < 2; p++) for (const n of net.nodes) {
+                if (n.type === 'in') continue;
+                let sum = 0;
+                for (const c of net.conns) { if (!c.enabled || c.out !== n.id) continue; sum += (val.get(c.in) || 0) * c.w; ops++; }
+                val.set(n.id, ACT[n.act](sum)); ops++;
+            }
+            const out = []; for (let j = 0; j < NOUT(); j++) out.push(val.get('o' + j) || 0);
+            return { out, ops, val };
+        }
+        function mutateNet(src, rate) {
+            const net = { nodes: src.nodes.map(n => Object.assign({}, n)), conns: src.conns.map(c => Object.assign({}, c)), hidSeq: src.hidSeq };
+            const k = 1 + (rnd() < rate * 2 ? 1 : 0) + (rnd() < rate ? 1 : 0);
+            for (let t = 0; t < k; t++) {
+                const a = pick(['addConn', 'addConn', 'addNode', 'addNode', 'w', 'w', 'w', 'act']);
+                if (a === 'w') { for (const c of net.conns) { if (rnd() < 0.35) c.w += gauss() * (0.2 + rate); if (rnd() < 0.02) c.w = gauss(); c.w = clamp(c.w, -8, 8); } }
+                else if (a === 'act') { const n = pick(net.nodes.filter(x => x.type !== 'in')); if (n) n.act = pick(ACT_NAMES); }
+                else if (a === 'addConn') { const ia = pick(net.nodes.filter(x => x.type === 'in')), ib = pick(net.nodes.filter(x => x.type !== 'in')); if (ia && ib && !net.conns.some(c => c.in === ia.id && c.out === ib.id)) net.conns.push({ in: ia.id, out: ib.id, w: gauss() * 0.5, enabled: true, innov: innovOf(ia.id, ib.id) }); }
+                else if (a === 'addNode') { const live = net.conns.filter(c => c.enabled); if (!live.length) continue; const c = pick(live); c.enabled = false; const id = 'h' + (net.hidSeq++); net.nodes.push({ id, type: 'hidden', act: pick(ACT_NAMES) }); net.conns.push({ in: c.in, out: id, w: 1, enabled: true, innov: innovOf(c.in, id) }); net.conns.push({ in: id, out: c.out, w: c.w, enabled: true, innov: innovOf(id, c.out) }); }
+            }
+            return net;
+        }
+        const netSize = net => net
+            ? { nodes: net.nodes.filter(n => n.type !== 'in').length, conns: net.conns.filter(c => c.enabled).length }
+            : { nodes: 0, conns: 0 };
+
+        /* ---------- 数据库 & 池 ---------- */
+        let DB = null, POOL = [], POOL_AIR = [], TP_LIB = null, LIB = null;
+
+        /* ---------- 配队基础 ---------- */
+        const cvOf = (id, db) => (db[id] && db[id].commandValue) || 0;
+        const fleetCV = (fl, db) => fl.reduce((a, e) => a + cvOf(e.id, db) * (e.count || 1), 0);
+        function trimToCap(fl, db, cap) {
+            const out = fl.map(e => Object.assign({}, e));
+            let guard = 0;
+            while (fleetCV(out, db) > cap && guard++ < 200) {
+                const i = out.length - 1 - Math.floor(rnd() * Math.min(3, out.length));
+                if (out[i].count > 1) out[i].count--;
+                else out.splice(i, 1);
+                if (!out.length) break;
+            }
+            return out;
+        }
+        const reinfShips = re => (re || []).reduce((n, e) => n + (e.count || 1), 0);
+        function trimReinf(re) {
+            const out = (re || []).map(e => Object.assign({}, e));
+            let guard = 0;
+            while (reinfShips(out) > REINF_CAP && out.length && guard++ < 100) {
+                const last = out[out.length - 1];
+                if ((last.count || 1) > 1) last.count--;
+                else out.pop();
+            }
+            return out;
+        }
+        /* 配队页格式 → 基因组（战报/配队页导出的 {main:[{id,name,pos,qty,mods,air}],reinforcement,flagship}） */
+        function sideFromFleet(f0) {
+            const sideArr = a => (a || []).map(s => ({ id: s.id, count: s.qty || s.count || 1, mods: Object.assign({}, s.mods || {}), position: s.pos || s.position, air: (s.air || []).map(x => ({ id: x.id, qty: x.qty || 1, slot: x.slot, kind: x.kind })) }));
+            const reinf = trimReinf(sideArr(f0.reinforce || f0.reinforcement));
+            let fl = f0.flagship || null;
+            if (typeof fl === 'string') {
+                const m = fl.match(/^reinforce\|(\d+)$/);
+                if (m) { const idx = parseInt(m[1], 10); fl = (reinf[idx] && reinf[idx].id) || null; }
+            }
+            if (!fl) fl = (reinf[0] && reinf[0].id) || null;
+            return { main: trimToCap(sideArr(f0.main), DB, CV_CAP), reinf, fl };
+        }
+
+        /* ---------- 载机 ↔ 模块联动（走项目自己的 FleetCheck） ---------- */
+        const airKind = t => ((t && (t.aircraftType || t.type)) === 'corvette') ? 'corvette' : 'fighter';
+        function slotsOf(e) {
+            const FC = E.FleetCheck; if (!FC) return [];
+            try { return (FC.airSlots(DB[e.id], e.mods || {}, e.count || 1) || []).filter(x => x.cap > 0); } catch (x) { return []; }
+        }
+        const usedInSlot = (e, key) => (e.air || []).filter(a => a.slot === key).reduce((n, a) => n + (a.qty || 1), 0);
+        function reconcileAir(e) {
+            const sl = slotsOf(e);
+            const used = {};
+            const keep = [];
+            for (const a of (e.air || [])) {
+                const t = DB[a.id]; if (!t) continue;
+                const kind = airKind(t), q = a.qty || 1;
+                let hit = sl.find(x => x.key === a.slot && x.kind === kind && (used[x.key] || 0) + q <= x.cap)
+                    || sl.find(x => x.kind === kind && (used[x.key] || 0) + q <= x.cap);
+                if (!hit) continue;
+                used[hit.key] = (used[hit.key] || 0) + q;
+                keep.push({ id: a.id, qty: q, slot: hit.key, kind });
+            }
+            e.air = keep;
+            return e;
+        }
+        function mutateAir(e, rate, fl) {
+            const sl = slotsOf(e); if (!sl.length) return e;
+            const k = 1 + (rnd() < rate ? 1 : 0);
+            for (let i = 0; i < k; i++) {
+                const a = pick(['add', 'add', 'del', 'qty', 'swap']);
+                if (a === 'add') {
+                    const slot = pick(sl);
+                    const pool = POOL_AIR.filter(t => airKind(t) === slot.kind
+                        && !(slot.kind === 'fighter' && slot.allow !== 'ALL' && t.airSize === 'large'));
+                    if (!pool.length) continue;
+                    const room = slot.cap - usedInSlot(e, slot.key);
+                    if (room <= 0) continue;
+                    const q = 1 + Math.floor(rnd() * Math.min(room, 5));
+                    const at = pick(pool);
+                    if (fl && !LEGAL.canAddAir(fl, e, at.id, q)) continue;
+                    e.air = (e.air || []).concat([{ id: at.id, qty: q, slot: slot.key, kind: slot.kind }]);
+                } else if (a === 'del' && (e.air || []).length) {
+                    e.air.splice(Math.floor(rnd() * e.air.length), 1);
+                } else if ((e.air || []).length) {
+                    const idx = Math.floor(rnd() * e.air.length);
+                    if (a === 'qty') {
+                        const cur = e.air[idx].qty || 1;
+                        const nq = clamp(cur + (rnd() < 0.5 ? -1 : 1), 1, 30);
+                        const rest = usedInSlot(e, e.air[idx].slot) - cur;
+                        const cap = (sl.find(x => x.key === e.air[idx].slot) || {}).cap || 0;
+                        const servOK = (nq <= cur) || !fl || LEGAL.canAddAir(fl, e, e.air[idx].id, nq - cur);
+                        if (rest + nq <= cap && servOK) e.air[idx].qty = nq;
+                    } else {
+                        const slotNow = sl.find(x => x.key === e.air[idx].slot) || sl[0];
+                        const pool = POOL_AIR.filter(t => airKind(t) === e.air[idx].kind
+                            && !(e.air[idx].kind === 'fighter' && slotNow && slotNow.allow !== 'ALL' && t.airSize === 'large'));
+                        if (!pool.length) continue;
+                        const at = pick(pool);
+                        if (at.id !== e.air[idx].id && fl && !LEGAL.canAddAir(fl, e, at.id, e.air[idx].qty || 1)) continue;
+                        e.air[idx].id = at.id;
+                    }
+                }
+            }
+            return reconcileAir(e);
+        }
+        function toSpecAir(s) {
+            return { id: s.id, count: s.count || 1, mods: Object.assign({}, s.mods || {}), position: s.position,
+                air: (s.air || []).map(a => ({ id: a.id, qty: a.qty || 1, slot: a.slot, kind: a.kind })) };
+        }
+        const specOf = f => ({ main: f.main.map(toSpecAir), reinf: f.reinf.map(toSpecAir) });
+
+        /* ---------- 合法性（项目 FleetCheck 的浏览器移植：_fleet_legal.js 同款口径） ---------- */
+        const LEGAL = (function makeLegal() {
+            const D = () => E.ships || {};
+            const FC = E.FleetCheck;
+            try {
+                if (typeof window !== 'undefined') {
+                    if (!window.SHIP_DB || typeof window.SHIP_DB.get !== 'function')
+                        window.SHIP_DB = { get: id => D()[id], all: () => Object.values(D()) };
+                }
+            } catch (e) { }
+            const ready = !!(FC && FC.check && FC.airSlots);
+            const nm = id => (D()[id] && D()[id].name) || id;
+            const toFC = fl => ({
+                main: (fl.main || []).map(e => ({ id: e.id, qty: Math.max(1, e.count || 1), pos: e.position, mods: Object.assign({}, e.mods || {}),
+                    air: (e.air || []).map(a => ({ id: a.id, qty: Math.max(1, a.qty || 1), slot: a.slot, kind: a.kind })) })),
+                reinforcement: (fl.reinf || []).map(e => ({ id: e.id, qty: Math.max(1, e.count || 1), pos: '增援', mods: Object.assign({}, e.mods || {}), air: [] })),
+                flagship: fl.fl || ''
+            });
+            const fromFC = f => ({
+                main: (f.main || []).map(s => ({ id: s.id, count: s.qty, position: s.pos, mods: s.mods || {}, air: s.air || [] })),
+                reinf: (f.reinforcement || []).map(s => ({ id: s.id, count: s.qty, position: '中排', mods: s.mods || {}, air: [] })),
+                fl: f.flagship || ((f.main && f.main[0]) ? f.main[0].id : null)
+            });
+            function check(fl) {
+                if (!ready) return { ok: true, errors: [], note: '引擎没有 FleetCheck，跳过' };
+                try {
+                    const r = FC.check(toFC(fl), { checkUser: false });
+                    return { ok: (r.errors || []).length === 0, errors: r.errors || [], fixed: r.fixed };
+                } catch (e) { return { ok: true, errors: [], note: 'FleetCheck 抛错：' + e.message }; }
+            }
+            function legalize(fl) {
+                if (!ready) return { fleet: fl, notes: [], ok: true };
+                let cur = toFC(fl);
+                const notes = [];
+                for (let round = 0; round < 8; round++) {
+                    const r = FC.check(cur, { checkUser: false });
+                    cur = r.fixed || cur;
+                    const errs = r.errors || [];
+                    if (!errs.length) break;
+                    const cnt = {};
+                    ['main', 'reinforcement'].forEach(sec => (cur[sec] || []).forEach(s => { cnt[s.id] = (cnt[s.id] || 0) + s.qty; }));
+                    let acted = false;
+                    for (const e of errs) {
+                        const m = /^「(.+?)」服役超上限/.exec(e);
+                        if (!m) continue;
+                        const id = Object.keys(D()).find(x => D()[x] && D()[x].name === m[1]);
+                        if (!id) continue;
+                        const lim = D()[id].serviceLimit || 99;
+                        let excess = (cnt[id] || 0) - lim;
+                        if (excess <= 0) continue;
+                        for (const sec of ['reinforcement', 'main']) {
+                            if (excess <= 0) break;
+                            const arr = cur[sec] || [];
+                            for (let i = arr.length - 1; i >= 0 && excess > 0; i--) {
+                                const s = arr[i];
+                                if (s.id !== id) continue;
+                                const floor = (sec === 'main') ? 1 : 0;
+                                const cut = Math.min(excess, s.qty - floor);
+                                if (cut > 0) { s.qty -= cut; excess -= cut; acted = true; notes.push('削 ' + nm(id) + '（' + (sec === 'main' ? '主舰队' : '增援') + '）−' + cut); }
+                            }
+                            if (sec === 'main' && excess > 0) {
+                                for (let i = arr.length - 1; i >= 0 && excess > 0; i--) {
+                                    if (arr[i].id !== id) continue;
+                                    const q = arr[i].qty; arr.splice(i, 1); excess -= q; acted = true;
+                                    notes.push('删 ' + nm(id) + '（主舰队）−' + q);
+                                }
+                            }
+                        }
+                    }
+                    if (!acted) break;
+                }
+                cur.main = (cur.main || []).filter(s => s.qty >= 1);
+                cur.reinforcement = (cur.reinforcement || []).filter(s => s.qty >= 1);
+                const out = fromFC(cur);
+                const r2 = check(out);
+                return { fleet: out, notes: notes, ok: r2.ok, errors: r2.errors || [] };
+            }
+            function usedOf(fl, id) {
+                return (fl.main || []).concat(fl.reinf || []).reduce((a, e) => a + (e.id === id ? Math.max(1, e.count || 1) : 0), 0);
+            }
+            function canAdd(fl, id, n) {
+                if (!ready) return true;
+                const lim = (D()[id] && D()[id].serviceLimit) || 99;
+                return usedOf(fl, id) + (n || 1) <= lim;
+            }
+            function canAddAir(fl, shipEntry, airId, qty) {
+                if (!ready) return true;
+                const t = D()[airId]; if (!t) return false;
+                const q = Math.max(1, qty || 1);
+                const kind = (t.aircraftType === 'corvette' || t.type === 'corvette') ? 'corvette' : 'fighter';
+                const slots = (FC.airSlots(D()[shipEntry.id], shipEntry.mods || {}, shipEntry.count || 1) || []).filter(x => x.kind === kind);
+                if (!slots.length) return false;
+                const okSlots = slots.filter(x => !(kind === 'fighter' && x.allow !== 'ALL' && t.airSize === 'large'));
+                if (!okSlots.length) return false;
+                const cap = okSlots.reduce((a, x) => a + x.cap, 0);
+                const usedInSlots = (shipEntry.air || []).filter(a => a.kind === kind).reduce((a, x) => a + (x.qty || 1), 0);
+                if (usedInSlots + q > cap) return false;
+                const lim = t.serviceLimit || 99;
+                const usedAll = (fl.main || []).concat(fl.reinf || []).reduce((a, e) => a + (e.air || []).filter(x => x.id === airId).reduce((b, x) => b + (x.qty || 1), 0), 0);
+                return usedAll + q <= lim;
+            }
+            function topUp(fl, minCV, maxCV) {
+                const cap = maxCV || CV_CAP;
+                const out = { main: (fl.main || []).map(e => Object.assign({}, e)), reinf: (fl.reinf || []).map(e => Object.assign({}, e)), fl: fl.fl };
+                let guard = 0;
+                const cvOfE = e => ((D()[e.id] && D()[e.id].commandValue) || 0);
+                const fCV = () => out.main.reduce((a, e) => a + cvOfE(e) * (Math.max(1, e.count || 1)), 0);
+                while (fCV() < minCV && guard++ < 60) {
+                    const room = cap - fCV();
+                    let acted = false;
+                    const cands = out.main.slice().sort((a, b) => cvOfE(a) - cvOfE(b));
+                    for (const e of cands) {
+                        if (cvOfE(e) > room) continue;
+                        if (!canAdd(out, e.id, 1)) continue;
+                        e.count = (e.count || 1) + 1; acted = true; break;
+                    }
+                    if (acted) continue;
+                    const pool = Object.keys(D()).filter(id => {
+                        const t = D()[id];
+                        return t && t.hp > 0 && t.position !== 'aircraft' && (t.commandValue || 0) > 0 && (t.commandValue || 0) <= room && canAdd(out, id, 1);
+                    }).sort((a, b) => (D()[a].commandValue || 0) - (D()[b].commandValue || 0));
+                    if (pool.length) {
+                        const id = pool[0];
+                        const ex = out.main.find(x => x.id === id);
+                        if (ex) ex.count++;
+                        else out.main.push({ id: id, count: 1, position: D()[id].position || '中排', mods: {}, air: [] });
+                        acted = true;
+                    }
+                    if (!acted) break;
+                }
+                return out;
+            }
+            return { check, legalize, topUp, canAdd, canAddAir, usedOf, ready, toFC, fromFC };
+        })();
+
+        /* ---------- 变异：加点（只能重分配，不可追加）/ 配队 / 增援 ---------- */
+        function allApNodes(ap) {
+            const out = [];
+            Object.keys(ap || {}).forEach(cdn => { const lv = (ap[cdn] && ap[cdn].lv) || {}; Object.keys(lv).forEach(nd => out.push([cdn, nd])); });
+            return out;
+        }
+        function mutateAp(ap, rate) {
+            const out = {};
+            const budget = {};
+            Object.keys(ap || {}).forEach(c => {
+                out[c] = { lv: Object.assign({}, (ap[c] || {}).lv || {}) };
+                budget[c] = Object.values(out[c].lv).reduce((a, b) => a + (b || 0), 0);
+                /* ★ 舰船库模式：这艘船的可花点数上限 = min(原有点数, 用户填的蓝点) */
+                if (TP_LIB && TP_LIB[c] && budget[c] > TP_LIB[c]) budget[c] = TP_LIB[c];
+            });
+            const nodes = allApNodes(out);
+            if (!nodes.length) return out;
+            const spent = c => Object.values(out[c].lv).reduce((a, b) => a + (b || 0), 0);
+            const k = 1 + (rnd() < rate ? 1 : 0);
+            for (let i = 0; i < k; i++) {
+                const [c, nd] = pick(nodes);
+                const cur = out[c].lv[nd] || 0;
+                let nv = cur + (rnd() < 0.5 ? -1 : 1);
+                if (nv > cur && spent(c) + (nv - cur) > budget[c]) nv = cur;
+                out[c].lv[nd] = clamp(nv, 0, 12);
+            }
+            return out;
+        }
+        function mutateFleet(fl, db, rate) {
+            const out = fl.map(e => Object.assign({}, e, { air: (e.air || []).map(a => Object.assign({}, a)) }));
+            const acts = ['add', 'del', 'count', 'mod', 'pos', 'swap', 'air', 'air'];
+            const k = 1 + (rnd() < rate * 2 ? 1 : 0);
+            for (let i = 0; i < k; i++) {
+                const a = pick(acts);
+                if (a === 'add') {
+                    const t = pick(POOL), n = 1 + Math.floor(rnd() * 2);
+                    if (fleetCV(out, db) + cvOf(t.id, db) * n > CV_CAP) continue;
+                    if (!LEGAL.canAdd({ main: out, reinf: fl.reinf || [] }, t.id, n)) continue;
+                    const ex = out.find(x => x.id === t.id);
+                    if (ex) ex.count += n; else out.push({ id: t.id, count: n, position: t.position || '中排', mods: {}, air: [] });
+                } else if (a === 'del' && out.length > 1) {
+                    const i2 = Math.floor(rnd() * out.length);
+                    const after = out.filter((_, j) => j !== i2);
+                    if (fleetCV(after, db) >= MIN_CV) out.splice(i2, 1);
+                }
+                else if (a === 'swap' && out.length) {
+                    const t = pick(POOL), i2 = Math.floor(rnd() * out.length);
+                    const after = fleetCV(out, db) - cvOf(out[i2].id, db) * out[i2].count + cvOf(t.id, db) * out[i2].count;
+                    const keep = { main: out.filter((_, k) => k !== i2), reinf: fl.reinf || [] };
+                    if (after <= CV_CAP && after >= MIN_CV && LEGAL.canAdd(keep, t.id, out[i2].count))
+                        out[i2] = { id: t.id, count: out[i2].count, position: t.position || '中排', mods: {}, air: [] };
+                }
+                else if (out.length) {
+                    const e = out[Math.floor(rnd() * out.length)];
+                    if (a === 'count') {
+                        const nn = clamp(e.count + (rnd() < 0.5 ? -1 : 1), 1, 8);
+                        const after = fleetCV(out, db) - cvOf(e.id, db) * e.count + cvOf(e.id, db) * nn;
+                        const servOK = (nn <= e.count) || LEGAL.canAdd({ main: out, reinf: fl.reinf || [] }, e.id, nn - e.count);
+                        if (after <= CV_CAP && after >= MIN_CV && servOK) { e.count = nn; reconcileAir(e); }
+                    }
+                    else if (a === 'pos') e.position = pick(['前排', '中排', '后排']);
+                    else if (a === 'mod') {
+                        const m = (DB[e.id] || {}).modules || {};
+                        let ks = Object.keys(m).filter(x => !x.startsWith('_') && m[x] && m[x].variants && Object.keys(m[x].variants).length);
+                        /* ★ 舰船库模式：只允许用库里拥有的模块变体 */
+                        if (LIB && LIB.ships[e.id] && LIB.ships[e.id].mods) {
+                            const allowed = LIB.ships[e.id].mods;
+                            ks = ks.filter(x => allowed[x] && allowed[x].length && allowed[x].some(v => m[x].variants[v]));
+                        }
+                        if (ks.length) {
+                            const kk = pick(ks);
+                            let vs = Object.keys(m[kk].variants);
+                            if (LIB && LIB.ships[e.id] && LIB.ships[e.id].mods && LIB.ships[e.id].mods[kk])
+                                vs = LIB.ships[e.id].mods[kk].filter(v => m[kk].variants[v]);
+                            if (vs.length) { e.mods = Object.assign({}, e.mods, { [kk]: pick(vs) }); reconcileAir(e); }
+                        }
+                    }
+                    else if (a === 'air') mutateAir(e, rate, { main: out, reinf: fl.reinf || [] });
+                }
+            }
+            out.forEach(e => reconcileAir(e));
+            return out.length ? out : fl;
+        }
+        function mutateReinf(re, db, rate, main) {
+            const out = (re || []).map(e => Object.assign({}, e));
+            let guard = 0;
+            while (reinfShips(out) < REINF_CAP && guard++ < 60) {
+                const t = pick(POOL);
+                if (!LEGAL.canAdd({ main: main || [], reinf: out }, t.id, 1)) continue;
+                out.push({ id: t.id, count: 1, position: '中排', mods: {}, air: [] });
+            }
+            while (reinfShips(out) > REINF_CAP && out.length && guard++ < 160) {
+                const last = out[out.length - 1];
+                if ((last.count || 1) > 1) last.count--; else out.pop();
+            }
+            if (rnd() < rate * 2 && out.length) {
+                const i = Math.floor(rnd() * out.length);
+                const t = pick(POOL);
+                const rest = { main: main || [], reinf: out.filter((_, k) => k !== i) };
+                if (LEGAL.canAdd(rest, t.id, out[i].count || 1))
+                    out[i] = { id: t.id, count: out[i].count || 1, position: '中排', mods: {}, air: [] };
+            }
+            return out;
+        }
+        /* ---------- 基因组 ---------- */
+        let WARM_NET = cfg.warmNet || null;
+        const PURE = !!cfg.pure;
+        function randGenome(base0, light) {
+            const g = {
+                escort: { main: light ? base0.escort.main.map(e => Object.assign({}, e)) : mutateFleet(base0.escort.main, DB, 0.6), reinf: light ? base0.escort.reinf.slice() : mutateReinf(base0.escort.reinf, DB, 1, base0.escort.main), fl: null },
+                escorted: { main: light ? base0.escorted.main.map(e => Object.assign({}, e)) : mutateFleet(base0.escorted.main, DB, 0.6), reinf: light ? base0.escorted.reinf.slice() : mutateReinf(base0.escorted.reinf, DB, 1, base0.escorted.main), fl: null },
+                ap: light ? mutateAp(base0.ap, 0) : mutateAp(base0.ap, 0.8),
+                net: PURE ? null : (WARM_NET ? JSON.parse(JSON.stringify(WARM_NET)) : newNetwork()),
+                mutRate: clamp(0.05 + rnd() * 0.25, 0.01, 0.6), opBudget: 6000000 + Math.floor(rnd() * 34000000)
+            };
+            g.escort.fl = pickFrom(g.escort.main) || base0.escort.fl || null;
+            g.escorted.fl = pickFrom(g.escorted.main) || base0.escorted.fl || null;
+            [g.escort, g.escorted].forEach(f => f.main.forEach(reconcileAir));
+            return g;
+        }
+        function pickFrom(main) { return main && main.length ? pick(main).id : null; }
+        function mutate(g) {
+            const rate = clamp(g.mutRate * (0.75 + rnd() * 0.58), 0.01, 0.6);
+            const opBudget = clamp(Math.round(g.opBudget * (0.75 + rnd() * 0.58)), 2000000, 400000000);
+            const nm = {
+                escort: { main: mutateFleet(g.escort.main, DB, rate), reinf: mutateReinf(g.escort.reinf, DB, rate, g.escort.main), fl: g.escort.fl },
+                escorted: { main: mutateFleet(g.escorted.main, DB, rate), reinf: mutateReinf(g.escorted.reinf, DB, rate, g.escorted.main), fl: g.escorted.fl },
+                ap: mutateAp(g.ap, rate), net: (PURE || !g.net) ? null : mutateNet(g.net, rate), mutRate: rate, opBudget
+            };
+            if (rnd() < 0.35) nm.escort.fl = pickFrom(nm.escort.main) || nm.escort.fl;
+            if (rnd() < 0.35) nm.escorted.fl = pickFrom(nm.escorted.main) || nm.escorted.fl;
+            return nm;
+        }
+
+        /* ---------- 决策钩子（网络 ↔ 引擎） ---------- */
+        let CA = null, CB = null;
+        function newStat() {
+            return { hist: new Array(9).fill(0), hold: 0, phase: { early: 0, mid: 0, late: 0 },
+                tgt: { aircraft: 0, superCap: 0, cruiser: 0, escorted: 0, other: 0 },
+                tgtHpSum: 0, tgtHpN: 0, calls: 0, reused: 0 };
+        }
+        function bumpTarget(st, e) {
+            if (!e) return;
+            st.tgtHpSum += (e.hp || 0) / Math.max(1, e.maxHp || 1); st.tgtHpN++;
+            if (e.position === 'aircraft') st.tgt.aircraft++;
+            else if (['battleship', 'aircraftcarrier', 'battlecruiser', 'support'].indexOf(e.type) >= 0) st.tgt.superCap++;
+            else if (e.type === 'cruiser') st.tgt.cruiser++;
+            else if (e.isEscorted) st.tgt.escorted++;
+            else st.tgt.other++;
+        }
+        E.setActionHook((st, info) => {
+            const s = (info.ship && info.ship.side === 'ally') ? CA : CB;
+            if (!s) return undefined;
+            if (s.used >= s.budget) { s.starved = true; return undefined; }
+            const K = Math.min(info.K, 8);
+            const fr = forward(s.net, st);
+            s.used += fr.ops;
+            let bi = K, bv = fr.out[K] - HOLD_BIAS;
+            for (let i = 0; i < K; i++) if (fr.out[i] > bv) { bv = fr.out[i]; bi = i; }
+            if (s.stat) {
+                s.stat.calls++;
+                s.stat.hist[bi >= K ? 8 : bi]++;
+                if (bi >= K) s.stat.hold++;
+                else bumpTarget(s.stat, info.enemies[bi]);
+                const ph = st[20] || 0;
+                if (ph < 0.34) s.stat.phase.early++; else if (ph < 0.67) s.stat.phase.mid++; else s.stat.phase.late++;
+            }
+            s.lastVal = fr.val;      // 供 3D 页面看"这一发激活了哪些节点"
+            return bi >= K ? -1 : bi;
+        });
+
+        /* ---------- 行为向量 / 新颖性 / E8 / 选择 / 繁殖 ---------- */
+        let ARCHIVE = [];
+        let ARCH_THRESHOLD = 0.15;
+        let ARCH_ENTERED = 0, ARCH_LAST_ENTER_GEN = 0;
+        function behVec(g, m) {
+            const all = [].concat(g.escort.main || [], g.escorted.main || []);
+            let cvTot = 0, cvFront = 0, cvBack = 0, dmgTot = 0, dmgEnergy = 0;
+            all.forEach(e => {
+                const cv = (cvOf(e.id, DB) || 0) * (e.count || 1);
+                cvTot += cv;
+                if (e.position === '前排') cvFront += cv; else cvBack += cv;
+                const t = DB[e.id] || {};
+                const wpns = [].concat(t.weapons || []);
+                Object.values(t.modules || {}).forEach(mm => { if (mm && mm.weapons) wpns.push.apply(wpns, mm.weapons); });
+                wpns.forEach(w => {
+                    const d = ((w.dpm || {}).antiShip || 0) + ((w.dpm || {}).antiAir || 0);
+                    dmgTot += d;
+                    const at = String(w.attr || w.attribute || w.damageType || '');
+                    if (/能量|离子|energy|ion/i.test(at)) dmgEnergy += d;
+                });
+            });
+            const st = m.stat || { hist: new Array(9).fill(0), tgt: { aircraft: 0, superCap: 0, cruiser: 0, escorted: 0, other: 0 }, calls: 0, tgtHpN: 0, tgtHpSum: 0 };
+            const calls = Math.max(1, st.calls);
+            const hooked = st.calls > 0;
+            const hold = (st.hist[8] || 0) / calls;
+            const gtT = Math.max(1, st.tgt.aircraft + st.tgt.superCap + st.tgt.cruiser + st.tgt.escorted + st.tgt.other);
+            const airRatio = st.tgt.aircraft / gtT;
+            const dmgAll = Math.max(1, (m.dmgOut || 0));
+            const repairRatio = (m.repairOut || 0) / dmgAll;
+            const airShare = (m.airOut || 0) / dmgAll;
+            return [
+                clamp01(cvTot ? cvFront / cvTot : 0),
+                clamp01(dmgTot ? dmgEnergy / dmgTot : 0),
+                clamp01(repairRatio),
+                clamp01(hooked && st.tgtHpN ? st.tgtHpSum / st.tgtHpN : airShare),
+                clamp01(hooked ? airRatio : (m.myRemain || 0)),
+                clamp01(hooked ? hold : (m.foeRemain || 0)),
+                clamp01(cvTot ? cvBack / cvTot : 0),
+                clamp01(m.avgAliveRatio || 0)
+            ];
+        }
+        const behDist = (a, b) => { let s = 0; for (let i = 0; i < 8; i++) { const d = a[i] - b[i]; s += d * d; } return Math.sqrt(s); };
+        function novelty(v) {
+            if (!ARCHIVE.length) return 1;
+            const d = ARCHIVE.map(a => behDist(a.v, v)).sort((x, y) => x - y);
+            const k = Math.min(ARCH_K, d.length);
+            let s = 0; for (let i = 0; i < k; i++) s += d[i];
+            return s / k;
+        }
+        function archiveUpdate(v, gen) {
+            const nv = novelty(v);
+            if (nv > ARCH_THRESHOLD) { ARCHIVE.push({ v: v, g: gen }); ARCH_ENTERED++; ARCH_LAST_ENTER_GEN = gen; }
+            return nv;
+        }
+        function archiveAdjust(gen) {
+            if (ARCH_ENTERED > ARCH_MAX_ENTER) ARCH_THRESHOLD *= 1.25;
+            else if (gen - ARCH_LAST_ENTER_GEN > ARCH_RARE_GENS && ARCH_THRESHOLD > 0.005) ARCH_THRESHOLD *= 0.95;
+            ARCH_ENTERED = 0;
+        }
+        function crossover(pa, pb) {
+            if (!pa.net || !pb.net) {
+                const swap = rnd() < 0.5;
+                const c = {
+                    escort: JSON.parse(JSON.stringify(swap ? pb.escort : pa.escort)),
+                    escorted: JSON.parse(JSON.stringify(swap ? pa.escorted : pb.escorted)),
+                    ap: JSON.parse(JSON.stringify(rnd() < 0.5 ? pa.ap : pb.ap)),
+                    net: null, mutRate: rnd() < 0.5 ? pa.mutRate : pb.mutRate, opBudget: pa.opBudget
+                };
+                c.escort.fl = pickFrom(c.escort.main) || c.escort.fl;
+                c.escorted.fl = pickFrom(c.escorted.main) || c.escorted.fl;
+                [c.escort, c.escorted].forEach(f => f.main.forEach(reconcileAir));
+                return mutate(c);
+            }
+            const child = { net: { nodes: [], conns: [], hidSeq: Math.max(pa.net.hidSeq || 1, pb.net.hidSeq || 1) },
+                mutRate: pa.mutRate, opBudget: pa.opBudget,
+                escort: JSON.parse(JSON.stringify(pa.escort)), escorted: JSON.parse(JSON.stringify(pa.escorted)),
+                ap: JSON.parse(JSON.stringify(rnd() < 0.5 ? pa.ap : pb.ap)) };
+            child.escort.fl = pickFrom(child.escort.main) || child.escort.fl;
+            child.escorted.fl = pickFrom(child.escorted.main) || child.escorted.fl;
+            const byInno = new Map(); (pb.net.conns || []).forEach(c => byInno.set(c.innov, c));
+            (pa.net.conns || []).forEach(c => {
+                const o = byInno.get(c.innov);
+                child.net.conns.push(o ? Object.assign({}, (rnd() < 0.5 ? c : o)) : Object.assign({}, c));
+            });
+            const ids = new Set(); child.net.conns.forEach(c => { ids.add(c.in); ids.add(c.out); });
+            (pa.net.nodes || []).forEach(n => { if (n.type === 'in' || n.type === 'out' || ids.has(n.id)) child.net.nodes.push(Object.assign({}, n)); });
+            return child;
+        }
+        function dualSelect(scored, gen, POP) {
+            const ranked = scored.slice().sort((a, b) => b.fit - a.fit);
+            const frac = gen <= 200 ? 0.6 : 0.8;
+            const N = Math.max(1, Math.round(POP * frac));
+            const M = Math.max(0, POP - N);
+            const elites = ranked.slice(0, N);
+            const eliteSet = new Set(elites.map(e => e.idx));
+            const novels = ranked.filter(e => !eliteSet.has(e.idx)).sort((a, b) => b.nov - a.nov).slice(0, M);
+            return { base: elites.concat(novels), N: N, M: novels.length };
+        }
+        function tournament(base, k) {
+            let best = null;
+            for (let i = 0; i < k; i++) { const c = base[Math.floor(rnd() * base.length)]; if (!best || c.fit > best.fit) best = c; }
+            return best.g;
+        }
+        /* E8 行为空间（240 根向量 × 强度 3 档 = 720 格） */
+        const E8_ROOTS = (() => {
+            const R = [];
+            for (let i = 0; i < 8; i++) for (let j = i + 1; j < 8; j++)
+                for (const a of [1, -1]) for (const b of [1, -1]) { const v = new Array(8).fill(0); v[i] = a; v[j] = b; R.push(v); }
+            for (let m = 0; m < 256; m++) {
+                let neg = 0; const v = new Array(8);
+                for (let k = 0; k < 8; k++) { const s = (m >> k) & 1; if (s) neg++; v[k] = s ? -0.5 : 0.5; }
+                if (neg % 2 === 0) R.push(v);
+            }
+            return R;
+        })();
+        const E8_MAG_BINS = 3;
+        const E8_MAXLEN = 0.5 * Math.sqrt(8);
+        const E8_CELLS = E8_ROOTS.length * E8_MAG_BINS;
+        const e8Cell = (v) => {
+            let n = 0; const c = new Array(8);
+            for (let i = 0; i < 8; i++) { c[i] = (v[i] || 0) - 0.5; n += c[i] * c[i]; }
+            const len = Math.sqrt(n);
+            n = len || 1;
+            let best = 0, bestDot = -1e9;
+            for (let r = 0; r < E8_ROOTS.length; r++) {
+                const R = E8_ROOTS[r]; let d = 0;
+                for (let i = 0; i < 8; i++) d += (c[i] / n) * R[i];
+                if (d > bestDot) { bestDot = d; best = r; }
+            }
+            const mag = Math.min(E8_MAG_BINS - 1, Math.floor((len / E8_MAXLEN) * E8_MAG_BINS));
+            return best * E8_MAG_BINS + mag;
+        };
+        let E8_MAP = new Map();
+        const cvOK = g => !!(g && g.escort && g.escort.main && g.escorted && g.escorted.main) &&
+            Math.min(fleetCV(g.escort.main, DB), fleetCV(g.escorted.main, DB)) >= MIN_CV &&
+            Math.max(fleetCV(g.escort.main, DB), fleetCV(g.escorted.main, DB)) <= CV_CAP &&
+            LEGAL.check(g.escort).ok && LEGAL.check(g.escorted).ok;
+        function mapElitesUpdate(v, fit, g, gen) {
+            if (!v) return false;
+            const c = e8Cell(v), cur = E8_MAP.get(c);
+            if (!cur || fit > cur.fit) { E8_MAP.set(c, { v: v, fit: fit, g: g, gen: gen }); return true; }
+            return false;
+        }
+        const sampleOpps = (pool, k) => {
+            if (pool.length <= k) return pool;
+            const c = pool.slice(), out = [];
+            for (let i = 0; i < k && c.length; i++) out.push(c.splice(Math.floor(rnd() * c.length), 1)[0]);
+            return out;
+        };
+        function makeOppPool(top3, base) {
+            const pool = [];
+            for (const g of (top3 || []).slice(0, OPP_TOP)) { try { pool.push(mutate(g)); } catch (e) { } }
+            while (pool.length < OPP_POOL) pool.push(randGenome(base, false));
+            return pool.slice(0, OPP_POOL);
+        }
+        /* ★ 固定方（用户给定）专用的对手池：主体是【给定配队本身】，其余是它的少量变异体
+           （不带网络 = 走引擎默认规则）—— 训练目标始终是"击败这一套"。 */
+        function makeOppPoolFixed(keep) {
+            const pool = [keep];
+            for (let i = 0; i < OPP_POOL - 1; i++) { try { const m = mutate(keep); m.net = null; pool.push(m); } catch (e) { } }
+            return pool;
+        }
+        function breed(base, pop, elite) {
+            const out = [elite];
+            let guard = 0;
+            const cells = [...E8_MAP.keys()];
+            while (out.length < pop && guard++ < pop * 30) {
+                if (!base.length) { out.push(mutate(elite)); continue; }
+                if (cells.length >= 2 && rnd() < MAP_PARENT_RATE) {
+                    const g1 = E8_MAP.get(cells[Math.floor(rnd() * cells.length)]).g;
+                    const g2 = E8_MAP.get(cells[Math.floor(rnd() * cells.length)]).g;
+                    const ch = crossover(g1, g2);
+                    if (ch && cvOK(ch)) { out.push(ch); continue; }
+                }
+                const pa = tournament(base, 3);
+                const child = (base.length > 1 && rnd() < CROSS_RATE) ? crossover(pa, tournament(base, 3)) : mutate(pa);
+                if (child && cvOK(child)) out.push(child);
+            }
+            while (out.length < pop) out.push(mutate(elite));
+            return out;
+        }
+
+        /* ---------- 适应度（可进化目标向量 + 冻结标尺） ---------- */
+        const FIT0 = { kw: 10000, kt: 5000, km: 2000, dw: 1.0, dt: 0.1 };
+        const FIT = { A: Object.assign({}, FIT0), B: Object.assign({}, FIT0) };
+        const FIT_BOUND = { kw: [4000, 20000], kt: [500, 12000], km: [200, 6000], dw: [0.05, 3], dt: [0.01, 1] };
+        function mutateFit(f) {
+            const o = {};
+            for (const k of Object.keys(FIT0)) {
+                const b = FIT_BOUND[k];
+                o[k] = clamp(f[k] * (0.85 + rnd() * 0.30), b[0], b[1]);
+            }
+            return o;
+        }
+        function scoreUnder(m, fit) {
+            const s = m && m.stats;
+            if (!s || !s.n) return -1e9;
+            const sum = fit.kw * s.nWin - fit.dw * s.durWin
+                - fit.dw * s.durLose
+                + fit.kt * s.nTimeout + fit.km * s.diffTimeout - fit.dt * s.durTimeout
+                - s.n * s.sp;
+            return sum / s.n;
+        }
+        function fight(gA, gB, seed, fit) {
+            const A = specOf(gA.escort), Ae = specOf(gA.escorted), B = specOf(gB.escort), Be = specOf(gB.escorted);
+            CA = gA.net ? { net: gA.net, used: 0, budget: gA.opBudget, starved: false, stat: newStat() } : null;
+            CB = gB.net ? { net: gB.net, used: 0, budget: gB.opBudget, starved: false, stat: newStat() } : null;
+            const r = E.runBattle({
+                A: A.main, AEscorted: Ae.main, B: B.main, BEscorted: Be.main,
+                AAddPoints: gA.ap, BAddPoints: gB.ap,
+                AFlagship: gA.escort.fl, AEscortedFlagship: gA.escorted.fl,
+                BFlagship: gB.escort.fl, BEscortedFlagship: gB.escorted.fl,
+                seed: seed, maxSec: cfg.maxSec, dt: cfg.dt, stallSec: cfg.stallSec
+            });
+            const opsA = CA ? CA.used : 0, opsB = CB ? CB.used : 0, starA = CA ? CA.starved : false, starB = CB ? CB.starved : false;
+            const statA = CA ? CA.stat : newStat(), statB = CB ? CB.stat : newStat();
+            const valA = CA ? CA.lastVal : null;
+            CA = null; CB = null;
+            if (!r) return null;
+            const myS = r.我方.存活舰船 + r.我方.存活载机, foS = r.敌方.存活舰船 + r.敌方.存活载机;
+            const myr = (r.我方.剩余结构值 || 0) / Math.max(1, r.我方.总结构值 || 1);
+            const for_ = (r.敌方.剩余结构值 || 0) / Math.max(1, r.敌方.总结构值 || 1);
+            const f = fit || FIT0;
+            let score, scoreFixed, kind;
+            if (myS > 0 && foS === 0) { score = f.kw - f.dw * r.时长; scoreFixed = FIT0.kw - FIT0.dw * r.时长; kind = 'win'; }
+            else if (myS === 0 && foS > 0) { score = -f.dw * r.时长; scoreFixed = -FIT0.dw * r.时长; kind = 'lose'; }
+            else if (myS === 0 && foS === 0) { score = 0; scoreFixed = 0; kind = 'draw'; }
+            else { score = f.kt + (myr - for_) * f.km - r.时长 * f.dt; scoreFixed = FIT0.kt + (myr - for_) * FIT0.km - FIT0.dt * r.时长; kind = 'timeout'; }
+            const sz = gA.net ? netSize(gA.net) : { nodes: 0, conns: 0 };
+            const sizePenalty = SIZE_LAMBDA_NODE * sz.nodes + SIZE_LAMBDA_CONN * sz.conns;
+            score -= sizePenalty; scoreFixed -= sizePenalty;
+            return { score, scoreFixed, kind, dur: r.时长, stalled: !!r.僵局, ops: opsA, starved: starA, myAlive: myS, foeAlive: foS, myr, foer: for_, stat: statA, valA: valA, sizePenalty,
+                dmgOut: ((r.我方.总输出对舰 || 0) + (r.我方.总输出对空 || 0)),
+                airOut: (r.我方.总输出对空 || 0),
+                myRemain: myr, foeRemain: for_,
+                repairOut: (r.我方.总维修 || 0),
+                avgAliveRatio: (r.我方.平均生存时间占比 || 0),
+                tgtHpAvg: (statA && statA.tgtHpN) ? (statA.tgtHpSum / statA.tgtHpN) : 0.5 };
+        }
+        function evaluate(g, opps, seed0, fit) {
+            let sum = 0, fsum = 0, n = 0, ops = 0, star = 0, wins = 0, durs = 0;
+            let dmgOut = 0, repairOut = 0, aliveR = 0, tgtHp = 0, myrS = 0, foerS = 0;
+            const hist = new Array(9).fill(0); let calls = 0;
+            const st = { n: 0, nWin: 0, durWin: 0, nLose: 0, durLose: 0, nDraw: 0, nTimeout: 0, durTimeout: 0, diffTimeout: 0, sp: 0 };
+            const tgt = { aircraft: 0, superCap: 0, cruiser: 0, escorted: 0, other: 0 };
+            const phase = { early: 0, mid: 0, late: 0 };
+            const kinds = { win: 0, lose: 0, draw: 0, timeout: 0 };
+            let lastVal = null;
+            for (let i = 0; i < opps.length; i++) {
+                const r = fight(g, opps[i], seed0 + i * 7919, fit);
+                if (!r) continue;
+                sum += r.score; fsum += (r.scoreFixed !== undefined ? r.scoreFixed : r.score); n++; ops += r.ops; star += r.starved ? 1 : 0;
+                kinds[r.kind] = (kinds[r.kind] || 0) + 1;
+                if (r.kind === 'win') { wins++; durs += r.dur; st.nWin++; st.durWin += r.dur; }
+                else if (r.kind === 'lose') { st.nLose++; st.durLose += r.dur; }
+                else if (r.kind === 'draw') { st.nDraw++; }
+                else if (r.kind === 'timeout') { st.nTimeout++; st.durTimeout += r.dur; st.diffTimeout += (r.myr - r.foer); }
+                st.sp = r.sizePenalty || 0;
+                dmgOut += r.dmgOut || 0; repairOut += r.repairOut || 0; aliveR += r.avgAliveRatio || 0; tgtHp += r.tgtHpAvg || 0;
+                myrS += r.myr || 0; foerS += r.foer || 0;
+                if (r.valA) lastVal = r.valA;
+                if (r.stat) {
+                    r.stat.hist.forEach((v, k) => hist[k] += v);
+                    calls += r.stat.calls;
+                    Object.keys(tgt).forEach(k => tgt[k] += r.stat.tgt[k]);
+                    Object.keys(phase).forEach(k => phase[k] += r.stat.phase[k]);
+                }
+            }
+            const m = { score: n ? sum / n : -1e9, fscore: n ? fsum / n : -1e9, ops: n ? ops / n : 0, starved: n ? star / n : 0, wins: n ? wins / n : 0, winDur: wins ? durs / wins : 0, hist, calls, tgt, phase, kinds, n,
+                dmgOut: n ? dmgOut / n : 0, repairOut: n ? repairOut / n : 0, avgAliveRatio: n ? aliveR / n : 0, tgtHpAvg: n ? tgtHp / n : 0.5,
+                myRemain: n ? myrS / n : 0, foeRemain: n ? foerS / n : 0 };
+            st.n = n;
+            m.stats = st;
+            m.beh = behVec(g, m);
+            m.lastVal = lastVal;
+            return m;
+        }
+
+        /* ---------- 存档 / 续跑（IndexedDB） ---------- */
+        const K = k => k + ':' + ISLE;
+        const leanM = m => ({
+            score: m.score, fscore: m.fscore, wins: m.wins, winDur: m.winDur, ops: m.ops, starved: m.starved,
+            beh: m.beh, stats: m.stats, kinds: m.kinds, n: m.n, calls: m.calls, hist: m.hist, tgt: m.tgt, phase: m.phase,
+            dmgOut: m.dmgOut, repairOut: m.repairOut, avgAliveRatio: m.avgAliveRatio, myRemain: m.myRemain, foeRemain: m.foerRemain === undefined ? m.foeRemain : m.foeRemain
+        });
+        let SAVE_AT = 0, END_GEN = null;
+        async function saveSnapshot(gen, bestA, bestB, mA, mB, frz, born) {
+            if (!Store) return;
+            try {
+                await Store.put('kv', K('snap'), { gen, A: bestA, B: bestB, mA: leanM(mA), mB: leanM(mB), fit: FIT, frz: frz, born: born, savedAt: Date.now() });
+                await Store.put('kv', K('run'), { isle: ISLE, gen, of: (END_GEN != null ? END_GEN : cfg.gens), updatedAt: Date.now(), paused: _pause });
+                SAVE_AT = gen;
+                post({ type: 'saved', isle: ISLE, gen });
+            } catch (e) { post({ type: 'log', isle: ISLE, msg: '存档失败：' + e.message }); }
+        }
+        async function saveAux() {
+            if (!Store) return;
+            try {
+                if (ARCHIVE.length) await Store.put('kv', K('arc'), { threshold: ARCH_THRESHOLD, archive: ARCHIVE.slice(-4000) });
+                if (E8_MAP.size) {
+                    const arr = [...E8_MAP.entries()].sort((a, b) => b[1].fit - a[1].fit).slice(0, 240)
+                        .map(kv => ({ c: kv[0], v: kv[1].v, fit: +kv[1].fit.toFixed(1), gen: kv[1].gen, g: kv[1].g }));
+                    await Store.put('kv', K('e8'), arr);
+                }
+            } catch (e) { }
+        }
+        async function loadAux() {
+            if (!Store) return;
+            try {
+                const a = await Store.get('kv', K('arc'));
+                if (a) { ARCHIVE = a.archive || []; ARCH_THRESHOLD = a.threshold || 0.15; }
+                const e8 = await Store.get('kv', K('e8'));
+                if (e8 && e8.length) {
+                    let drop = 0; const keep = [];
+                    for (const e of e8) { if (cvOK(e.g)) keep.push([e.c, { v: e.v, fit: e.fit, gen: e.gen, g: e.g }]); else drop++; }
+                    E8_MAP = new Map(keep);
+                    log('★ E8 行为空间已恢复：' + E8_MAP.size + ' / ' + E8_CELLS + ' 格' + (drop ? '（丢掉 ' + drop + ' 个不合规旧个体）' : ''));
+                }
+            } catch (e) { }
+        }
+        function log(msg) { post({ type: 'log', isle: ISLE, msg: TAG + msg }); }
+
+        /* ---------- 主循环 ---------- */
+        let LOG_LINES = [];
+        async function run() {
+            post({ type: 'hello', isle: ISLE, nin: NIN(), nout: NOUT() });
+            await E.init();
+            DB = E.ships || {};
+            POOL = Object.values(DB).filter(t => t && t.hp > 0 && t.position !== 'aircraft' && (t.commandValue || 0) > 0);
+            POOL_AIR = Object.values(DB).filter(t => t && t.position === 'aircraft' && t.hp > 0);
+            /* 舰船库约束 */
+            if (cfg.lib) {
+                LIB = cfg.lib;
+                POOL = POOL.filter(t => LIB.ships[t.id]);
+                const airOwned = POOL_AIR.filter(t => LIB.ships[t.id]);
+                if (airOwned.length >= 5) POOL_AIR = airOwned;
+                else log('★ 舰船库里几乎没有载机条目 → 载机暂不按库过滤（其余都按库）');
+                TP_LIB = {};
+                Object.keys(LIB.ships).forEach(id => { const c = E.cdnOf(id); const tp = LIB.ships[id].tp; if (c && tp > 0) TP_LIB[c] = tp; });
+                log('★ 舰船库模式：可用舰船 ' + POOL.length + ' 型、载机 ' + POOL_AIR.length + ' 型；加点只能重分配且 ≤ 蓝点');
+            }
+            if (!POOL.length) { post({ type: 'error', isle: ISLE, msg: '舰船池为空（舰船库模式选得太少？）' }); return; }
+            if (E.setActionThrottle) E.setActionThrottle(cfg.throttle);
+            log('决策节流 = ' + cfg.throttle + ' 秒；每代 ' + cfg.pop + ' 个体 × 抽 ' + OPP_EVAL + ' 对手；上限 ' + cfg.maxSec + 's / 僵局 ' + cfg.stallSec + 's');
+
+            /* 战报/给定配队：cfg.given 传【配队页格式】原始对象（{main:[{id,pos,qty,mods,air}],reinforcement,flagship}），
+               这里统一转成基因组格式（main:[{id,count,position,mods,air}] + reinf + fl） */
+            if (!cfg.given) { post({ type: 'error', isle: ISLE, msg: '缺少给定配队（given）' }); return; }
+            const wr = {
+                A: { escort: sideFromFleet(cfg.given.A.escort), escorted: sideFromFleet(cfg.given.A.escorted), ap: Object.assign({}, cfg.given.A.ap || {}) },
+                B: { escort: sideFromFleet(cfg.given.B.escort), escorted: sideFromFleet(cfg.given.B.escorted), ap: Object.assign({}, cfg.given.B.ap || {}) }
+            };
+            for (const side of ['A', 'B']) {
+                const l1 = LEGAL.legalize(wr[side].escort), l2 = LEGAL.legalize(wr[side].escorted);
+                const notes = l1.notes.concat(l2.notes);
+                if (notes.length) log('★ ' + side + ' 方配队超服役上限 → 已按战舰配队页口径修正（' + notes.slice(0, 4).join('；') + (notes.length > 4 ? ' 等' : '') + '）');
+                wr[side].escort = LEGAL.topUp(l1.fleet, MIN_CV, CV_CAP);
+                wr[side].escorted = LEGAL.topUp(l2.fleet, MIN_CV, CV_CAP);
+            }
+            const evA = !PURE && cfg.evolve.A !== false, evB = !PURE && cfg.evolve.B !== false;
+            log('模式：A ' + (evA ? '进化' : '固定(给定)') + ' ｜ B ' + (evB ? '进化' : '固定(给定)') + (PURE ? ' ｜ 纯规则（方案一）' : ''));
+
+            let popA = [randGenome(wr.A, true)]; while (popA.length < cfg.pop) popA.push(mutate(popA[0]));
+            let popB = [randGenome(wr.B, true)]; while (popB.length < cfg.pop) popB.push(mutate(popB[0]));
+            /* ★ 固定的一方：【没有网络】（决策交回引擎默认规则，即"正常打"）。
+               否则"给定对手"会被一个随机初始网络乱指挥（该不乱开火时它乱开火），对比就失去意义。 */
+            if (!evA) { popA = [popA[0]]; popA[0].net = null; }
+            if (!evB) { popB = [popB[0]]; popB[0].net = null; }
+            let bestA = popA[0], bestB = popB[0];
+            let mA = evaluate(bestA, popB.slice(0, cfg.oppSample), 1000, FIT.A), mB = evaluate(bestB, popA.slice(0, cfg.oppSample), 2000, FIT.B);
+            let START_GEN = 1, frzA = 0, frzB = 0, bornA = 1, bornB = 1;
+
+            if (cfg.resume && Store) {
+                try {
+                    const s = await Store.get('kv', K('snap'));
+                    if (s && s.A && s.B && s.A.escort && s.B.escort) {
+                        const cvOfG = g => Math.min(fleetCV(g.escort.main, DB), fleetCV(g.escorted.main, DB));
+                        const repair = (G, W, who) => {
+                            const l1 = LEGAL.legalize(G.escort), l2 = LEGAL.legalize(G.escorted);
+                            if (l1.notes.length || l2.notes.length) {
+                                G.escort = l1.fleet; G.escorted = l2.fleet;
+                                log('★ 快照里的 ' + who + ' 方配队服役超限 → 已修正');
+                            }
+                            if (cvOfG(G) >= MIN_CV && l1.ok && l2.ok) return G;
+                            log('★ 快照里的 ' + who + ' 方配队已退化/不合法 → 只把配队换回给定，网络与参数保留');
+                            G.escort = W.escort; G.escorted = W.escorted; G.ap = W.ap;
+                            return G;
+                        };
+                        s.A = repair(s.A, wr.A, 'A'); s.B = repair(s.B, wr.B, 'B');
+                        if (!evA) { s.A.net = null; s.A.escort = wr.A.escort; s.A.escorted = wr.A.escorted; s.A.ap = wr.A.ap; }
+                        if (!evB) { s.B.net = null; s.B.escort = wr.B.escort; s.B.escorted = wr.B.escorted; s.B.ap = wr.B.ap; }
+                        bestA = s.A; bestB = s.B;
+                        if (s.fit && s.fit.A && s.fit.B) { Object.assign(FIT.A, s.fit.A); Object.assign(FIT.B, s.fit.B); }
+                        if (s.born) { bornA = s.born.A || 1; bornB = s.born.B || 1; }
+                        {
+                            const lastGen = s.gen || 0;
+                            bornA = Math.max(1, Math.min(bornA, lastGen)); bornB = Math.max(1, Math.min(bornB, lastGen));
+                        }
+                        START_GEN = (s.gen || 0) + 1;
+                        frzA = Math.max(0, (START_GEN - 1) - bornA); frzB = Math.max(0, (START_GEN - 1) - bornB);
+                        for (let i = 0; i < cfg.pop; i++) { popA[i] = (i === 0 || !evA) ? bestA : mutate(bestA); popB[i] = (i === 0 || !evB) ? bestB : mutate(bestB); }
+                        if (!evA) popA = [bestA]; if (!evB) popB = [bestB];
+                        mA = evaluate(bestA, popB.slice(0, cfg.oppSample), 1000, FIT.A);
+                        mB = evaluate(bestB, popA.slice(0, cfg.oppSample), 2000, FIT.B);
+                        log('★ 断点续跑：从快照第 ' + (s.gen || 0) + ' 代恢复，接着跑第 ' + START_GEN + ' 代');
+                    } else log('（要续跑但本岛没有快照，从第 1 代开始）');
+                } catch (e) { log('★ 快照读取失败，从第 1 代重新开始：' + e.message); }
+            }
+            if (cfg.resume) await loadAux();
+            if (cfg.resume && Store) {
+                /* ★ 恢复逐代日志（页面做收敛判定要用；没有它就相当于从第 N 代零历史开始） */
+                try {
+                    const lg = await Store.get('kv', K('log'));
+                    if (lg && lg.length) { LOG_LINES = lg; post({ type: 'logback', isle: ISLE, recs: lg.slice(-600) }); }
+                } catch (e) { }
+            }
+
+            let top3A = popA.slice(0, 3), top3B = popB.slice(0, 3);
+            let lastNovA = 0, lastNA = 0, lastMA = 0;
+            const t0 = Date.now();
+            let bestEver = -1e9, G = START_GEN - 1;
+            /* ★ "本次再跑多少代" 语义（页面用）：END = 起点 + N − 1。
+               兼容旧语义（cfg.gens = 绝对代数上限）：没给 gensCount 时按老办法。
+               —— 修一个真实坑：续跑时岛可能已经在第 1100 代，而绝对上限是 999 ⇒ 循环当场结束
+               （表现像"卡住不动"，其实是 worker 早已 done 退出）。 */
+            const END = END_GEN = (cfg.gensCount != null) ? (START_GEN - 1 + cfg.gensCount) : cfg.gens;
+            log('本次目标：跑到第 ' + END + ' 代（从第 ' + START_GEN + ' 代起，本次再跑 ' + (END - START_GEN + 1) + ' 代）');
+
+            for (let g = START_GEN; ; g++) {
+                /* ---- 暂停/停止闸门：只在"每代之间"检查（代内不中断，保证快照一致） ---- */
+                if (_stop) { await saveSnapshot(G, bestA, bestB, mA, mB, { A: frzA, B: frzB }, { A: bornA, B: bornB }); await saveAux(); post({ type: 'stopped', isle: ISLE, gen: G }); return; }
+                if (_pause) {
+                    await saveSnapshot(G, bestA, bestB, mA, mB, { A: frzA, B: frzB }, { A: bornA, B: bornB });
+                    await saveAux();
+                    post({ type: 'paused', isle: ISLE, gen: G });
+                    await new Promise(r => { _resumeResolve = r; if (!_pause) r(); });
+                    if (_stop) continue;
+                    post({ type: 'resumed', isle: ISLE, gen: G });
+                }
+                if (!cfg.forever && g > END) break;
+                G = g;
+
+                if (mA.stats) { mA.score = scoreUnder(mA, FIT.A); mA.fscore = scoreUnder(mA, FIT0); }
+                if (mB.stats) { mB.score = scoreUnder(mB, FIT.B); mB.fscore = scoreUnder(mB, FIT0); }
+                const fitLogA = Object.assign({}, FIT.A), fitLogB = Object.assign({}, FIT.B);
+
+                const oppB = evB ? makeOppPool(top3B, wr.B) : makeOppPoolFixed(bestB);
+                const oppA = evA ? makeOppPool(top3A, wr.A) : makeOppPoolFixed(bestA);
+                const scoredA = popA.map((ind, i) => { const m = evaluate(ind, sampleOpps(oppB, OPP_EVAL), 3000 + g * 13, FIT.A); m.idx = i; m.g = ind; return m; });
+                const scoredB = popB.map((ind, i) => { const m = evaluate(ind, sampleOpps(oppA, OPP_EVAL), 4000 + g * 17, FIT.B); m.idx = i; m.g = ind; return m; });
+
+                scoredA.forEach(s => archiveUpdate(s.beh || [], g));
+                scoredB.forEach(s => archiveUpdate(s.beh || [], g));
+                archiveAdjust(g);
+
+                scoredA.forEach(s => { s.nov = novelty(s.beh || []); });
+                scoredB.forEach(s => { s.nov = novelty(s.beh || []); });
+                scoredA.forEach(s => mapElitesUpdate(s.beh, s.score, s.g, g));
+                scoredB.forEach(s => mapElitesUpdate(s.beh, s.score, s.g, g));
+
+                const selA = dualSelect(scoredA.map(s => ({ fit: s.score, nov: s.nov, idx: s.idx, g: s.g, m: s })), g, evA ? cfg.pop : 1);
+                const selB = dualSelect(scoredB.map(s => ({ fit: s.score, nov: s.nov, idx: s.idx, g: s.g, m: s })), g, evB ? cfg.pop : 1);
+                const topA = scoredA.reduce((a, b) => (!a || b.score > a.score) ? b : a, null);
+                const topB = scoredB.reduce((a, b) => (!a || b.score > a.score) ? b : a, null);
+                const barA = mA.score * ELITE_BAR, barB = mB.score * ELITE_BAR;
+                if (evA) {
+                    if (topA && topA.score >= barA) { if (topA.g !== bestA) { bestA = topA.g; bornA = g; } mA = topA; }
+                } else { mA = topA || mA; }
+                if (evB) {
+                    if (topB && topB.score >= barB) { if (topB.g !== bestB) { bestB = topB.g; bornB = g; } mB = topB; }
+                } else { mB = topB || mB; }
+                frzA = g - bornA; frzB = g - bornB;
+                if (evA && !cvOK(bestA)) { log('★ 强制修复 A 方配队（不满足指挥值 ≥' + MIN_CV + '）'); bestA.escort = wr.A.escort; bestA.escorted = wr.A.escorted; bestA.ap = wr.A.ap; mA = evaluate(bestA, popB.slice(0, cfg.oppSample), 1000, FIT.A); }
+                if (evB && !cvOK(bestB)) { log('★ 强制修复 B 方配队（不满足指挥值 ≥' + MIN_CV + '）'); bestB.escort = wr.B.escort; bestB.escorted = wr.B.escorted; bestB.ap = wr.B.ap; mB = evaluate(bestB, popA.slice(0, cfg.oppSample), 2000, FIT.B); }
+                lastNovA = topA ? (topA.nov || 0) : 0;
+                lastNA = selA.N; lastMA = selA.M;
+
+                FIT.A = mutateFit(FIT.A); FIT.B = mutateFit(FIT.B);
+
+                let nA = null, nB = null;
+                if (evA) {
+                    nA = breed(selA.base, cfg.pop, bestA);
+                    top3A = selA.base.slice(0, 3).map(e => e.g);
+                    if (!top3A.length) top3A = popA.slice(0, 3);
+                }
+                if (evB) {
+                    nB = breed(selB.base, cfg.pop, bestB);
+                    top3B = selB.base.slice(0, 3).map(e => e.g);
+                    if (!top3B.length) top3B = popB.slice(0, 3);
+                }
+                /* 岛间迁移（经 IndexedDB 交换冠军；每 10 代导出、错开 5 代引入） */
+                if (Store) {
+                    if (g % 10 === 0 && evA) { try { await Store.put('kv', K('champ'), { gen: g, A: bestA, B: evB ? bestB : null }); } catch (e) { } }
+                    if (g % 10 === 5 && evA) {
+                        try {
+                            const es = await Store.entries('kv', 'champ:');
+                            const others = es.filter(x => x[0] !== K('champ'));
+                            if (others.length) {
+                                const w = others[Math.floor(rnd() * others.length)][1];
+                                if (w && w.A && w.A.net && cvOK(w.A)) { nA[cfg.pop - 1] = w.A; nA[cfg.pop - 1]._immigrant = true; }
+                            }
+                        } catch (e) { }
+                    }
+                }
+                if (evA && nA) for (let i = 0; i < cfg.pop; i++) popA[i] = nA[i];
+                if (evB && nB) for (let i = 0; i < cfg.pop; i++) popB[i] = nB[i];
+
+                const szA = netSize(bestA.net), szB = netSize(bestB.net);
+                const cvTA = fleetCV(bestA.escort.main, DB) + fleetCV(bestA.escorted.main, DB);
+                const lossA = Math.max(0, 1 - (mA.myRemain || 0)), killA = Math.max(0, 1 - (mA.foeRemain || 0));
+                const xchgA = killA > 1e-6 ? +(lossA / killA).toFixed(3) : (lossA > 1e-6 ? 99 : 1);
+                const rec = {
+                    gen: g,
+                    fitA: { kw: +fitLogA.kw.toFixed(0), kt: +fitLogA.kt.toFixed(0), km: +fitLogA.km.toFixed(0), dw: +fitLogA.dw.toFixed(2), dt: +fitLogA.dt.toFixed(3) },
+                    fitB: { kw: +fitLogB.kw.toFixed(0), kt: +fitLogB.kt.toFixed(0), km: +fitLogB.km.toFixed(0), dw: +fitLogB.dw.toFixed(2), dt: +fitLogB.dt.toFixed(3) },
+                    A: { score: +mA.score.toFixed(1), fscore: +(mA.fscore || mA.score).toFixed(1), wins: +(mA.wins * 100).toFixed(0), winDur: +mA.winDur.toFixed(0), ops: Math.round(mA.ops), starved: +mA.starved.toFixed(2), nodes: szA.nodes, conns: szA.conns, cv: [fleetCV(bestA.escort.main, DB), fleetCV(bestA.escorted.main, DB)], flagships: [bestA.escort.fl, bestA.escorted.fl],
+                        nov: +(lastNovA || 0).toFixed(4), N: lastNA, M: lastMA, arch: ARCHIVE.length, thr: +ARCH_THRESHOLD.toFixed(4),
+                        e8: E8_MAP.size, e8cell: (mA.beh ? e8Cell(mA.beh) : -1),
+                        bar: +barA.toFixed(0), frozen: frzA, evolve: evA,
+                        effOut: cvTA ? +(mA.dmgOut / cvTA).toFixed(1) : 0, effRep: cvTA ? +(mA.repairOut / cvTA).toFixed(1) : 0, xchg: xchgA },
+                    B: { score: +mB.score.toFixed(1), fscore: +(mB.fscore || mB.score).toFixed(1), wins: +(mB.wins * 100).toFixed(0), winDur: +mB.winDur.toFixed(0), ops: Math.round(mB.ops), starved: +mB.starved.toFixed(2), nodes: szB.nodes, conns: szB.conns, cv: [fleetCV(bestB.escort.main, DB), fleetCV(bestB.escorted.main, DB)], flagships: [bestB.escort.fl, bestB.escorted.fl],
+                        bar: +barB.toFixed(0), frozen: frzB, evolve: evB },
+                    t: Math.round((Date.now() - t0) / 1000)
+                };
+                LOG_LINES.push(rec);
+                if (LOG_LINES.length > 4000) LOG_LINES = LOG_LINES.slice(-3000);
+                bestEver = Math.max(bestEver, mA.score);
+
+                /* ---- 每代上报（页面看板 + 3D） ---- */
+                post({
+                    type: 'gen', isle: ISLE, rec: rec,
+                    best: {
+                        A: { fleet: fleetJSON(bestA), sz: szA, beh: mA.beh, nov: lastNovA },
+                        B: { fleet: fleetJSON(bestB), sz: szB, beh: mB.beh }
+                    },
+                    net: bestA.net ? { side: 'A', nodes: bestA.net.nodes, conns: bestA.net.conns.filter(c => c.enabled) } : (bestB.net ? { side: 'B', nodes: bestB.net.nodes, conns: bestB.net.conns.filter(c => c.enabled) } : null),
+                    acts: valToArr(mA.lastVal || mB.lastVal),
+                    evA: evA, evB: evB
+                });
+
+                if (g % cfg.saveEvery === 0) {
+                    await saveSnapshot(g, bestA, bestB, mA, mB, { A: frzA, B: frzB }, { A: bornA, B: bornB });
+                    if (Store) { try { await Store.put('kv', K('log'), LOG_LINES.slice(-600)); } catch (e) { } }
+                }
+                if (g % 20 === 0) await saveAux();
+            }
+            await saveSnapshot(G, bestA, bestB, mA, mB, { A: frzA, B: frzB }, { A: bornA, B: bornB });
+            post({ type: 'done', isle: ISLE, gen: G, bestEver: bestEver });
+        }
+
+        /* ---------- 给页面用的结构化配队 ---------- */
+        function fleetJSON(g) {
+            const nm = id => (DB[id] && DB[id].name) || id;
+            const one = (f, label) => ({
+                label: label,
+                cv: fleetCV(f.main, DB), flagship: f.fl, flagshipName: f.fl ? nm(f.fl) : null,
+                main: f.main.map(e => ({ id: e.id, name: nm(e.id), count: e.count, cv: cvOf(e.id, DB), position: e.position,
+                    mods: Object.assign({}, e.mods || {}), air: (e.air || []).map(a => ({ id: a.id, name: nm(a.id), qty: a.qty, slot: a.slot, kind: a.kind })) })),
+                reinf: (f.reinf || []).map(e => ({ id: e.id, name: nm(e.id), count: e.count })),
+                reinfShips: reinfShips(f.reinf)
+            });
+            return { escort: one(g.escort, '护航队'), escorted: one(g.escorted, '被护航队'), ap: g.ap || {}, net: netSize(g.net), mutRate: g.mutRate, opBudget: g.opBudget };
+        }
+        function valToArr(v) {
+            if (!v || !v.forEach) return null;
+            const out = [];
+            v.forEach((val, id) => out.push({ id, v: (typeof val === 'number' && isFinite(val)) ? +val.toFixed(4) : 0 }));
+            return out;
+        }
+
+        return { run: run, control: control, get isle() { return ISLE; } };
+    }
+
+    root.NeuronCore = { start: start };
+    if (typeof module !== 'undefined' && module.exports) module.exports = root.NeuronCore;
+})(typeof self !== 'undefined' ? self : this);
+
+
+/* ============================================================
+   Worker 胶水：主线程消息 → 训练核心
+   ============================================================ */
+let __ctl = null;
+function __post(m) { try { self.postMessage(m); } catch (e) { } }
+self.onmessage = async function (ev) {
+    const m = ev.data || {};
+    try {
+        if (m.type === 'start') {
+            const core = self.NeuronCore.start(self.LagrangeEngine, Object.assign({}, m.cfg || {}, { store: self.NeuronStore }), __post);
+            __ctl = core;
+            await core.run();
+        } else if (m.type === 'pause' || m.type === 'resume' || m.type === 'stop') {
+            if (__ctl && __ctl.control[m.type]) __ctl.control[m.type]();
+        }
+    } catch (e) {
+        __post({ type: 'error', msg: String((e && e.stack) || e) });
+    }
+};

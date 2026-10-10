@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>神经网络 3D 状态 — 拉格朗日智能体</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter','Microsoft YaHei','PingFang SC',sans-serif;background:#0a0e1a;color:#e8f4ff;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+:root{--bg2:#111827;--card:#1a2332;--border:#2d4a6f;--blue:#4a9eff;--cyan:#00d4ff;--gold:#ffd700;--green:#2ed573;--red:#ff4757;--t1:#e8f4ff;--t2:#8ba3c7;--t3:#5a7a9a}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;background:var(--bg2);border-bottom:1px solid var(--border);flex-wrap:wrap;gap:6px}
+.topbar .logo{font-size:0.9rem;font-weight:800;background:linear-gradient(135deg,var(--blue),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.topbar .links{display:flex;gap:6px;flex-wrap:wrap}
+.topbar .links a{color:var(--t2);text-decoration:none;font-size:0.68rem;padding:4px 9px;border-radius:6px}
+.topbar .links a:hover{color:#fff;background:rgba(255,255,255,.05)}
+.topbar .links a.on{color:var(--cyan);border:1px solid var(--cyan)}
+.bar{display:flex;align-items:center;gap:10px;padding:8px 16px;background:rgba(26,35,50,.85);border-bottom:1px solid var(--border);flex-wrap:wrap;font-size:0.72rem;color:var(--t2)}
+.bar select,.bar button{background:#0d1526;border:1px solid var(--border);color:var(--t1);border-radius:6px;padding:4px 10px;font-size:0.7rem;cursor:pointer}
+.bar button:hover{border-color:var(--cyan);color:var(--cyan)}
+.bar .live{color:var(--green)}
+.bar .live.off{color:var(--t3)}
+#wrap{flex:1;position:relative}
+#cv{position:absolute;inset:0;width:100%;height:100%;cursor:grab;touch-action:none}
+#cv:active{cursor:grabbing}
+.legend{position:absolute;left:12px;bottom:12px;background:rgba(17,24,39,.85);border:1px solid var(--border);border-radius:10px;padding:8px 12px;font-size:0.66rem;color:var(--t2);line-height:1.8}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:middle}
+.tips{position:absolute;right:12px;bottom:12px;background:rgba(17,24,39,.85);border:1px solid var(--border);border-radius:10px;padding:8px 12px;font-size:0.64rem;color:var(--t3);line-height:1.8;max-width:280px}
+.stat{position:absolute;left:12px;top:12px;background:rgba(17,24,39,.85);border:1px solid var(--border);border-radius:10px;padding:8px 12px;font-size:0.68rem;color:var(--t2);line-height:1.9}
+.stat b{color:var(--cyan)}
+/* ★ 2026-10-07：手机端修复——原来 .legend(左下) 与 .tips(右下,280px) 在窄屏重叠互相遮挡；
+   窄屏改为：说明浮层移到右上角、图例缩小，互不遮挡 */
+@media(max-width:760px){
+    .legend{left:8px;bottom:8px;padding:6px 9px;font-size:0.6rem;line-height:1.7;max-width:62vw}
+    .tips{right:8px;bottom:auto;top:8px;max-width:44vw;font-size:0.58rem;line-height:1.55}
+    .stat{left:8px;top:8px;padding:6px 9px;font-size:0.62rem}
+}
+</style>
+</head>
+<body>
+<div class="topbar">
+    <div class="logo">🧠 神经网络 3D</div>
+    <div class="links">
+        <a href="index.html">🏠 主页</a>
+        <a href="neuron.html">🧬 神经元实验室</a>
+        <a href="fleet.html">⚓ 战舰配队</a>
+        <a href="simulator.html">⚔️ 战斗模拟</a>
+        <a class="on" href="neuron3d.html">🧠 网络 3D</a>
+    </div>
+</div>
+<div class="bar">
+    <span id="liveTag" class="live off">● 等待训练数据…（先打开并启动「神经元实验室」）</span>
+    <label>岛：</label><select id="isleSel"><option value="auto">跟随最新</option></select>
+    <button onclick="toggleRotate(this)">⏸ 停转</button>
+    <button onclick="toggleLabels(this)">🏷 隐藏标注</button>
+    <button onclick="view.zoomIn()" title="放大">➕ 放大</button>
+    <button onclick="view.zoomOut()" title="缩小">➖ 缩小</button>
+    <button onclick="view.resetZoom()" title="复位">🔍 复位</button>
+    <button onclick="loadExample()">📦 载入内置示例网络</button>
+    <button onclick="loadFromStore()">💾 从本机存档载入</button>
+    <span id="stat" class="stat" style="position:static;border:none;background:none;padding:0"></span>
+</div>
+<div id="wrap">
+    <canvas id="cv"></canvas>
+    <div class="stat" id="statBox">节点 <b>—</b>　连接 <b>—</b></div>
+    <div class="legend">
+        <div><i style="background:#4a9eff"></i>输入（87 维战场状态）</div>
+        <div><i style="background:#ffd700"></i>隐藏节点（NEAT 长出来的）</div>
+        <div><i style="background:#2ed573"></i>输出（8 候选 + 不开火）</div>
+        <div><i style="background:#00d4ff"></i>连接（青=正权重 / 红=负权重，粗细=|权重|）</div>
+    </div>
+    <div class="tips">拖动 = 旋转视角。<br>有实时数据时颜色会按最近一次决策的激活值变化（亮=被激活）。<br>网络每一代都在变（变异/交叉/长节点），这里看到的就是它"现在长什么样"。</div>
+</div>
+<script src="js/neuron/net3d.js"></script>
+<script src="js/neuron/neuron_store.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+let view = null, latest = {};      // isle -> {gen, net, acts, score}
+let pinnedIsle = null;             // null = 跟随最新
+const isleSel = $('isleSel');
+
+function statLine() {
+    const pick = pickItem();
+    if (!pick) { $('statBox').innerHTML = '节点 <b>—</b>　连接 <b>—</b>'; return; }
+    const it = pick.item;
+    const n = it.net.nodes.length, c = it.net.conns.length;
+    const hid = it.net.nodes.filter(x => x.type === 'hidden').length;
+    $('statBox').innerHTML = '岛 <b>' + String(pick.i).padStart(2, '0') + '</b>　第 <b>' + it.gen + '</b> 代　节点 <b>' + n + '</b>（隐藏 ' + hid + '）　连接 <b>' + c + '</b>' + (it.score != null ? '　fscore <b>' + (+it.score).toFixed(0) + '</b>' : '');
+}
+function pickItem() {
+    const ks = Object.keys(latest);
+    if (!ks.length) return null;
+    if (pinnedIsle !== null && latest[pinnedIsle]) return { i: +pinnedIsle, item: latest[pinnedIsle] };
+    let bi = ks[0];
+    ks.forEach(k => { if ((latest[k].gen || 0) > (latest[bi].gen || 0)) bi = k; });
+    return { i: +bi, item: latest[bi] };
+}
+function refreshView() {
+    const pick = pickItem();
+    if (pick) view.setData(pick.item.net, pick.item.acts);
+    statLine();
+    /* 岛下拉 */
+    const ks = Object.keys(latest).sort((a, b) => +a - +b);
+    const want = ks.join(',');
+    if (isleSel.dataset.ks !== want) {
+        isleSel.dataset.ks = want;
+        isleSel.innerHTML = '<option value="auto">跟随最新</option>' + ks.map(k => '<option value="' + k + '">岛 ' + String(k).padStart(2, '0') + '（第 ' + latest[k].gen + ' 代）</option>').join('');
+    }
+    $('liveTag').className = 'live' + (pick ? '' : ' off');
+    if (pick) $('liveTag').textContent = '● 实时（岛 ' + String(pick.i).padStart(2, '0') + ' 第 ' + pick.item.gen + ' 代）';
+}
+isleSel.onchange = () => { pinnedIsle = isleSel.value === 'auto' ? null : parseInt(isleSel.value, 10); refreshView(); };
+function toggleRotate(btn) { const on = btn.textContent.indexOf('停转') >= 0; view.setOptions({ autoRotate: !on }); btn.textContent = on ? '▶ 自动旋转' : '⏸ 停转'; }
+function toggleLabels(btn) { const on = btn.textContent.indexOf('隐藏') >= 0; view.setOptions({ showLabels: !on }); btn.textContent = on ? '🏷 显示标注' : '🏷 隐藏标注'; }
+
+/* 实时（BroadcastChannel） */
+let bc = null;
+try { bc = new BroadcastChannel('lagrange_neuron_3d'); } catch (e) { }
+if (bc) bc.onmessage = ev => {
+    const m = ev.data || {};
+    if (m.type !== 'nets') return;
+    (m.items || []).forEach(x => { latest[x.isle] = { gen: x.gen, net: x.net, acts: x.acts, score: x.score }; });
+    refreshView();
+};
+/* 从本机 IndexedDB 存档载入（champ 或快照的 A 网络） */
+async function loadFromStore() {
+    try {
+        const ks = await NeuronStore.keys('kv');
+        const champs = ks.filter(k => k.indexOf('champ:') === 0);
+        const snaps = ks.filter(k => k.indexOf('snap:') === 0);
+        const use = champs.length ? champs : snaps;
+        if (!use.length) { alert('本机存档里没有网络（先去「神经元实验室」跑一段，或"导入训练存档"）'); return; }
+        for (const k of use) {
+            const j = await NeuronStore.get('kv', k);
+            const i = parseInt(k.split(':')[1], 10);
+            const net = (j.A && j.A.net) || (j.B && j.B.net) || null;
+            if (net) latest[i] = { gen: j.gen || 0, net: { nodes: net.nodes, conns: net.conns.filter(c => c.enabled) }, acts: null, score: null };
+        }
+        refreshView();
+    } catch (e) { alert('载入失败：' + e.message); }
+}
+async function loadExample() {
+    try {
+        const j = await fetch('data/neuron/champ_example.json').then(r => r.json());
+        const net = (j.A && j.A.net) || (j.B && j.B.net);
+        latest[0] = { gen: j.gen || 0, net: { nodes: net.nodes, conns: net.conns.filter(c => c.enabled) }, acts: null, score: null };
+        $('liveTag').textContent = '● 示例网络（岛02 · 第 ' + (j.gen || 0) + ' 代冠军）';
+        $('liveTag').className = 'live';
+        refreshView();
+    } catch (e) { alert('载入示例失败：' + e.message); }
+}
+/* 初始化 */
+view = Net3D($('cv'), { autoRotate: true, showLabels: true });
+refreshView();
+/* 页面打开时若本机已有存档，自动先展示最近的一个（有实时数据会被覆盖） */
+loadFromStore().catch(() => { });
+</script>
+</body>
+</html>

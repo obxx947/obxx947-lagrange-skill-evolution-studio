@@ -220,5 +220,13 @@ window.ShipBuild = (function () {
     return L.join('\n');
   }
 
-  return { searchTool, loadData, findShip, buildAddPoint, KEY: AP_KEY };
+  /* ★ 2026-10-07：名字/黑话 → 官方加点编号（供 AI 的 save_addpoint_plan 工具用） */
+  async function cdnOf(q) {
+    const ok = await loadData(); if (!ok) return null;
+    const sh = findShip(q); if (!sh) return null;
+    const e = MAP && MAP[sh.id]; if (!e || !e.cdnId) return null;
+    return { slug: sh.id, name: sh.name, cdnId: e.cdnId, cdnName: e.cdnName || sh.name };
+  }
+
+  return { searchTool, loadData, findShip, buildAddPoint, cdnOf, KEY: AP_KEY };
 })();
