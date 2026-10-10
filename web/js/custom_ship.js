@@ -474,6 +474,16 @@ window.CustomShip = (function () {
             condEffects: (existing && existing.condEffects) || []
         });
     }
+    /* ★ 2026-10-10（用户要求）：重名不再合并，而是自动在末尾加序号（X → X1 → X2 …）
+       keepId = 正在编辑的船（改名时不跟自己比）；返回【最终可用的名字】 */
+    function uniqueName(base, all, keepId) {
+        const used = new Set(Object.keys(all || {}).filter(k => k !== keepId).map(k => String((all[k] || {}).name || '')));
+        const name0 = String(base || '').trim() || '自定义舰船';
+        if (!used.has(name0)) return name0;
+        let n = 1;
+        while (used.has(name0 + n)) n++;
+        return name0 + n;
+    }
     function syncToPage(ship) {
         try {
             if (typeof ALLMAP !== 'undefined' && typeof ALL !== 'undefined') {
@@ -706,7 +716,7 @@ window.CustomShip = (function () {
         const all = readAll(); const sh = all[id]; if (!sh) return;
         const copy = JSON.parse(JSON.stringify(sh));
         copy.id = 'custom_' + Date.now();
-        copy.name = (sh.name || '自定义舰船') + '-副本';
+        copy.name = uniqueName((sh.name || '自定义舰船') + '-副本', all, null);
         all[copy.id] = copy; saveAll(all); syncToPage(copy);
         renderShipList();
     }
@@ -715,18 +725,19 @@ window.CustomShip = (function () {
         const name = ($('csName').value || '').trim();
         if (!name) { alert('先填舰船名称'); return; }
         const all = readAll();
-        if (!editingId) {
-            const dup = Object.keys(all).find(k => all[k] && all[k].name === name);
-            if (dup) editingId = dup;
-        }
         const existing = editingId ? all[editingId] : null;
         const ship = toShip(existing);
+        /* ★ 重名：自动加序号（新建和改名都算）——原来的“重名转编辑”会把第二艘船静默并进第一艘 */
+        const finalName = uniqueName(name, all, editingId);
+        const renamed = finalName !== name;
+        ship.name = finalName;
         if (!editingId) editingId = ship.id;
         all[editingId] = ship; saveAll(all); syncToPage(ship);
         $('csSubTitle').textContent = '编辑中：' + ship.name;
         $('csDelBtn').style.display = '';
         renderMechs(); renderShipList();
-        chatMsgs.push({ role: 'sys', content: '✅ 已保存「' + ship.name + '」（' + Object.keys(ship.modules).length + ' 个系统，' + (ship.condEffects || []).length + ' 条机制）。配队页/模拟器里现在就能用。' });
+        $('csName').value = ship.name;   // 重名自动改名后同步回输入框
+        chatMsgs.push({ role: 'sys', content: (renamed ? '⚠️ 已有同名舰船，名字自动改为「' + ship.name + '」。' : '') + '✅ 已保存「' + ship.name + '」（' + Object.keys(ship.modules).length + ' 个系统，' + (ship.condEffects || []).length + ' 条机制）。配队页/模拟器里现在就能用。' });
         renderChat();
         try { localStorage.setItem(CHAT(editingId), JSON.stringify(chatMsgs.slice(-40))); } catch (e) { }
     }

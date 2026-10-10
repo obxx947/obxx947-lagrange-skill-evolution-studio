@@ -100,6 +100,23 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     console.log('   点船卡→编辑视图 =', r2.formShown, '名称 =', r2.nameInForm, '删除可见 =', r2.delVisible, '｜返回列表 =', r2.backTo);
     console.log('   点新增→空白编辑 =', r2.newFormShown, '名称 =', r2.newName, '(应 自定义舰船)｜删除隐藏 =', r2.newDelHidden);
 
+    /* ②c 重名不再合并：同名第二艘自动变 X1（用户反馈：第二艘"看不到"） */
+    const r2c = await p.evaluate(() => {
+        CustomShip.newShip(); document.getElementById('csName').value = '重名测试舰'; CustomShip.save();
+        CustomShip.newShip(); document.getElementById('csName').value = '重名测试舰'; CustomShip.save();
+        const all = JSON.parse(localStorage.getItem('lagrange_custom_ships') || '{}');
+        const names = Object.values(all).map(x => x.name).filter(n => n && n.indexOf('重名测试舰') === 0).sort();
+        const inputAfterSave = document.getElementById('csName').value;
+        CustomShip.openList();
+        const cards = [...document.querySelectorAll('#csShipCards .cs-card')].filter(c => c.textContent.indexOf('重名测试舰') >= 0).length;
+        CustomShip.close();
+        /* 清理 */
+        Object.keys(all).forEach(k => { if (String(all[k].name || '').indexOf('重名测试舰') === 0) delete all[k]; });
+        localStorage.setItem('lagrange_custom_ships', JSON.stringify(all));
+        return { names, inputAfterSave, cards };
+    });
+    console.log('②c 重名处理：两条并存 =', JSON.stringify(r2c.names), '｜保存后输入框 =', r2c.inputAfterSave, '｜列表卡数 =', r2c.cards, '（应 2）');
+
     /* ②b 模拟器顶部：两个按钮 */
     await p.goto('http://127.0.0.1:3888/simulator.html', { waitUntil: 'domcontentloaded' });
     await sleep(4200);
@@ -123,6 +140,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         && r2.hasCreateBtn && r2.hasMgrBtn && r2.listShown && r2.formHidden && r2.hasCard && r2.hasEditBtn && r2.hasNewInList
         && r2.formShown && r2.nameInForm === '管理测试舰' && r2.delVisible && r2.backTo && r2.newFormShown && r2.newName === '自定义舰船' && r2.newDelHidden
         && r2b.create && r2b.mgr
+        && r2c.names.length === 2 && r2c.names.indexOf('重名测试舰') >= 0 && r2c.names.indexOf('重名测试舰1') >= 0 && r2c.cards === 2
         && !r3.tipZoomWord && r3.zoomBtns === 3 && r3.media && !errs.length;
     console.log(pass ? '\n✅ 全部通过' : '\n❌ 有不符合预期项');
     await b.close().catch(() => { }); process.exit(pass ? 0 : 1);
