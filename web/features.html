@@ -71,22 +71,26 @@ body.mobile-ui .container{padding-bottom:calc(20px + env(safe-area-inset-bottom)
 <h1>功能架构总览</h1>
 <p class="sub">一个会自我进化、可人工干预进化的《无尽的拉格朗日》AI 战术顾问 · 战舰配队 · 舰船加点（蓝点强化） · 战斗模拟器 · 本地离线语音 · 知识库驱动</p>
 
-<!-- ========== 🆕 当前状态（2026-10-07） ========== -->
+<!-- ========== 🆕 当前状态（2026-10-10） ========== -->
 <div class="card" style="border-color:#ffd700;margin-bottom:16px;">
-    <div class="name" style="font-size:1.02rem;color:#ffd700;">🆕 当前状态（2026-10-07 · 先看这个）</div>
+    <div class="name" style="font-size:1.02rem;color:#ffd700;">🆕 当前状态（2026-10-10 · 先看这个）</div>
     <div class="desc" style="line-height:1.9;">
         <b>架构</b>：<b>1 个主 Agent + 0~12 个子 Agent</b>——主 Agent 用 <code>run_subagents</code> 自主决定派不派、派几个，<b>子 Agent 的提示词由主 Agent 现场注入</b>；
         旧的意图门 / 检索舰队 / 质检 A-B / 监督 / 拼配(快速) 已停用（本页 8️⃣ 与部分 1️⃣ 的描述为历史留档）。检索不再自动预取，主 Agent 按需查。
         <br><b>主 Agent 提示词</b>：v4（[S0] 不可违反层 / [S1] 领域执行层），下方「查看各 Agent 完整系统提示词」里的主 Agent 块为<b>实时同步版</b>。
-        <br><b>这段时间新增</b>：
-        <span class="tag">🧰 <code>set_ship_mechanic</code>：AI 给自定义舰船现场写「当X之后X」机制</span>
-        <span class="tag">➕ 配队页「新增自定义舰船」：建/改/删 + 页内和 AI 对话设计机制</span>
-        <span class="tag">⚔️ <code>battle_simulate</code> 换真引擎：一场几秒 + 战报 JSON（含机制触发数，支持自定义舰与机制）</span>
-        <span class="tag">💾 <code>save_addpoint_plan</code>：AI 加点方案直接存进「总体加点方案」</span>
-        <span class="tag">🧬 神经元实验室（浏览器内训练神经网络配队）</span>
-        <span class="tag">📤 战报库（模拟器战报存起来发给 AI 分析）</span>
-        <span class="tag">💭 思考开关（设置页；关掉对 DeepSeek 更快更省）</span>
-        <span class="tag">@引用：纯 @ 可直接发；注入只带「用户输入 + AI 最终回答」</span>
+        <br><b>🆕 自定义舰船（本阶段重点）</b>：
+        <span class="tag">➕ 建 / 管 / 改两级入口（像"我的配队"）：「➕ 自定义舰船」= 新建；「📋 自定义舰船管理」= 列表页（一艘一张卡：舰种/站位/结构/指挥/系统数/机制数 + ✏️编辑 ⧉复制 🗑删除）→ 点卡片才进编辑页</span>
+        <span class="tag">⚔️ 武器系统化：每门武器 = 一个武器系统（各自系统血量、可设主武器系统）；可勾 💥暴击并填【额外暴击率/暴击伤害】；可勾 🎯可攻击系统 → <b>多行优先级</b>（第一动力/第二指挥/第三主武器…每个优先级选一个系统 + 效率 低/中/高，命中分流 20/40/60%）</span>
+        <span class="tag">🎯 目标优先级：多行（第1优先/第2优先…），每行<b>可多选舰种</b>（护卫舰/驱逐舰/巡洋舰/战巡/战列/航母/支援舰/战机/护航艇 + 小型/大型/超主力舰）并<b>各自填命中区间</b>；第一优先决定这门武器算不算"对空"</span>
+        <span class="tag">🛫 机库系统：「＋添加机库」＝战机槽/护航艇槽 + 系统血量 + <b>载机伤害强化 / 载机暴击率 / 载机暴击伤害 / 载机闪避</b>加成（可设主机库系统）；舰载机不直接填、只能从机库位挂</span>
+        <span class="tag">🧰 动力系统 / 指挥系统<b>必填</b>（各带系统血量；动力战斗内不修、指挥可修 3 次）</span>
+        <span class="tag">🤖 机制设计 AI：弹窗内多轮对话，按《战斗机制.md》白名单生成「当X之后X」；<b>先出提议卡，点「✅ 写入」才生效</b>；每条机制<b>可单独开关</b>（关掉的不进战斗）；没让你设计时 AI 不会自作主张（提示词+代码双闸门）</span>
+        <span class="tag">🔁 重名自动加序号（X→X1→X2…，不再静默合并）</span>
+        <br><b>其它能力（近期）</b>：
+        <span class="tag">⚔️ <code>battle_simulate</code> 真引擎：一场几秒 + 战报 JSON（含机制触发数，支持自定义舰与机制）</span>
+        <span class="tag">🧰 <code>set_ship_mechanic</code>（AI 写机制）· 💾 <code>save_addpoint_plan</code>（AI 加点方案入库）</span>
+        <span class="tag">🧬 神经元实验室 + 网络 3D（缩放/手机适配）· 📤 战报库 · 💭 思考开关 · @引用只带「用户输入+AI最终回答」</span>
+        <span class="tag">🌐 局域网部署：双击 <code>web\一键局域网部署.bat</code>（静态 3002 + 后端 3000，手机同 WiFi 直接开）</span>
         <br><b>页面</b>：<code>chat.html</code>（AI 对话，站点唯一入口）· <code>fleet.html</code> 战舰配队 · <code>simulator.html</code> 战斗模拟 · <code>addpoint.html</code> 舰船加点 · <code>neuron.html</code> 神经元实验室 · <code>neuron3d.html</code> 网络 3D · <code>ships.html</code> 舰船库 · <code>features.html</code> 本页。
     </div>
 </div>
