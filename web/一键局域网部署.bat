@@ -1,97 +1,103 @@
 @echo off
-chcp 65001 >nul
 setlocal enabledelayedexpansion
-title æ‹‰æ ¼æœ—æ—¥æ™ºèƒ½ä½“3 - ä¸€é”®å±€åŸŸç½‘éƒ¨ç½²
+title À­¸ñÀÊÈÕÖÇÄÜÌå - Ò»¼ü¾ÖÓòÍø²¿Êğ
 
 rem ============================================================
-rem  æ‹‰æ ¼æœ—æ—¥æ™ºèƒ½ä½“3 Â· ä¸€é”®å±€åŸŸç½‘éƒ¨ç½²
-rem  çº¯é™æ€ç«™ç‚¹ï¼šèµ·ä¸€ä¸ª HTTP æœåŠ¡ï¼Œå±€åŸŸç½‘å†…ä»»ä½•è®¾å¤‡éƒ½èƒ½æ‰“å¼€ã€‚
-rem  ç”¨æ³•ï¼šåŒå‡»æœ¬æ–‡ä»¶å³å¯ã€‚åœæ­¢æœåŠ¡æŒ‰ Ctrl+C æˆ–ç›´æ¥å…³çª—å£ã€‚
-rem  ç«¯å£æ”¹ä¸‹é¢è¿™è¡Œï¼ˆé»˜è®¤ 3002ï¼Œå’Œåç«¯ 3000 / æµ‹è¯• 3888 é”™å¼€ï¼‰
+rem  À­¸ñÀÊÈÕÖÇÄÜÌå ¡¤ Ò»¼ü¾ÖÓòÍø²¿Êğ£¨2026-10-10 ĞŞ¸´°æ£©
+rem  ´¿¾²Ì¬Õ¾µã£ºÆğÒ»¸ö HTTP ·şÎñ£¬¾ÖÓòÍøÄÚÈÎºÎÉè±¸¶¼ÄÜ´ò¿ª¡£
+rem  ÓÃ·¨£ºË«»÷±¾ÎÄ¼ş¼´¿É¡£Í£Ö¹·şÎñ°´ Ctrl+C »òÖ±½Ó¹Ø´°¿Ú¡£
+rem  ¶Ë¿Ú£ºÄ¬ÈÏ 3002£¨¿ÉÓÃ»·¾³±äÁ¿ PORT ¸²¸Ç£©
+rem  ±¾ÎÄ¼ş±ØĞë±£´æÎª¡¾CRLF »»ĞĞ + GBK/ANSI ±àÂë¡¿¡ª¡ªUTF-8 »áÈÃ cmd Ëæ»ú½âÎö³ö´í
 rem ============================================================
-set PORT=3002
+if not defined PORT set PORT=3002
 
 cd /d "%~dp0"
 
 echo.
 echo ==========================================================
-echo            æ‹‰æ ¼æœ—æ—¥æ™ºèƒ½ä½“3 Â· ä¸€é”®å±€åŸŸç½‘éƒ¨ç½²
+echo            À­¸ñÀÊÈÕÖÇÄÜÌå ¡¤ Ò»¼ü¾ÖÓòÍø²¿Êğ
 echo ==========================================================
 echo.
 
-rem ---------- 1. æ‰¾ Python ----------
+rem ---------- 0. ¶Ë¿ÚÊÇ·ñÒÑÔÚÔËĞĞ ----------
+netstat -ano | findstr ":%PORT% " | findstr /i "LISTENING" >nul 2>nul
+if not errorlevel 1 (
+    echo [i] ¶Ë¿Ú %PORT% ÒÑ¾­ÔÚ¼àÌı -- ·şÎñ¿ÉÄÜÒÑ¾­ÔÚÔËĞĞ£¬²»ÔÙÖØ¸´Æô¶¯¡£
+    echo     ±¾»ú·ÃÎÊ:   http://127.0.0.1:%PORT%/index.html
+    echo     Í£Ö¹¾É·şÎñ: ÔÚÔ­À´µÄºÚ´°¿Ú°´ Ctrl+C£¬»òÈÎÎñ¹ÜÀíÆ÷½áÊø python¡£
+    echo.
+    if not defined NO_BROWSER start "" http://127.0.0.1:%PORT%/index.html
+    pause
+    exit /b 0
+)
+
+rem ---------- 1. ÕÒ Python ----------
 set PY=
 where py >nul 2>nul && (py -3 -c "import sys" >nul 2>nul && set "PY=py -3")
 if not defined PY ( where python >nul 2>nul && set "PY=python" )
 if not defined PY (
-    echo [x] æ²¡æ‰¾åˆ° Pythonã€‚
-    echo     è¯·å…ˆè£… Python 3ï¼ˆè£…çš„æ—¶å€™å‹¾ä¸Š "Add Python to PATH"ï¼‰ï¼š
+    echo [x] Ã»ÕÒµ½ Python¡£
+    echo     ÇëÏÈ×° Python 3£¨×°µÄÊ±ºò¹´ÉÏ "Add Python to PATH"£©:
     echo     https://www.python.org/downloads/
-    echo.
-    echo     è£…å¥½åé‡æ–°åŒå‡»æœ¬æ–‡ä»¶å³å¯ã€‚
+    echo     ×°ºÃºóÖØĞÂË«»÷±¾ÎÄ¼ş¼´¿É¡£
     pause
     exit /b 1
 )
-echo [1/4] Python å·²å°±ç»ªï¼š%PY%
+echo [1/4] Python ÒÑ¾ÍĞ÷: %PY%
 
-rem ---------- 2. å–æœ¬æœºå±€åŸŸç½‘ IP ----------
+rem ---------- 2. È¡±¾»ú¾ÖÓòÍø IP£¨ipconfig ÓÅÏÈ£© ----------
 set LANIP=
-rem å…ˆè¯• PowerShellï¼ˆæ›´å‡†ï¼‰ï¼Œå¤±è´¥å†ç”¨ ipconfig å…œåº•
-for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -Command "try{(Get-NetIPAddress -AddressFamily IPv4 ^| Where-Object {$_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*'} ^| Select-Object -First 1).IPAddress}catch{}" 2^>nul`) do set "LANIP=%%i"
-
-if not defined LANIP (
-    for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
-        set "T=%%a"
-        set "T=!T: =!"
-        if not defined LANIP (
-            echo !T! | findstr /b /c:"127." >nul || echo !T! | findstr /b /c:"169.254." >nul || set "LANIP=!T!"
-        )
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
+    set "T=%%a"
+    set "T=!T: =!"
+    if not defined LANIP (
+        echo !T! | findstr /b /c:"127." >nul || echo !T! | findstr /b /c:"169.254." >nul || set "LANIP=!T!"
     )
 )
-if defined LANIP ( echo [2/4] æœ¬æœºå±€åŸŸç½‘ IPï¼š%LANIP% ) else ( echo [2/4] æ²¡å–åˆ°å±€åŸŸç½‘ IPï¼ˆåªèƒ½æœ¬æœºè®¿é—®ï¼Œä¸å½±å“ä½¿ç”¨ï¼‰ & set LANIP=127.0.0.1 )
+if defined LANIP ( echo [2/4] ±¾»ú¾ÖÓòÍø IP: %LANIP% ) else ( echo [2/4] Ã»È¡µ½¾ÖÓòÍø IP£¨Ö»ÄÜ±¾»ú·ÃÎÊ£¬²»Ó°ÏìÊ¹ÓÃ£© & set LANIP=127.0.0.1 )
 
-rem ---------- 3. é˜²ç«å¢™æ”¾è¡Œï¼ˆéœ€è¦ç®¡ç†å‘˜ï¼›å¤±è´¥å°±æç¤ºæ‰‹åŠ¨ï¼‰ ----------
-netsh advfirewall firewall show rule name="æ‹‰æ ¼æœ—æ—¥æ™ºèƒ½ä½“3-LAN" >nul 2>nul
+rem ---------- 3. ·À»ğÇ½·ÅĞĞ£¨ĞèÒª¹ÜÀíÔ±£»Ê§°Ü¾ÍÌáÊ¾ÊÖ¶¯£© ----------
+netsh advfirewall firewall show rule name="À­¸ñÀÊÈÕÖÇÄÜÌå-LAN" >nul 2>nul
 if errorlevel 1 (
-    netsh advfirewall firewall add rule name="æ‹‰æ ¼æœ—æ—¥æ™ºèƒ½ä½“3-LAN" dir=in action=allow protocol=TCP localport=%PORT% >nul 2>nul
+    netsh advfirewall firewall add rule name="À­¸ñÀÊÈÕÖÇÄÜÌå-LAN" dir=in action=allow protocol=TCP localport=%PORT% >nul 2>nul
     if errorlevel 1 (
-        echo [3/4] [æ³¨æ„] æ²¡èƒ½è‡ªåŠ¨æ”¾è¡Œé˜²ç«å¢™ç«¯å£ %PORT%ã€‚
-        echo       å¦‚æœåˆ«çš„è®¾å¤‡æ‰“ä¸å¼€ï¼Œè¯·ã€ç”¨ç®¡ç†å‘˜èº«ä»½ã€‘åŒå‡»æœ¬æ–‡ä»¶ä¸€æ¬¡ï¼Œ
-        echo       æˆ–æ‰‹åŠ¨åœ¨"é«˜çº§å®‰å…¨ Windows Defender é˜²ç«å¢™"é‡Œæ”¾è¡Œ TCP %PORT%ã€‚
+        echo [3/4] [×¢Òâ] Ã»ÄÜ×Ô¶¯·ÅĞĞ·À»ğÇ½¶Ë¿Ú %PORT%¡£
+        echo       Èç¹û±ğµÄÉè±¸´ò²»¿ª£¬Çë¡¾ÓÃ¹ÜÀíÔ±Éí·İ¡¿Ë«»÷±¾ÎÄ¼şÒ»´Î£¬
+        echo       »òÔÚ ¸ß¼¶°²È« Windows Defender ·À»ğÇ½ ÀïÊÖ¶¯·ÅĞĞ TCP %PORT%¡£
     ) else (
-        echo [3/4] å·²æ”¾è¡Œé˜²ç«å¢™ TCP %PORT%
+        echo [3/4] ÒÑ·ÅĞĞ·À»ğÇ½ TCP %PORT%
     )
 ) else (
-    echo [3/4] é˜²ç«å¢™è§„åˆ™å·²å­˜åœ¨ï¼Œè·³è¿‡
+    echo [3/4] ·À»ğÇ½¹æÔòÒÑ´æÔÚ£¬Ìø¹ı
 )
 
-rem ---------- 4. èµ·æœåŠ¡ ----------
-echo [4/4] æ­£åœ¨å¯åŠ¨ HTTP æœåŠ¡...
+rem ---------- 4. Æğ·şÎñ ----------
+echo [4/4] ÕıÔÚÆô¶¯ HTTP ·şÎñ...
 echo.
 echo ----------------------------------------------------------
-echo   æœ¬æœºè®¿é—®ï¼š   http://127.0.0.1:%PORT%/index.html
-echo   å±€åŸŸç½‘è®¿é—®ï¼š http://%LANIP%:%PORT%/index.html
+echo   ±¾»ú·ÃÎÊ:   http://127.0.0.1:%PORT%/index.html
+echo   ¾ÖÓòÍø·ÃÎÊ: http://%LANIP%:%PORT%/index.html
 echo ----------------------------------------------------------
 echo.
-echo   æŠŠè¿™ä¸ªå±€åŸŸç½‘åœ°å€å‘ç»™åŒä¸€ä¸ª WiFi / è·¯ç”±ä¸‹çš„æ‰‹æœºã€å¹³æ¿ã€åˆ«çš„ç”µè„‘ï¼Œ
-echo   å°±èƒ½ç›´æ¥æ‰“å¼€ï¼ˆä¸ç”¨è£…ä»»ä½•ä¸œè¥¿ï¼‰ã€‚
+echo   °ÑÕâ¸ö¾ÖÓòÍøµØÖ··¢¸øÍ¬Ò»¸ö WiFi / Â·ÓÉÏÂµÄÊÖ»ú¡¢Æ½°å¡¢±ğµÄµçÄÔ£¬
+echo   ¾ÍÄÜÖ±½Ó´ò¿ª£¨²»ÓÃ×°ÈÎºÎ¶«Î÷£©¡£
 echo.
-echo   å¸¸ç”¨å…¥å£ï¼š
-echo     é¦–é¡µ       http://%LANIP%:%PORT%/index.html
-echo     æˆ˜èˆ°é…é˜Ÿ   http://%LANIP%:%PORT%/fleet.html
-echo     èˆ°èˆ¹åŠ ç‚¹   http://%LANIP%:%PORT%/addpoint.html
-echo     æˆ˜æ–—æ¨¡æ‹Ÿ   http://%LANIP%:%PORT%/simulator.html
-echo     èˆ°èˆ¹å›¾é‰´   http://%LANIP%:%PORT%/ships.html
+echo   ³£ÓÃÈë¿Ú:
+echo     Ê×Ò³       http://%LANIP%:%PORT%/index.html
+echo     Õ½½¢Åä¶Ó   http://%LANIP%:%PORT%/fleet.html
+echo     ½¢´¬¼Óµã   http://%LANIP%:%PORT%/addpoint.html
+echo     Õ½¶·Ä£Äâ   http://%LANIP%:%PORT%/simulator.html
+echo     Éñ¾­Ôª      http://%LANIP%:%PORT%/neuron.html
+echo     ½¢´¬Í¼¼ø   http://%LANIP%:%PORT%/ships.html
 echo.
-echo   åœæ­¢æœåŠ¡ï¼šåœ¨æœ¬çª—å£æŒ‰ Ctrl+Cï¼Œæˆ–ç›´æ¥å…³æ‰çª—å£ã€‚
+echo   Í£Ö¹·şÎñ: ÔÚ±¾´°¿Ú°´ Ctrl+C£¬»òÖ±½Ó¹Øµô´°¿Ú¡£
 echo ----------------------------------------------------------
 echo.
 
-rem å»¶è¿Ÿ 2 ç§’å¼€æµè§ˆå™¨ï¼Œè®©æœåŠ¡å…ˆèµ·æ¥
-start "" cmd /c "timeout /t 2 >nul & start http://127.0.0.1:%PORT%/index.html"
+if not defined NO_BROWSER start "" cmd /c "timeout /t 2 >nul & start http://127.0.0.1:%PORT%/index.html"
 
 %PY% -m http.server %PORT% --bind 0.0.0.0
 
 echo.
-echo æœåŠ¡å·²åœæ­¢ã€‚
+echo ·şÎñÒÑÍ£Ö¹¡£
 pause

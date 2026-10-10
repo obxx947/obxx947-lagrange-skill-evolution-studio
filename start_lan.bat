@@ -35,8 +35,10 @@ rem ---------- 4. Start services (separate windows; closing a window stops that 
 rem %~dp0 ends with backslash; strip it to avoid quote escaping
 set "P3=%~dp0"
 if "%P3:~-1%"=="\" set "P3=%P3:~0,-1%"
-rem Static version folder = this folder name + "3" (no Chinese bytes needed)
-set "P3S=%P3%3"
+rem Static frontend folder: prefer this folder's web\ (the LAN-synced copy);
+rem fall back to "<this folder name>3" for backward compatibility
+set "P3S=%P3%web"
+if not exist "%P3S%\index.html" set "P3S=%P3%3"
 
 echo [1/3] Starting original backend (FastAPI) on port 3000 ...
 start "Lagrange-Backend-3000" cmd /k "cd /d %P3% && python main.py"
