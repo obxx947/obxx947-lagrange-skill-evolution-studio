@@ -139,11 +139,12 @@ window.CustomShip = (function () {
     }
     function refreshSysSelects() {
         const names = allSysNames();
-        document.querySelectorAll('#csWeapons select[data-f="sysTarget"]').forEach(sel => {
+        document.querySelectorAll('#csWeapons [data-f="sysRows"] select[data-f="sysTarget"]').forEach(sel => {
             const cur = sel.value;
-            const want = sel.dataset.pref || cur;
+            /* ★ 当前值优先（用户选过的不能被刷新冲掉），pref 只做「新行/值不在列表里」的兜底 */
+            const want = (cur && names.indexOf(cur) >= 0) ? cur : (sel.dataset.pref && names.indexOf(sel.dataset.pref) >= 0 ? sel.dataset.pref : names[0]);
             sel.innerHTML = names.map(n => '<option value="' + esc(n) + '"' + (n === want ? ' selected' : '') + '>' + esc(n) + '</option>').join('');
-            if (want) sel.value = want;
+            sel.value = want;
         });
     }
     /* 目标优先级行：[第n优先] 舰种多选 + 命中区间 */
@@ -201,9 +202,10 @@ window.CustomShip = (function () {
             + '<div style="margin-top:6px;font-size:0.66rem;">'
             + '<label style="cursor:pointer"><input type="checkbox" data-f="sysOn" onchange="CustomShip.refresh()"' + (w.subSystemTargets ? ' checked' : '') + '> 🎯 可攻击系统</label>'
             + '<span style="color:#5a7a9a;font-size:0.6rem;margin-left:6px;">命中分流：高 60% / 中 40% / 低 20% 打在系统上（不吃护甲）</span>'
-            + '<div data-f="sysBox" style="display:' + (w.subSystemTargets ? 'flex' : 'none') + ';gap:8px;align-items:center;margin-top:3px;">'
-            + '<span class="lb">目标系统</span><select class="cs-input" data-f="sysTarget" data-pref="' + esc(w._sysTarget || '动力系统') + '" style="width:130px"></select>'
-            + '<span class="lb">效率</span><select class="cs-input" data-f="sysEff" style="width:70px">' + EFFS.map(e => '<option value="' + e[0] + '"' + ((w._sysEff || 'medium') === e[0] ? ' selected' : '') + '>' + e[1] + '</option>').join('') + '</select>'
+            + '<div data-f="sysBox" style="display:' + (w.subSystemTargets ? 'block' : 'none') + ';margin-top:3px;">'
+            + '<div class="cs-th">按顺序找【第一个还没被打掉】的系统打（第1优先→第2优先…）；每个优先级只选一个系统</div>'
+            + '<div data-f="sysRows"></div>'
+            + '<button class="cs-btn sm" onclick="CustomShip.addSysRow(this)">＋ 加一条系统优先级</button>'
             + '</div></div>'
             /* 目标优先级 */
             + '<div class="cs-th" style="margin-top:8px;">🎯 目标优先级（从第 1 优先往下逐级匹配；每级可多选舰种、各自命中率）</div>'
@@ -213,13 +215,36 @@ window.CustomShip = (function () {
         const tbox = d.querySelector('[data-f="targets"]');
         const tgs = (w.targets && w.targets.length) ? w.targets : [{ types: ['护卫舰', '驱逐舰'], hitMin: 60, hitMax: 80 }];
         tgs.forEach((tg, k) => tbox.appendChild(targetRow(tg, k)));
-        /* 攻击系统的默认选中 */
-        if (w.subSystemTargets) {
-            const k0 = Object.keys(w.subSystemTargets)[0];
-            d.dataset.sysTarget = k0;
-            d.dataset.sysEff = w.subSystemTargets[k0];
-        }
+        /* 攻击系统：已有配置按【键序=优先级】展开成行；没有则给一行默认（动力系统·中） */
+        const sbox = d.querySelector('[data-f="sysRows"]');
+        const entries = w.subSystemTargets ? Object.entries(w.subSystemTargets) : [['动力系统', 'medium']];
+        entries.forEach((e, k) => sbox.appendChild(sysRow(e[0], e[1], k)));
         return d;
+    }
+    /* 攻击系统优先级行：[第n优先] 系统 select + 效率 select */
+    function sysRow(sysName, eff, idx) {
+        const d = document.createElement('div');
+        d.className = 'cs-card'; d.style.margin = '4px 0'; d.style.background = '#0d1526';
+        d.innerHTML = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
+            + '<b style="color:#ffd700;font-size:0.66rem;">第' + ((idx || 0) + 1) + '优先</b>'
+            + '<select class="cs-input" data-f="sysTarget" data-pref="' + esc(sysName || '动力系统') + '" style="width:140px"></select>'
+            + '<span class="lb" style="color:#8899aa;font-size:0.62rem;">效率</span>'
+            + '<select class="cs-input" data-f="sysEff" style="width:70px">' + EFFS.map(e => '<option value="' + e[0] + '"' + ((eff || 'medium') === e[0] ? ' selected' : '') + '>' + e[1] + '</option>').join('') + '</select>'
+            + '<span style="margin-left:auto;cursor:pointer;color:#ff6b6b" title="删除这条" onclick="CustomShip.delSysRow(this)">✕</span>'
+            + '</div>';
+        return d;
+    }
+    function collectSysRows(row) {
+        const box = row.querySelector('[data-f="sysRows"]'); if (!box) return null;
+        const rows = [...box.children]; if (!rows.length) return null;
+        const obj = {};
+        rows.forEach(r => {
+            const nm = (r.querySelector('[data-f="sysTarget"]') || {}).value || '';
+            const ef = (r.querySelector('[data-f="sysEff"]') || {}).value || 'medium';
+            if (!nm || obj[nm] !== undefined) return;      // 同一个系统只认第一次（引擎也是取第一个匹配）
+            obj[nm] = ef;
+        });
+        return Object.keys(obj).length ? obj : null;
     }
     function collectWeapons() {
         const host = $('csWeapons'); if (!host) return [];
@@ -237,7 +262,7 @@ window.CustomShip = (function () {
                 _sysHp: +g('sysHp') || 2400
             };
             if (chk('critOn')) { w.crit = true; w.critRate = +g('critRate') || 0; w.critDmg = +g('critDmg') || 0; }
-            if (chk('sysOn')) { const t = g('sysTarget') || '主武器系统'; w.subSystemTargets = {}; w.subSystemTargets[t] = g('sysEff') || 'medium'; }
+            if (chk('sysOn')) { const rowsObj = collectSysRows(row); if (rowsObj) w.subSystemTargets = rowsObj; }
             /* 目标优先级 */
             const tgs = [];
             [...row.querySelectorAll('[data-f="targets"] > .cs-card')].forEach(tr => {
@@ -360,9 +385,10 @@ window.CustomShip = (function () {
             if (so && sb) sb.style.display = so.checked ? 'flex' : 'none';
         });
         refreshSysSelects();
-        /* 目标行的序号刷新 */
+        /* 目标行 / 系统行的序号刷新 */
         [...$('csWeapons').children].forEach(c => {
             [...c.querySelectorAll('[data-f="targets"] > .cs-card')].forEach((tr, k) => { const b = tr.querySelector('b'); if (b) b.textContent = '第' + (k + 1) + '优先'; });
+            [...c.querySelectorAll('[data-f="sysRows"] > .cs-card')].forEach((sr, k) => { const b = sr.querySelector('b'); if (b) b.textContent = '第' + (k + 1) + '优先'; });
         });
     }
     function toShip(existing) {
@@ -667,6 +693,21 @@ window.CustomShip = (function () {
             refresh();
         } catch (e) { }
     }
+    function addSysRow(btn) {
+        const card = btn.closest('.cs-card');
+        const box = card.querySelector('[data-f="sysRows"]');
+        box.appendChild(sysRow('动力系统', 'medium', box.children.length));
+        refresh();
+    }
+    function delSysRow(el) {
+        try {
+            const c = el.closest('.cs-card'); const box = c.parentElement;
+            c.remove();
+            [...box.children].forEach((r, k) => { const b = r.querySelector('b'); if (b) b.textContent = '第' + (k + 1) + '优先'; });
+            if (box && box.dataset && box.dataset.f === 'sysRows' && box.children.length === 0) box.appendChild(sysRow('动力系统', 'medium', 0));
+            refresh();
+        } catch (e) { }
+    }
     function addTargetRow(btn) {
         const card = btn.closest('.cs-card');
         const box = card.querySelector('[data-f="targets"]');
@@ -677,7 +718,7 @@ window.CustomShip = (function () {
     return {
         open: open, close: close, newShip: newShip, save: save, del: del,
         delMech: delMech, toggleMech: toggleMech, clearMechs: clearMechs,
-        addWeapon: addWeapon, addHangar: addHangar, addTargetRow: addTargetRow, delTargetRow: delTargetRow, removeCard: removeCard, refresh: refresh,
+        addWeapon: addWeapon, addHangar: addHangar, addTargetRow: addTargetRow, delTargetRow: delTargetRow, addSysRow: addSysRow, delSysRow: delSysRow, removeCard: removeCard, refresh: refresh,
         applyPending: applyPending, discardPending: discardPending, send: send
     };
 })();

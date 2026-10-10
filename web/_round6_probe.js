@@ -53,7 +53,13 @@ const OLD = {
         w1.querySelector('[data-f="critDmg"]').value = '50';
         w1.querySelector('[data-f="sysOn"]').checked = true; CustomShip.refresh();
         const sysBoxShown = w1.querySelector('[data-f="sysBox"]').style.display !== 'none';
-        w1.querySelector('[data-f="sysEff"]').value = 'high';
+        /* 攻击系统：多行优先级（第1动力·高 / 第2指挥·中 / 第3主武器·低） */
+        const addSysBtn = [...w1.querySelectorAll('button')].find(b => b.textContent.indexOf('系统优先级') >= 0);
+        CustomShip.addSysRow(addSysBtn); CustomShip.addSysRow(addSysBtn);
+        const srows = w1.querySelectorAll('[data-f="sysRows"] > .cs-card');
+        const setRow = (k, nm, eff) => { srows[k].querySelector('[data-f="sysTarget"]').value = nm; srows[k].querySelector('[data-f="sysEff"]').value = eff; };
+        setRow(0, '动力系统', 'high'); setRow(1, '指挥系统', 'medium'); setRow(2, '主武器系统', 'low');
+        const sysRowCount = srows.length;
         w1.querySelector('[data-f="sysHp"]').value = '3000';
         /* 目标：第一条多选（加巡洋舰），再加第二条（战机） */
         const t1 = w1.querySelector('[data-f="targets"] > .cs-card');
@@ -83,6 +89,7 @@ const OLD = {
         const W1 = s.modules.W1, H1 = s.modules.H1, E1 = s.modules.E1, C1 = s.modules.C1;
         const w = W1 && W1.weapons && W1.weapons[0];
         const data = {
+            sysRowCount: sysRowCount, sysTOrder: w && w.subSystemTargets ? Object.keys(w.subSystemTargets).join(',') : '',
             modKeys: Object.keys(s.modules),
             W1name: W1 && W1.name, W1hp: W1 && W1.hp, H1name: H1 && H1.name, H1hp: H1 && H1.hp,
             E1: E1 && (E1.name + ':' + E1.type + ':' + E1.hp), C1: C1 && (C1.name + ':' + C1.type + ':' + C1.hp),
@@ -98,10 +105,11 @@ const OLD = {
         return { oldCompat, critBoxShown, sysBoxShown, tRows: rows.length, data, id };
     }, OLD);
     console.log('④ 旧格式兼容：武器卡', r1.oldCompat.weapons, '张（应 2）｜机库行', r1.oldCompat.hangars, '（应 1）｜动力/指挥血量默认', r1.oldCompat.engine, '/', r1.oldCompat.cmd);
-    console.log('① 勾选联动：暴击组出现 =', r1.critBoxShown, '｜攻击系统组出现 =', r1.sysBoxShown, '｜目标行数 =', r1.tRows, '（应 2）');
+    console.log('① 勾选联动：暴击组出现 =', r1.critBoxShown, '｜攻击系统组出现 =', r1.sysBoxShown, '｜目标行数 =', r1.tRows, '（应 2）｜系统优先级行数 =', r1.data.sysRowCount, '（应 3）');
     const d = r1.data;
     console.log('② 保存数据：modules =', JSON.stringify(d.modKeys), '｜', d.W1name + '/' + d.W1hp, d.H1name + '/' + d.H1hp, d.E1, d.C1);
-    console.log('   武器：crit =', d.crit, 'critRate =', d.critRate, 'critDmg =', d.critDmg, '｜weaponType =', d.weaponType, '｜攻击系统 =', JSON.stringify(d.sysT));
+    console.log('   武器：crit =', d.crit, 'critRate =', d.critRate, 'critDmg =', d.critDmg, '｜weaponType =', d.weaponType);
+    console.log('   攻击系统（按优先级）：', JSON.stringify(d.sysT), '｜键序 =', d.sysTOrder, '（应 动力系统,指挥系统,主武器系统）');
     console.log('   目标：第1优先 =', JSON.stringify(d.t0), '｜第2优先 =', JSON.stringify(d.t1));
     console.log('   载机：slots =', JSON.stringify(d.slots), '｜伤害强化', d.hDmg, '暴击率', d.hCr, '暴击伤害', d.hCd, '闪避', d.hEv);
 
@@ -134,14 +142,16 @@ const OLD = {
         && r1.critBoxShown && r1.sysBoxShown && r1.tRows === 2
         && d.modKeys.length === 4 && d.W1name === '主武器系统' && d.W1hp === 3000 && d.H1name === '主机库系统' && d.H1hp === 2600
         && /动力系统:engine:3000/.test(d.E1) && /指挥系统:command:2800/.test(d.C1)
-        && d.crit && d.critRate === 25 && d.critDmg === 50 && d.sysT && d.sysT['动力系统'] === 'high' && d.weaponType === 'projectile'
+        && d.crit && d.critRate === 25 && d.critDmg === 50 && d.sysRowCount === 3 && d.sysTOrder === '动力系统,指挥系统,主武器系统'
+        && d.sysT && d.sysT['动力系统'] === 'high' && d.sysT['指挥系统'] === 'medium' && d.sysT['主武器系统'] === 'low' && d.weaponType === 'projectile'
         && d.t0.types.length === 3 && d.t0.types.indexOf('巡洋舰') >= 0 && d.t1.types[0] === '战机' && d.t1.hitMin === 40
         && d.hDmg === 20 && d.hCr === 10 && d.hCd === 50 && d.hEv === 15 && d.slots.fighter === 4 && d.slots.corvette === 2
         && sysHas('主武器系统') && sysHas('主机库系统') && sysHas('动力系统') && sysHas('指挥系统')
         && (r2.sys || []).some(x => x.indexOf('主武器系统:3000') === 0) && (r2.sys || []).some(x => x.indexOf('动力系统:3000') === 0)
         && (r2.sys || []).some(x => x.indexOf('指挥系统:2800') === 0)
         && r2.airBonus.dmg === 20 && r2.airBonus.cr === 10 && r2.airBonus.ev === 15
-        && r2.wCrit.crit && r2.wCrit.critRate === 25 && r2.wCrit.sysT['动力系统'] === 'high' && r2.wCrit.targets === 2
+        && r2.wCrit.crit && r2.wCrit.critRate === 25 && r2.wCrit.targets === 2
+        && r2.wCrit.sysT && Object.keys(r2.wCrit.sysT).join(',') === '动力系统,指挥系统,主武器系统'
         && !errs.length;
     console.log(pass ? '\n✅ 全部通过' : '\n❌ 有不符合预期项');
     await b.close().catch(() => { }); process.exit(pass ? 0 : 1);
